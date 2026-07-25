@@ -61,6 +61,46 @@
   }
   .picker .results div:hover { background: #f0f2f5; }
   .picker .results .empty { color: var(--muted); cursor: default; }
+  .picker .results .result-row { display: flex; align-items: center; gap: 8px; }
+  .picker .results .result-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    flex: none;
+    cursor: pointer;
+  }
+
+  .queue-bar {
+    max-width: 900px;
+    margin: 0 auto 16px;
+    padding: 0 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .queue-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 6px 4px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .queue-chip.active { border-color: var(--accent); background: #eaf3f0; }
+  .queue-chip .remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .queue-chip .remove:hover { background: #e5e7eb; color: var(--ink); }
 
   .status-line {
     max-width: 900px;
@@ -168,6 +208,8 @@
     </div>
   </div>
 
+  <div id="queueBar" class="queue-bar no-print" style="display:none;"></div>
+
   <div id="statusLine" class="status-line no-print"></div>
 
   <div id="printActions" class="actions no-print" style="display:none;">
@@ -232,7 +274,7 @@
 
     <div class="remit">
       <b>Direct Deposit Details</b><br>
-      KOH Industries Pty Ltd — BSB: 013516 ACC: 401670814<br>
+      <span id="bankDetails"></span><br>
       Please email remittance to brendan@kohindustries.com
     </div>
   </div>
@@ -240,18 +282,75 @@
 <script>
 const AM_PROXY = '/.netlify/functions/am-proxy';
 const XERO_PROXY = '/.netlify/functions/xero-proxy';
-const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV1';
+const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV2'; // v2: added country field
 const CUSTOMER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h, mirrors demandplanning's amCatalogV1 pattern
+
+// Bank details shown on the statement depend on the customer's country —
+// wording copied verbatim from ApparelMagic's own invoice print template.
+const BANK_DETAILS = {
+  AUSTRALIA: 'KOH Industries Pty Ltd — BSB: 013516 ACC: 401670814',
+  'NEW ZEALAND': 'KOH Industries Pty Ltd — Account No: 04-2021-0071229-24',
+};
+function bankDetailsFor(country) {
+  return BANK_DETAILS[(country || '').toUpperCase()] || BANK_DETAILS.AUSTRALIA;
+}
 
 const els = {
   input: document.getElementById('customerInput'),
   results: document.getElementById('customerResults'),
+  queueBar: document.getElementById('queueBar'),
   status: document.getElementById('statusLine'),
   sheet: document.getElementById('sheet'),
   printActions: document.getElementById('printActions'),
 };
 
 let customers = [];
+let queue = []; // customers ticked for a batch run: { id, accountNumber, name, country }
+let activeCustomerId = null;
+
+// ---------------------------------------------------------------------------
+// Queue — ticked customers to step through one at a time, each still
+// producing its own separate statement/PDF (see chat: batch of individual
+// statements, not one combined multi-page document).
+// ---------------------------------------------------------------------------
+
+function isQueued(id) {
+  return queue.some((c) => c.id === id);
+}
+
+function toggleQueue(customer) {
+  const idx = queue.findIndex((c) => c.id === customer.id);
+  if (idx >= 0) queue.splice(idx, 1);
+  else queue.push(customer);
+  renderQueue();
+}
+
+function removeFromQueue(id) {
+  queue = queue.filter((c) => c.id !== id);
+  renderQueue();
+}
+
+function renderQueue() {
+  els.queueBar.innerHTML = '';
+  els.queueBar.style.display = queue.length ? 'flex' : 'none';
+  for (const c of queue) {
+    const chip = document.createElement('div');
+    chip.className = 'queue-chip' + (c.id === activeCustomerId ? ' active' : '');
+
+    const label = document.createElement('span');
+    label.textContent = c.name;
+    label.onclick = () => selectCustomer(c);
+
+    const remove = document.createElement('span');
+    remove.className = 'remove';
+    remove.textContent = '×';
+    remove.onclick = (e) => { e.stopPropagation(); removeFromQueue(c.id); };
+
+    chip.appendChild(label);
+    chip.appendChild(remove);
+    els.queueBar.appendChild(chip);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // AM customer list — cursor-paginated, cached client-side (no substring
@@ -282,7 +381,7 @@ async function loadCustomers() {
       throw new Error(data.meta?.errors?.join(', ') || data.error || `AM customers fetch failed (${res.status})`);
     }
     const rows = data.response || [];
-    all.push(...rows.map((r) => ({ id: r.customer_id, accountNumber: r.account_number, name: r.customer_name })));
+    all.push(...rows.map((r) => ({ id: r.customer_id, accountNumber: r.account_number, name: r.customer_name, country: r.country })));
     lastId = data.meta?.pagination?.last_id;
     if (!lastId || rows.length === 0) break;
   }
@@ -303,8 +402,31 @@ function renderResults(query) {
   } else {
     for (const c of matches) {
       const row = document.createElement('div');
-      row.textContent = c.name;
-      row.onclick = () => selectCustomer(c);
+      row.className = 'result-row';
+
+      // Ticking the box only adds/removes from the queue — it deliberately
+      // doesn't render, so several customers can be ticked in a row without
+      // the dropdown closing (stopPropagation keeps row.onclick from firing).
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = isQueued(c.id);
+      checkbox.onclick = (e) => {
+        e.stopPropagation();
+        toggleQueue(c);
+      };
+
+      const label = document.createElement('span');
+      label.textContent = c.name;
+
+      row.appendChild(checkbox);
+      row.appendChild(label);
+      // Clicking the row itself (not the checkbox) renders immediately and
+      // makes sure this customer is in the queue too, matching how a single
+      // lookup worked before the queue existed.
+      row.onclick = () => {
+        if (!isQueued(c.id)) toggleQueue(c);
+        selectCustomer(c);
+      };
       els.results.appendChild(row);
     }
   }
@@ -393,6 +515,8 @@ async function fetchOpenXeroInvoices(contactId) {
 async function selectCustomer(customer) {
   els.results.style.display = 'none';
   els.input.value = customer.name;
+  activeCustomerId = customer.id;
+  renderQueue();
   setStatus(`Loading statement for ${customer.name}…`);
   els.sheet.classList.remove('visible');
   els.printActions.style.display = 'none';
@@ -422,6 +546,7 @@ async function selectCustomer(customer) {
     renderStatement({
       customerName: customer.name,
       accountNumber: customer.accountNumber,
+      country: customer.country,
       attn: sample.name || '',
       addr1: sample.address_1 || '',
       addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
@@ -453,6 +578,7 @@ function renderStatement(data) {
   document.getElementById('custAddr2').textContent = data.addr2;
   document.getElementById('asAtDate').textContent = fmtDate(new Date());
   document.getElementById('acctNumber').textContent = `AM - C${data.accountNumber}`;
+  document.getElementById('bankDetails').textContent = bankDetailsFor(data.country);
 
   const rows = data.invoices.slice().sort((a, b) => (a.date || 0) - (b.date || 0));
   const tbody = document.getElementById('lineRows');
