@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { xeroTokenStore } = require('./lib/blob-store');
 
 const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
-const SCOPES = 'offline_access accounting.contacts.read accounting.transactions.read';
+const SCOPES = 'offline_access accounting.contacts.read accounting.invoices.read';
 
 exports.handler = async (event) => {
   try {
