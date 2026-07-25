@@ -3,7 +3,7 @@ const RESEND_URL = 'https://api.resend.com/emails';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function fmtMoney(n) {
-  return Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '$' + Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // Table-based, inline-styled — arbitrary CSS (flexbox/grid, like the full

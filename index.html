@@ -238,7 +238,7 @@
   @media print {
     body { background: #fff; }
     .no-print { display: none !important; }
-    .sheet { border: none; margin: 0; padding: 0; max-width: none; }
+    .sheet { border: none; margin: 0; padding: 0; max-width: none; zoom: 0.9; }
     @page { size: A4; margin: 18mm; }
   }
 </style>
@@ -654,7 +654,7 @@ function fmtDate(d) {
 }
 
 function fmtMoney(n) {
-  return (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 async function fetchOpenXeroInvoices(contactId) {
