@@ -70,37 +70,83 @@
     cursor: pointer;
   }
 
-  .queue-bar {
+  .queue-panel {
     max-width: 900px;
     margin: 0 auto 16px;
     padding: 0 16px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
   }
-  .queue-chip {
+  .queue-panel-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .queue-panel-header button { padding: 6px 12px; font-size: 13px; }
+  .queue-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     background: #fff;
     border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 4px 6px 4px 12px;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
     font-size: 13px;
-    cursor: pointer;
   }
-  .queue-chip.active { border-color: var(--accent); background: #eaf3f0; }
-  .queue-chip .remove {
+  .queue-row.active { border-color: var(--accent); }
+  .queue-row-name {
+    flex: 1 1 140px;
+    min-width: 0;
+    cursor: pointer;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .queue-row-status { flex: 0 0 auto; min-width: 90px; font-size: 11px; color: var(--muted); }
+  .queue-row-status.status-ready, .queue-row-status.status-sent { color: var(--accent); }
+  .queue-row-status.status-failed { color: #b42318; }
+  .queue-row-status.status-sending { color: #b45309; }
+  .queue-row input[type="email"] {
+    flex: 1 1 200px;
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .queue-row button { padding: 6px 12px; font-size: 12px; flex: none; }
+  .queue-row .remove {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     color: var(--muted);
     cursor: pointer;
+    flex: none;
   }
-  .queue-chip .remove:hover { background: #e5e7eb; color: var(--ink); }
+  .queue-row .remove:hover { background: #e5e7eb; color: var(--ink); }
+
+  .send-row {
+    max-width: 900px;
+    margin: 16px auto;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .send-row input[type="email"] {
+    flex: 0 1 300px;
+    padding: 8px 10px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .send-status { font-size: 13px; color: var(--muted); }
 
   .status-line {
     max-width: 900px;
@@ -208,13 +254,25 @@
     </div>
   </div>
 
-  <div id="queueBar" class="queue-bar no-print" style="display:none;"></div>
+  <div id="queuePanel" class="queue-panel no-print" style="display:none;">
+    <div class="queue-panel-header">
+      <span id="queueSummary"></span>
+      <button class="primary" onclick="sendAllReady()">Send All Ready</button>
+    </div>
+    <div id="queueList"></div>
+  </div>
 
   <div id="statusLine" class="status-line no-print"></div>
 
   <div id="printActions" class="actions no-print" style="display:none;">
     <button class="primary" onclick="window.print()">Print / Save as PDF</button>
     <button onclick="resetToPicker()">Change customer</button>
+  </div>
+
+  <div id="sendActions" class="send-row no-print" style="display:none;">
+    <input id="recipientInput" type="email" placeholder="customer@email.com">
+    <button class="primary" id="sendBtn" onclick="sendCurrentStatement()">Send Statement</button>
+    <span id="sendStatus" class="send-status"></span>
   </div>
 
   <div id="sheet" class="sheet">
@@ -295,23 +353,34 @@ function bankDetailsFor(country) {
   return BANK_DETAILS[(country || '').toUpperCase()] || BANK_DETAILS.AUSTRALIA;
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const els = {
   input: document.getElementById('customerInput'),
   results: document.getElementById('customerResults'),
-  queueBar: document.getElementById('queueBar'),
+  queuePanel: document.getElementById('queuePanel'),
+  queueList: document.getElementById('queueList'),
+  queueSummary: document.getElementById('queueSummary'),
   status: document.getElementById('statusLine'),
   sheet: document.getElementById('sheet'),
   printActions: document.getElementById('printActions'),
+  sendActions: document.getElementById('sendActions'),
+  recipientInput: document.getElementById('recipientInput'),
+  sendBtn: document.getElementById('sendBtn'),
+  sendStatus: document.getElementById('sendStatus'),
 };
 
 let customers = [];
-let queue = []; // customers ticked for a batch run: { id, accountNumber, name, country }
+let queue = []; // { id, accountNumber, name, country, status, data, recipientEmail, error }
 let activeCustomerId = null;
+let currentStatementData = null; // whatever's currently rendered in #sheet — used by the single-statement Send button
 
 // ---------------------------------------------------------------------------
-// Queue — ticked customers to step through one at a time, each still
-// producing its own separate statement/PDF (see chat: batch of individual
-// statements, not one combined multi-page document).
+// Queue — ticked customers to step through (or batch-email) one at a time,
+// each still producing its own separate statement/PDF (see chat: batch of
+// individual statements, not one combined multi-page document). Ticking a
+// customer in kicks off a background fetch so the row is ready to send as
+// soon as possible without a separate "prepare" step.
 // ---------------------------------------------------------------------------
 
 function isQueued(id) {
@@ -320,8 +389,13 @@ function isQueued(id) {
 
 function toggleQueue(customer) {
   const idx = queue.findIndex((c) => c.id === customer.id);
-  if (idx >= 0) queue.splice(idx, 1);
-  else queue.push(customer);
+  if (idx >= 0) {
+    queue.splice(idx, 1);
+  } else {
+    const item = { ...customer, status: 'loading', data: null, recipientEmail: '', error: '' };
+    queue.push(item);
+    prepareQueueItem(item);
+  }
   renderQueue();
 }
 
@@ -330,25 +404,115 @@ function removeFromQueue(id) {
   renderQueue();
 }
 
-function renderQueue() {
-  els.queueBar.innerHTML = '';
-  els.queueBar.style.display = queue.length ? 'flex' : 'none';
-  for (const c of queue) {
-    const chip = document.createElement('div');
-    chip.className = 'queue-chip' + (c.id === activeCustomerId ? ' active' : '');
+async function prepareQueueItem(item) {
+  try {
+    const data = await buildStatementData(item);
+    item.data = data;
+    item.recipientEmail = data.recipientEmail;
+    item.status = data.invoices.length ? 'ready' : 'empty';
+  } catch (err) {
+    item.status = 'failed';
+    item.error = err.message;
+  }
+  if (isQueued(item.id)) renderQueue();
+}
 
-    const label = document.createElement('span');
-    label.textContent = c.name;
-    label.onclick = () => selectCustomer(c);
+function queueStatusLabel(item) {
+  switch (item.status) {
+    case 'loading': return 'Loading…';
+    case 'ready': return 'Ready';
+    case 'empty': return 'No open invoices';
+    case 'sending': return 'Sending…';
+    case 'sent': return 'Sent ✓';
+    case 'failed': return `Failed: ${item.error || 'unknown error'}`;
+    default: return '';
+  }
+}
+
+function renderQueue() {
+  els.queuePanel.style.display = queue.length ? 'block' : 'none';
+  const readyCount = queue.filter((c) => c.status === 'ready').length;
+  els.queueSummary.textContent = `${queue.length} queued — ${readyCount} ready to send`;
+
+  els.queueList.innerHTML = '';
+  for (const item of queue) {
+    const row = document.createElement('div');
+    row.className = 'queue-row' + (item.id === activeCustomerId ? ' active' : '');
+
+    const name = document.createElement('span');
+    name.className = 'queue-row-name';
+    name.textContent = item.name;
+    name.onclick = () => selectCustomer(item);
+
+    const status = document.createElement('span');
+    status.className = 'queue-row-status status-' + item.status;
+    status.textContent = queueStatusLabel(item);
+
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.placeholder = 'customer@email.com';
+    emailInput.value = item.recipientEmail || '';
+    emailInput.oninput = (e) => { item.recipientEmail = e.target.value; };
+
+    const sendBtn = document.createElement('button');
+    sendBtn.textContent = 'Send';
+    sendBtn.disabled = item.status === 'loading' || item.status === 'sending' || item.status === 'empty';
+    sendBtn.onclick = () => sendQueueItem(item);
 
     const remove = document.createElement('span');
     remove.className = 'remove';
     remove.textContent = '×';
-    remove.onclick = (e) => { e.stopPropagation(); removeFromQueue(c.id); };
+    remove.onclick = (e) => { e.stopPropagation(); removeFromQueue(item.id); };
 
-    chip.appendChild(label);
-    chip.appendChild(remove);
-    els.queueBar.appendChild(chip);
+    row.appendChild(name);
+    row.appendChild(status);
+    row.appendChild(emailInput);
+    row.appendChild(sendBtn);
+    row.appendChild(remove);
+    els.queueList.appendChild(row);
+  }
+}
+
+async function sendQueueItem(item) {
+  if (!item.data) return;
+  if (!EMAIL_RE.test(item.recipientEmail || '')) {
+    item.status = 'failed';
+    item.error = 'Invalid or missing email address';
+    renderQueue();
+    return;
+  }
+
+  item.status = 'sending';
+  renderQueue();
+
+  // Renders this customer into the visible sheet to capture its exact HTML —
+  // the currently-displayed statement will visibly step through the queue
+  // during a batch send, which is intentional: it's visible proof of what's
+  // being sent, not a distraction to hide.
+  renderStatement(item.data);
+  const { total, rows } = computeAging(item.data.invoices);
+
+  try {
+    await sendStatementEmail({
+      html: captureSheetHtml(),
+      customerName: item.data.customerName,
+      recipientEmail: item.recipientEmail,
+      balanceDue: total,
+      invoiceCount: rows.length,
+    });
+    item.status = 'sent';
+  } catch (err) {
+    item.status = 'failed';
+    item.error = err.message;
+  }
+  renderQueue();
+}
+
+async function sendAllReady() {
+  const ready = queue.filter((c) => c.status === 'ready');
+  for (const item of ready) {
+    await sendQueueItem(item);
+    await new Promise((r) => setTimeout(r, 400)); // small gap between sends
   }
 }
 
@@ -512,6 +676,52 @@ async function fetchOpenXeroInvoices(contactId) {
   return all;
 }
 
+// Builds the full data object a statement needs (join of AM invoices to
+// Xero balances) for one customer. Used both for the on-screen single
+// lookup and to background-prep each queued customer for a batch send —
+// single source of truth so the two paths can't drift apart.
+async function buildStatementData(customer) {
+  const [amInvoices, xeroContact] = await Promise.all([
+    fetchAllAmInvoices(customer.accountNumber),
+    findXeroContact(customer.name),
+  ]);
+
+  const amByXeroId = new Map();
+  for (const inv of amInvoices) {
+    if (inv.xero_id) amByXeroId.set(String(inv.xero_id).toLowerCase(), inv);
+  }
+
+  const xeroInvoices = await fetchOpenXeroInvoices(xeroContact.ContactID);
+
+  // Address block: AM's ship-to fields on the invoice itself (matches what
+  // the current Xero statement actually shows — not the Xero contact's
+  // registered address).
+  const sample = amInvoices.find((i) => i.name) || {};
+
+  return {
+    customerName: customer.name,
+    accountNumber: customer.accountNumber,
+    country: customer.country,
+    attn: sample.name || '',
+    addr1: sample.address_1 || '',
+    addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
+    recipientEmail: xeroContact.EmailAddress || '',
+    invoices: xeroInvoices.map((xi) => {
+      const am = amByXeroId.get(String(xi.InvoiceID).toLowerCase());
+      return {
+        date: xeroDate(xi.Date),
+        dueDate: xeroDate(xi.DueDate),
+        invoiceNumber: am ? am.invoice_id : xi.InvoiceNumber,
+        poNumber: am ? am.customer_po : '',
+        matched: !!am,
+        amount: xi.Total,
+        payments: (xi.Total || 0) - (xi.AmountDue || 0),
+        balance: xi.AmountDue,
+      };
+    }),
+  };
+}
+
 async function selectCustomer(customer) {
   els.results.style.display = 'none';
   els.input.value = customer.name;
@@ -520,58 +730,39 @@ async function selectCustomer(customer) {
   setStatus(`Loading statement for ${customer.name}…`);
   els.sheet.classList.remove('visible');
   els.printActions.style.display = 'none';
+  els.sendActions.style.display = 'none';
 
   try {
-    const [amInvoices, xeroContact] = await Promise.all([
-      fetchAllAmInvoices(customer.accountNumber),
-      findXeroContact(customer.name),
-    ]);
-
-    const amByXeroId = new Map();
-    for (const inv of amInvoices) {
-      if (inv.xero_id) amByXeroId.set(String(inv.xero_id).toLowerCase(), inv);
-    }
-
-    const xeroInvoices = await fetchOpenXeroInvoices(xeroContact.ContactID);
-    if (xeroInvoices.length === 0) {
+    const data = await buildStatementData(customer);
+    if (data.invoices.length === 0) {
       setStatus(`${customer.name} has no open (unpaid) invoices in Xero.`);
       return;
     }
-
-    // Address block: AM's ship-to fields on the invoice itself (matches what
-    // the current Xero statement actually shows — not the Xero contact's
-    // registered address).
-    const sample = amInvoices.find((i) => i.name) || {};
-
-    renderStatement({
-      customerName: customer.name,
-      accountNumber: customer.accountNumber,
-      country: customer.country,
-      attn: sample.name || '',
-      addr1: sample.address_1 || '',
-      addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
-      invoices: xeroInvoices.map((xi) => {
-        const am = amByXeroId.get(String(xi.InvoiceID).toLowerCase());
-        return {
-          date: xeroDate(xi.Date),
-          dueDate: xeroDate(xi.DueDate),
-          invoiceNumber: am ? am.invoice_id : xi.InvoiceNumber,
-          poNumber: am ? am.customer_po : '',
-          matched: !!am,
-          amount: xi.Total,
-          payments: (xi.Total || 0) - (xi.AmountDue || 0),
-          balance: xi.AmountDue,
-        };
-      }),
-    });
-
+    renderStatement(data);
     setStatus('');
   } catch (err) {
     setStatus(err.message, true);
   }
 }
 
+// Pure — sorted rows + aging totals from a statement's invoice list. Used
+// by renderStatement (on-screen) and by the send flows (which need the
+// balance/invoice count as numbers, not just what's currently in the DOM).
+function computeAging(invoices) {
+  const rows = invoices.slice().sort((a, b) => (a.date || 0) - (b.date || 0));
+  let total = 0, overdue = 0, current = 0;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  for (const r of rows) {
+    total += r.balance || 0;
+    if (r.dueDate && r.dueDate < today) overdue += r.balance || 0;
+    else current += r.balance || 0;
+  }
+  return { rows, total, overdue, current };
+}
+
 function renderStatement(data) {
+  currentStatementData = data;
+
   document.getElementById('custName').textContent = data.customerName;
   document.getElementById('custAttn').textContent = data.attn ? `Attention: ${data.attn}` : '';
   document.getElementById('custAddr1').textContent = data.addr1;
@@ -580,18 +771,11 @@ function renderStatement(data) {
   document.getElementById('acctNumber').textContent = `AM - C${data.accountNumber}`;
   document.getElementById('bankDetails').textContent = bankDetailsFor(data.country);
 
-  const rows = data.invoices.slice().sort((a, b) => (a.date || 0) - (b.date || 0));
+  const { rows, total, overdue, current } = computeAging(data.invoices);
   const tbody = document.getElementById('lineRows');
   tbody.innerHTML = '';
 
-  let total = 0, overdue = 0, current = 0;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-
   for (const r of rows) {
-    total += r.balance || 0;
-    if (r.dueDate && r.dueDate < today) overdue += r.balance || 0;
-    else current += r.balance || 0;
-
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${fmtDate(r.date)}</td>
@@ -612,11 +796,68 @@ function renderStatement(data) {
 
   els.sheet.classList.add('visible');
   els.printActions.style.display = 'flex';
+  els.sendActions.style.display = 'flex';
+  els.recipientInput.value = data.recipientEmail || '';
+  setSendStatus('');
+}
+
+// ---------------------------------------------------------------------------
+// Emailing — captures the *already-rendered* #sheet exactly as it appears
+// on screen/print (same markup, same <style> block) so the PDF attachment
+// is guaranteed pixel-identical to what Print/Save as PDF already produces.
+// ---------------------------------------------------------------------------
+
+function captureSheetHtml() {
+  const styleHtml = document.querySelector('style').outerHTML;
+  const sheetHtml = document.getElementById('sheet').outerHTML;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">${styleHtml}</head><body>${sheetHtml}</body></html>`;
+}
+
+async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount }) {
+  const res = await fetch('/.netlify/functions/send-statement', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
+  return data;
+}
+
+async function sendCurrentStatement() {
+  if (!currentStatementData) return;
+  const email = els.recipientInput.value.trim();
+  if (!EMAIL_RE.test(email)) { setSendStatus('Enter a valid email address', true); return; }
+
+  els.sendBtn.disabled = true;
+  setSendStatus('Sending…');
+  const { total, rows } = computeAging(currentStatementData.invoices);
+
+  try {
+    await sendStatementEmail({
+      html: captureSheetHtml(),
+      customerName: currentStatementData.customerName,
+      recipientEmail: email,
+      balanceDue: total,
+      invoiceCount: rows.length,
+    });
+    setSendStatus('Sent ✓');
+  } catch (err) {
+    setSendStatus(err.message, true);
+  } finally {
+    els.sendBtn.disabled = false;
+  }
+}
+
+function setSendStatus(msg, isError) {
+  els.sendStatus.textContent = msg;
+  els.sendStatus.style.color = isError ? '#b42318' : 'var(--muted)';
 }
 
 function resetToPicker() {
   els.sheet.classList.remove('visible');
   els.printActions.style.display = 'none';
+  els.sendActions.style.display = 'none';
   els.input.value = '';
   els.input.focus();
   setStatus('');
