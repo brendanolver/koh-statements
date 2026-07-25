@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KOH Industries — Statement Builder</title>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --muted: #6b7280;
+    --border: #d8dbe0;
+    --accent: #0f5c4a;
+    --bg: #f4f5f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+  }
+
+  /* ---------- Toolbar / picker (hidden on print) ---------- */
+  .toolbar {
+    max-width: 900px;
+    margin: 24px auto 0;
+    padding: 0 16px;
+  }
+  .toolbar h1 { font-size: 20px; margin: 0 0 4px; }
+  .toolbar .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+
+  .picker {
+    position: relative;
+    max-width: 420px;
+  }
+  .picker input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .picker .results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 4px;
+    max-height: 280px;
+    overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    z-index: 10;
+  }
+  .picker .results div {
+    padding: 8px 12px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .picker .results div:hover { background: #f0f2f5; }
+  .picker .results .empty { color: var(--muted); cursor: default; }
+
+  .status-line {
+    max-width: 900px;
+    margin: 16px auto;
+    padding: 0 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .status-line.error { color: #b42318; }
+
+  .actions {
+    max-width: 900px;
+    margin: 16px auto;
+    padding: 0 16px;
+    display: flex;
+    gap: 10px;
+  }
+  button {
+    font: inherit;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #fff;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  /* ---------- Statement page ---------- */
+  .sheet {
+    max-width: 800px;
+    margin: 24px auto 60px;
+    background: #fff;
+    padding: 48px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: none;
+  }
+  .sheet.visible { display: block; }
+
+  .sheet .brand { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
+  .sheet .brand small { display: block; font-size: 10px; font-weight: 400; color: var(--muted); letter-spacing: 2px; }
+
+  .head-row { display: flex; justify-content: space-between; margin-top: 24px; gap: 24px; }
+  .head-row h2 { font-size: 30px; margin: 0 0 16px; font-weight: 300; letter-spacing: 1px; }
+  .head-block { font-size: 12px; line-height: 1.5; }
+  .head-block .label { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; margin-top: 10px; }
+  .head-block .label:first-child { margin-top: 0; }
+
+  table.lines {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 32px;
+    font-size: 12px;
+  }
+  table.lines th {
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    border-bottom: 1.5px solid var(--ink);
+    padding: 0 6px 8px;
+  }
+  table.lines td {
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.lines th.num, table.lines td.num { text-align: right; }
+  table.lines td.warn { color: #b45309; font-size: 10px; }
+
+  .balance-row { display: flex; justify-content: flex-end; margin-top: 12px; font-size: 14px; font-weight: 700; }
+  .balance-row span:first-child { margin-right: 24px; text-transform: uppercase; font-size: 11px; }
+
+  .aging { display: flex; gap: 32px; margin-top: 28px; font-size: 12px; }
+  .aging .item .label { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+  .aging .item .val { font-size: 15px; font-weight: 700; }
+
+  .remit {
+    margin-top: 36px;
+    font-size: 11px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  .remit b { color: var(--ink); }
+
+  @media print {
+    body { background: #fff; }
+    .no-print { display: none !important; }
+    .sheet { border: none; margin: 0; padding: 0; max-width: none; }
+    @page { size: A4; margin: 18mm; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="toolbar no-print">
+    <h1>KOH Industries — Statement Builder</h1>
+    <div class="sub">Pulls live balances from Xero and full invoice/PO numbers from ApparelMagic.</div>
+    <div class="picker">
+      <input id="customerInput" type="text" placeholder="Search customer (e.g. FOOTLOCKER)…" autocomplete="off">
+      <div id="customerResults" class="results" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div id="statusLine" class="status-line no-print"></div>
+
+  <div id="printActions" class="actions no-print" style="display:none;">
+    <button class="primary" onclick="window.print()">Print / Save as PDF</button>
+    <button onclick="resetToPicker()">Change customer</button>
+  </div>
+
+  <div id="sheet" class="sheet">
+    <div class="brand">KOH INDUSTRIES<small>WNDRR</small></div>
+
+    <div class="head-row">
+      <div>
+        <h2>STATEMENT</h2>
+        <div class="head-block">
+          <div id="custName" style="font-weight:600;"></div>
+          <div id="custAttn"></div>
+          <div id="custAddr1"></div>
+          <div id="custAddr2"></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:32px;">
+        <div class="head-block">
+          <div class="label">As At</div>
+          <div id="asAtDate"></div>
+          <div class="label">Account Number</div>
+          <div id="acctNumber"></div>
+        </div>
+        <div class="head-block">
+          <div class="label">ABN</div>
+          <div>87 183 866 803</div>
+          <div class="label">From</div>
+          <div>KOH Industries Pty Ltd<br>Unit 5, 6 Builders Close<br>Wendouree Victoria 3355<br>Australia<br>brendan@kohindustries.com</div>
+        </div>
+      </div>
+    </div>
+
+    <table class="lines">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Invoice #</th>
+          <th>PO Number</th>
+          <th>Due Date</th>
+          <th class="num">Invoice Amount</th>
+          <th class="num">Payments</th>
+          <th class="num">Balance AUD</th>
+        </tr>
+      </thead>
+      <tbody id="lineRows"></tbody>
+    </table>
+
+    <div class="balance-row">
+      <span>Balance Due AUD</span>
+      <span id="totalBalance"></span>
+    </div>
+
+    <div class="aging">
+      <div class="item"><div class="label">Overdue</div><div class="val" id="agingOverdue"></div></div>
+      <div class="item"><div class="label">Current</div><div class="val" id="agingCurrent"></div></div>
+      <div class="item"><div class="label">Total AUD Due</div><div class="val" id="agingTotal"></div></div>
+    </div>
+
+    <div class="remit">
+      <b>Direct Deposit Details</b><br>
+      KOH Industries Pty Ltd — BSB: 013516 ACC: 401670814<br>
+      Please email remittance to brendan@kohindustries.com
+    </div>
+  </div>
+
+<script>
+const AM_PROXY = '/.netlify/functions/am-proxy';
+const XERO_PROXY = '/.netlify/functions/xero-proxy';
+const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV1';
+const CUSTOMER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h, mirrors demandplanning's amCatalogV1 pattern
+
+const els = {
+  input: document.getElementById('customerInput'),
+  results: document.getElementById('customerResults'),
+  status: document.getElementById('statusLine'),
+  sheet: document.getElementById('sheet'),
+  printActions: document.getElementById('printActions'),
+};
+
+let customers = [];
+
+// ---------------------------------------------------------------------------
+// AM customer list — cursor-paginated, cached client-side (no substring
+// search on AM's /customers endpoint, so filtering happens here instead)
+// ---------------------------------------------------------------------------
+
+async function loadCustomers() {
+  const cached = localStorage.getItem(CUSTOMER_CACHE_KEY);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (Date.now() - parsed.fetchedAt < CUSTOMER_CACHE_TTL_MS) {
+        customers = parsed.customers;
+        return;
+      }
+    } catch { /* fall through to refetch */ }
+  }
+
+  setStatus('Loading customer list from ApparelMagic…');
+  const all = [];
+  let lastId = '';
+  for (let page = 0; page < 50; page++) {
+    const params = new URLSearchParams({ path: 'customers', is_active: '1' });
+    if (lastId) params.set('pagination[last_id]', lastId);
+    const res = await fetch(`${AM_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok || data.meta?.errors?.length) {
+      throw new Error(data.meta?.errors?.join(', ') || data.error || `AM customers fetch failed (${res.status})`);
+    }
+    const rows = data.response || [];
+    all.push(...rows.map((r) => ({ id: r.customer_id, accountNumber: r.account_number, name: r.customer_name })));
+    lastId = data.meta?.pagination?.last_id;
+    if (!lastId || rows.length === 0) break;
+  }
+
+  customers = all;
+  localStorage.setItem(CUSTOMER_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), customers: all }));
+  setStatus('');
+}
+
+function renderResults(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) { els.results.style.display = 'none'; return; }
+  const matches = customers.filter((c) => c.name && c.name.toLowerCase().includes(q)).slice(0, 20);
+
+  els.results.innerHTML = '';
+  if (matches.length === 0) {
+    els.results.innerHTML = '<div class="empty">No matching customers</div>';
+  } else {
+    for (const c of matches) {
+      const row = document.createElement('div');
+      row.textContent = c.name;
+      row.onclick = () => selectCustomer(c);
+      els.results.appendChild(row);
+    }
+  }
+  els.results.style.display = 'block';
+}
+
+// ---------------------------------------------------------------------------
+// Statement generation
+// ---------------------------------------------------------------------------
+
+async function fetchAllAmInvoices(accountNumber) {
+  const all = [];
+  let lastId = '';
+  for (let page = 0; page < 50; page++) {
+    const params = new URLSearchParams({ path: 'invoices', account_number: accountNumber });
+    if (lastId) params.set('pagination[last_id]', lastId);
+    const res = await fetch(`${AM_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok || data.meta?.errors?.length) {
+      throw new Error(data.meta?.errors?.join(', ') || data.error || `AM invoices fetch failed (${res.status})`);
+    }
+    const rows = data.response || [];
+    all.push(...rows);
+    lastId = data.meta?.pagination?.last_id;
+    if (!lastId || rows.length === 0) break;
+  }
+  return all;
+}
+
+async function findXeroContact(name) {
+  const params = new URLSearchParams({ path: 'Contacts', where: `Name=="${name}"` });
+  const res = await fetch(`${XERO_PROXY}?${params}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.Detail || `Xero contact lookup failed (${res.status})`);
+  const contacts = data.Contacts || [];
+  if (contacts.length === 1) return contacts[0];
+
+  // No exact match (or more than one) — fall back to a contains() search
+  // rather than guessing which contact is right.
+  const fallbackParams = new URLSearchParams({ path: 'Contacts', where: `Name.Contains("${name}")` });
+  const fallbackRes = await fetch(`${XERO_PROXY}?${fallbackParams}`);
+  const fallbackData = await fallbackRes.json();
+  const fallbackContacts = fallbackData.Contacts || [];
+  if (fallbackContacts.length === 1) return fallbackContacts[0];
+  if (fallbackContacts.length > 1) {
+    throw new Error(`Multiple Xero contacts match "${name}" — can't tell which one to use: ${fallbackContacts.map((c) => c.Name).join(', ')}`);
+  }
+  throw new Error(`No Xero contact found matching "${name}".`);
+}
+
+function xeroDate(raw) {
+  if (!raw) return null;
+  const msMatch = String(raw).match(/\/Date\((\d+)/);
+  const parsed = msMatch ? new Date(Number(msMatch[1])) : new Date(raw);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fmtMoney(n) {
+  return (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+async function fetchOpenXeroInvoices(contactId) {
+  const all = [];
+  for (let page = 1; page <= 20; page++) {
+    const params = new URLSearchParams({
+      path: 'Invoices',
+      ContactIDs: contactId,
+      where: 'Type=="ACCREC" && AmountDue>0',
+      page: String(page),
+    });
+    const res = await fetch(`${XERO_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.Detail || `Xero invoices fetch failed (${res.status})`);
+    const rows = data.Invoices || [];
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  return all;
+}
+
+async function selectCustomer(customer) {
+  els.results.style.display = 'none';
+  els.input.value = customer.name;
+  setStatus(`Loading statement for ${customer.name}…`);
+  els.sheet.classList.remove('visible');
+  els.printActions.style.display = 'none';
+
+  try {
+    const [amInvoices, xeroContact] = await Promise.all([
+      fetchAllAmInvoices(customer.accountNumber),
+      findXeroContact(customer.name),
+    ]);
+
+    const amByXeroId = new Map();
+    for (const inv of amInvoices) {
+      if (inv.xero_id) amByXeroId.set(String(inv.xero_id).toLowerCase(), inv);
+    }
+
+    const xeroInvoices = await fetchOpenXeroInvoices(xeroContact.ContactID);
+    if (xeroInvoices.length === 0) {
+      setStatus(`${customer.name} has no open (unpaid) invoices in Xero.`);
+      return;
+    }
+
+    // Address block: AM's ship-to fields on the invoice itself (matches what
+    // the current Xero statement actually shows — not the Xero contact's
+    // registered address).
+    const sample = amInvoices.find((i) => i.name) || {};
+
+    renderStatement({
+      customerName: customer.name,
+      accountNumber: customer.accountNumber,
+      attn: sample.name || '',
+      addr1: sample.address_1 || '',
+      addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
+      invoices: xeroInvoices.map((xi) => {
+        const am = amByXeroId.get(String(xi.InvoiceID).toLowerCase());
+        return {
+          date: xeroDate(xi.Date),
+          dueDate: xeroDate(xi.DueDate),
+          invoiceNumber: am ? am.invoice_id : xi.InvoiceNumber,
+          poNumber: am ? am.customer_po : '',
+          matched: !!am,
+          amount: xi.Total,
+          payments: (xi.Total || 0) - (xi.AmountDue || 0),
+          balance: xi.AmountDue,
+        };
+      }),
+    });
+
+    setStatus('');
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+function renderStatement(data) {
+  document.getElementById('custName').textContent = data.customerName;
+  document.getElementById('custAttn').textContent = data.attn ? `Attention: ${data.attn}` : '';
+  document.getElementById('custAddr1').textContent = data.addr1;
+  document.getElementById('custAddr2').textContent = data.addr2;
+  document.getElementById('asAtDate').textContent = fmtDate(new Date());
+  document.getElementById('acctNumber').textContent = `AM - C${data.accountNumber}`;
+
+  const rows = data.invoices.slice().sort((a, b) => (a.date || 0) - (b.date || 0));
+  const tbody = document.getElementById('lineRows');
+  tbody.innerHTML = '';
+
+  let total = 0, overdue = 0, current = 0;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  for (const r of rows) {
+    total += r.balance || 0;
+    if (r.dueDate && r.dueDate < today) overdue += r.balance || 0;
+    else current += r.balance || 0;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${fmtDate(r.date)}</td>
+      <td>${r.invoiceNumber}${r.matched ? '' : '<div class="warn">⚠ no AM match</div>'}</td>
+      <td>${r.poNumber || ''}</td>
+      <td>${fmtDate(r.dueDate)}</td>
+      <td class="num">${fmtMoney(r.amount)}</td>
+      <td class="num">${fmtMoney(r.payments)}</td>
+      <td class="num">${fmtMoney(r.balance)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById('totalBalance').textContent = fmtMoney(total);
+  document.getElementById('agingOverdue').textContent = fmtMoney(overdue);
+  document.getElementById('agingCurrent').textContent = fmtMoney(current);
+  document.getElementById('agingTotal').textContent = fmtMoney(total);
+
+  els.sheet.classList.add('visible');
+  els.printActions.style.display = 'flex';
+}
+
+function resetToPicker() {
+  els.sheet.classList.remove('visible');
+  els.printActions.style.display = 'none';
+  els.input.value = '';
+  els.input.focus();
+  setStatus('');
+}
+
+function setStatus(msg, isError) {
+  els.status.textContent = msg;
+  els.status.classList.toggle('error', !!isError);
+}
+
+els.input.addEventListener('input', () => renderResults(els.input.value));
+els.input.addEventListener('focus', () => { if (els.input.value) renderResults(els.input.value); });
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.picker')) els.results.style.display = 'none';
+});
+
+loadCustomers().catch((err) => setStatus(`Failed to load customers: ${err.message}`, true));
+</script>
+</body>
+</html>

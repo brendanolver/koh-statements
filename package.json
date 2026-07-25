@@ -1,0 +1,8 @@
+{
+  "name": "wndrr-statements",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.10"
+  }
+}
