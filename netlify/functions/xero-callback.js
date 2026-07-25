@@ -1,4 +1,4 @@
-const { getStore } = require('@netlify/blobs');
+const { xeroTokenStore } = require('./lib/blob-store');
 
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections';
@@ -21,7 +21,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: 'Missing code or state from Xero callback.' };
     }
 
-    const store = getStore('xero-tokens');
+    const store = xeroTokenStore();
     const pendingState = await store.get('pending-state');
     if (!pendingState || pendingState !== state) {
       return { statusCode: 400, body: 'Invalid or expired state — please try connecting again from /.netlify/functions/xero-connect.' };

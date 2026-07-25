@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { getStore } = require('@netlify/blobs');
+const { xeroTokenStore } = require('./lib/blob-store');
 
 const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 const SCOPES = 'offline_access accounting.contacts.read accounting.transactions.read';
@@ -13,7 +13,7 @@ exports.handler = async (event) => {
     }
 
     const state = crypto.randomBytes(24).toString('hex');
-    const store = getStore('xero-tokens');
+    const store = xeroTokenStore();
     await store.set('pending-state', state, { metadata: { createdAt: Date.now() } });
 
     const params = new URLSearchParams({

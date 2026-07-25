@@ -1,4 +1,4 @@
-const { getStore } = require('@netlify/blobs');
+const { xeroTokenStore } = require('./lib/blob-store');
 
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0';
@@ -38,7 +38,7 @@ async function refreshConnection(store, connection) {
 
 exports.handler = async (event) => {
   try {
-    const store = getStore('xero-tokens');
+    const store = xeroTokenStore();
     let connection = await store.get('connection', { type: 'json' });
     if (!connection) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Xero is not connected. Visit /.netlify/functions/xero-connect first.' }) };
