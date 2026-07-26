@@ -313,21 +313,21 @@
           <th>Due Date</th>
           <th class="num">Invoice Amount</th>
           <th class="num">Payments</th>
-          <th class="num">Balance AUD</th>
+          <th class="num">Balance <span id="currencyLabel1"></span></th>
         </tr>
       </thead>
       <tbody id="lineRows"></tbody>
     </table>
 
     <div class="balance-row">
-      <span>Balance Due AUD</span>
+      <span>Balance Due <span id="currencyLabel2"></span></span>
       <span id="totalBalance"></span>
     </div>
 
     <div class="aging">
       <div class="item"><div class="label">Overdue</div><div class="val" id="agingOverdue"></div></div>
       <div class="item"><div class="label">Current</div><div class="val" id="agingCurrent"></div></div>
-      <div class="item"><div class="label">Total AUD Due</div><div class="val" id="agingTotal"></div></div>
+      <div class="item"><div class="label">Total <span id="currencyLabel3"></span> Due</div><div class="val" id="agingTotal"></div></div>
     </div>
 
     <div class="remit">
@@ -351,6 +351,11 @@ const BANK_DETAILS = {
 };
 function bankDetailsFor(country) {
   return BANK_DETAILS[(country || '').toUpperCase()] || BANK_DETAILS.AUSTRALIA;
+}
+
+const CURRENCY_LABEL = { AUSTRALIA: 'AUD', 'NEW ZEALAND': 'NZD' };
+function currencyFor(country) {
+  return CURRENCY_LABEL[(country || '').toUpperCase()] || CURRENCY_LABEL.AUSTRALIA;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -770,6 +775,10 @@ function renderStatement(data) {
   document.getElementById('asAtDate').textContent = fmtDate(new Date());
   document.getElementById('acctNumber').textContent = `AM - C${data.accountNumber}`;
   document.getElementById('bankDetails').textContent = bankDetailsFor(data.country);
+  const currency = currencyFor(data.country);
+  document.getElementById('currencyLabel1').textContent = currency;
+  document.getElementById('currencyLabel2').textContent = currency;
+  document.getElementById('currencyLabel3').textContent = currency;
 
   const { rows, total, overdue, current } = computeAging(data.invoices);
   const tbody = document.getElementById('lineRows');
