@@ -161,6 +161,7 @@
     margin-bottom: 10px;
   }
   .debtors-header h2 { font-size: 16px; font-weight: 700; }
+  .debtors-subtitle { font-size: 13px; font-weight: 400; color: var(--muted); }
   .debtors-header button { padding: 6px 12px; font-size: 13px; }
   .debtors-table-wrap {
     background: #fff;
@@ -314,7 +315,7 @@
 
   <div id="debtorsPanel" class="debtors-panel no-print">
     <div class="debtors-header">
-      <h2>Outstanding Balances</h2>
+      <h2>Outstanding Balances <span class="debtors-subtitle">— Debtors / Stop Supply</span></h2>
       <button onclick="loadDebtors()">Refresh</button>
     </div>
     <div id="debtorsStatus" class="status-line" style="margin:0 0 10px;"></div>
@@ -922,8 +923,13 @@ async function setDebtorStatus(contactId, status) {
 }
 
 async function loadDebtors() {
+  // Deliberately does NOT clear debtorsRows up front — on a refresh (as
+  // opposed to first load) that emptied a 60+ row table for the several
+  // seconds the org-wide Xero fetch takes, collapsing the page's height and
+  // yanking the scroll position, then snapping back once data returned.
+  // The existing rows now stay on screen, unchanged, until the new set is
+  // ready to replace them in one go.
   setDebtorsStatus('Loading outstanding balances from Xero…');
-  els.debtorsRows.innerHTML = '';
   try {
     const [list] = await Promise.all([buildDebtorsList(), loadDebtorStatusMap()]);
     debtors = list;
