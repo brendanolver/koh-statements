@@ -164,6 +164,84 @@
   }
   .debtors-header h2 { font-size: 16px; font-weight: 700; }
   .debtors-subtitle { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+  .tab-bar {
+    max-width: 1100px;
+    margin: 16px auto 0;
+    padding: 0 16px;
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 10px 16px;
+    font-weight: 600;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab-btn.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+  .debtors-section { margin-top: 24px; }
+  .sec-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .err {
+    background: #fff0f2;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #d0021b;
+  }
+
+  .stats { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .stat { background: #fafafa; border: 1px solid var(--border); border-radius: 7px; padding: 7px 14px; font-size: 12px; }
+  .stat strong { font-size: 15px; font-weight: 700; display: block; }
+  .stat.s-red strong { color: #d0021b; }
+  .stat.s-green strong { color: #1a7a3c; }
+  .stat.s-amber strong { color: #e65100; }
+
+  .legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .legend .li { display: flex; align-items: center; gap: 5px; }
+  .legend .dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .legend .d-red { background: #fff0f2; border: 1px solid #f5c6cb; }
+  .legend .d-green { background: #f0faf4; border: 1px solid #b7dfca; }
+  .legend .d-none { background: #fff; border: 1px solid var(--border); }
+  .legend .d-amber { background: #fff3e0; border: 1px solid #ffcc80; }
+  .legend-note { margin-left: auto; font-size: 11px; color: #ccc; }
+
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+  .card {
+    background: #fff;
+    border: 1.5px solid #ebebeb;
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .card.status-stop { background: #fff0f2; border-color: #f5c6cb; }
+  .card.status-clear { background: #f0faf4; border-color: #b7dfca; }
+  .card.hold-only { background: #fff8f0; border-color: #ffcc80; }
+  .card-info { flex: 1; min-width: 0; }
+  .card-name { font-size: 12px; font-weight: 600; word-break: break-word; margin-bottom: 5px; }
+  .card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .card-badge { font-size: 10px; padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap; background: #fff8e1; color: #856404; border: 0.5px solid #ffe082; }
+  .card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+  .card-total { font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .card.status-stop .card-total { color: #d0021b; }
+  .card.status-clear .card-total { color: #1a7a3c; }
+  .card.hold-only .card-total { color: #e65100; }
   .debtors-header button { padding: 6px 12px; font-size: 13px; }
   .debtors-table-wrap {
     background: #fff;
@@ -306,6 +384,16 @@
     .no-print { display: none !important; }
     .sheet { border: none; margin: 0; padding: 0; max-width: none; zoom: 0.9; }
     @page { size: A4; margin: 18mm; }
+
+    /* Debtors tab prints landscape (named page — only takes effect on
+       whichever tab is actually visible, the other is display:none and
+       print media skips it regardless) */
+    @page debtors-page { size: A4 landscape; margin: 12mm 10mm; }
+    .debtors-panel { page: debtors-page; max-width: none; }
+    .debtors-table { font-size: 9px; }
+    .debtors-table th, .debtors-table td { padding: 4px 6px; }
+    .debtors-table th:first-child, .debtors-table td:first-child,
+    .status-toggle { display: none; }
   }
 </style>
 </head>
@@ -319,35 +407,11 @@
         <div class="sub">Pulls live balances from Xero and full invoice/PO numbers from ApparelMagic.</div>
       </div>
     </div>
-    <div class="picker">
-      <input id="customerInput" type="text" placeholder="Search customer (e.g. FOOTLOCKER)…" autocomplete="off">
-      <div id="customerResults" class="results" style="display:none;"></div>
-    </div>
   </div>
 
-  <div id="debtorsPanel" class="debtors-panel no-print">
-    <div class="debtors-header">
-      <h2>Outstanding Balances <span class="debtors-subtitle">— Debtors / Stop Supply</span></h2>
-      <button onclick="loadDebtors()">Refresh</button>
-    </div>
-    <div id="debtorsStatus" class="status-line" style="margin:0 0 10px;"></div>
-    <div class="debtors-table-wrap">
-      <table class="debtors-table">
-        <thead>
-          <tr>
-            <th></th>
-            <th class="sortable" data-sort="name" onclick="setDebtorsSort('name')">Name<span class="sort-arrow"></span></th>
-            <th>Account No.</th>
-            <th>Email</th>
-            <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')">Stock on Hold<span class="sort-arrow"></span></th>
-            <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')">Outstanding Balance<span class="sort-arrow"></span></th>
-            <th class="num sortable" data-sort="overdue" onclick="setDebtorsSort('overdue')">Overdue<span class="sort-arrow"></span></th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="debtorsRows"></tbody>
-      </table>
-    </div>
+  <div class="tab-bar no-print">
+    <button class="tab-btn" data-tab="debtors" onclick="switchTab('debtors')">Debtors</button>
+    <button class="tab-btn" data-tab="statements" onclick="switchTab('statements')">Statements</button>
   </div>
 
   <div id="queuePanel" class="queue-panel no-print" style="display:none;">
@@ -359,6 +423,71 @@
       </div>
     </div>
     <div id="queueList"></div>
+  </div>
+
+  <div id="debtorsView" class="debtors-panel">
+    <div class="debtors-header no-print">
+      <h2>Outstanding Balances <span class="debtors-subtitle">— Debtors / Stop Supply</span></h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button onclick="loadDebtors()">Refresh</button>
+        <button onclick="markAllEligibleStop()">Mark All Stop</button>
+        <button onclick="clearAllEligible()">Clear All</button>
+        <button class="primary" onclick="window.print()">Print / Export PDF</button>
+        <button onclick="emailDebtorsList()">✉ Email</button>
+      </div>
+    </div>
+
+    <div id="debtorsStats" class="stats no-print"></div>
+
+    <div class="legend no-print">
+      <div class="li"><span class="dot d-red"></span> Stop Supply</div>
+      <div class="li"><span class="dot d-green"></span> Cleared / OK</div>
+      <div class="li"><span class="dot d-none"></span> No status set</div>
+      <div class="li"><span class="dot d-amber"></span> Stock on hold</div>
+      <div class="legend-note">Eligible = 61+ days overdue</div>
+    </div>
+
+    <div id="debtorsStatus" class="status-line no-print" style="margin:0 0 10px;"></div>
+
+    <div class="debtors-section no-print">
+      <div class="sec-title">Eligible for stop supply review</div>
+      <div id="noEligible" class="err" style="display:none;">No customers have balances 61+ days overdue.</div>
+      <div id="eligibleCardGrid" class="card-grid"></div>
+    </div>
+
+    <div id="holdOnlySection" class="debtors-section no-print" style="display:none;">
+      <div class="sec-title">Stock on hold — not overdue</div>
+      <div id="holdOnlyCardGrid" class="card-grid"></div>
+    </div>
+
+    <div class="debtors-section">
+      <div class="sec-title">Full debtors table</div>
+      <div class="debtors-table-wrap">
+        <table class="debtors-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th class="sortable" data-sort="name" onclick="setDebtorsSort('name')">Name<span class="sort-arrow"></span></th>
+              <th>Account No.</th>
+              <th>Email</th>
+              <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')">Stock on Hold<span class="sort-arrow"></span></th>
+              <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')">Outstanding Balance<span class="sort-arrow"></span></th>
+              <th class="num sortable" data-sort="overdue" onclick="setDebtorsSort('overdue')">Overdue<span class="sort-arrow"></span></th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="debtorsRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="statementsView" style="display:none;">
+  <div class="toolbar no-print">
+    <div class="picker">
+      <input id="customerInput" type="text" placeholder="Search customer (e.g. FOOTLOCKER)…" autocomplete="off">
+      <div id="customerResults" class="results" style="display:none;"></div>
+    </div>
   </div>
 
   <div id="statusLine" class="status-line no-print"></div>
@@ -436,6 +565,7 @@
       <span id="bankDetails"></span><br>
       Please email remittance to brendan@kohindustries.com
     </div>
+  </div>
   </div>
 
 <script>
@@ -892,7 +1022,21 @@ async function buildDebtorsList() {
 
   for (const inv of submittedInvoices) {
     const contactId = inv.Contact && inv.Contact.ContactID;
-    if (!contactId || !byContact.has(contactId)) continue; // only relevant for customers already carrying a balance
+    const name = inv.Contact && inv.Contact.Name;
+    if (!contactId || !name) continue;
+    // A customer can have a held order with zero outstanding balance (fully
+    // paid up, new order stuck awaiting approval) — without this, they'd
+    // never enter byContact at all and silently vanish from the dashboard.
+    if (!byContact.has(contactId)) {
+      byContact.set(contactId, {
+        contactId,
+        name,
+        total: 0,
+        overdue: 0,
+        holdTotal: 0,
+        buckets: Object.fromEntries(AGING_BUCKETS.map((b) => [b, 0])),
+      });
+    }
     byContact.get(contactId).holdTotal += (inv.Total || 0);
   }
 
@@ -922,9 +1066,14 @@ async function loadDebtorStatusMap() {
   }
 }
 
-async function setDebtorStatus(contactId, status) {
-  const newStatus = debtorStatusMap[contactId] === status ? null : status; // clicking the active one clears it
-  if (newStatus) debtorStatusMap[contactId] = newStatus;
+// Unconditionally sets (or clears, if status is null) one customer's status
+// — the shared primitive both the toggle buttons and the bulk actions below
+// funnel through. Bulk actions await each call in sequence rather than
+// firing them in parallel: debtor-status.js does a read-modify-write on one
+// shared JSON blob, so concurrent POSTs racing on the same key can silently
+// drop each other's updates.
+async function applyDebtorStatus(contactId, status) {
+  if (status) debtorStatusMap[contactId] = status;
   else delete debtorStatusMap[contactId];
   renderDebtorsTable(); // optimistic — reflects immediately, corrected below if the save fails
 
@@ -932,12 +1081,42 @@ async function setDebtorStatus(contactId, status) {
     const res = await fetch('/.netlify/functions/debtor-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contactId, status: newStatus }),
+      body: JSON.stringify({ contactId, status }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Save failed (${res.status})`);
   } catch (err) {
     setDebtorsStatus(`Failed to save status — try again: ${err.message}`, true);
   }
+}
+
+async function setDebtorStatus(contactId, status) {
+  const newStatus = debtorStatusMap[contactId] === status ? null : status; // clicking the active one clears it
+  await applyDebtorStatus(contactId, newStatus);
+}
+
+async function markAllEligibleStop() {
+  for (const d of eligibleDebtors()) {
+    await applyDebtorStatus(d.contactId, 'stop');
+  }
+}
+
+async function clearAllEligible() {
+  for (const d of eligibleDebtors()) {
+    await applyDebtorStatus(d.contactId, null);
+  }
+}
+
+function switchTab(tab) {
+  document.getElementById('debtorsView').style.display = tab === 'debtors' ? 'block' : 'none';
+  document.getElementById('statementsView').style.display = tab === 'statements' ? 'block' : 'none';
+  for (const btn of document.querySelectorAll('.tab-btn')) {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  }
+}
+
+function openStatementFor(customerLike) {
+  switchTab('statements');
+  selectCustomer(customerLike);
 }
 
 async function loadDebtors() {
@@ -976,7 +1155,135 @@ function sortedDebtors() {
   });
 }
 
+// "Eligible for stop supply review" — the closest fixed-day-range
+// equivalent of the original tool's "2+ months old" threshold.
+function isEligible(d) {
+  return (d.buckets['61-90 Days'] || 0) + (d.buckets['90+ Days'] || 0) > 0;
+}
+
+function eligibleDebtors() {
+  return debtors.filter(isEligible).sort((a, b) => b.overdue - a.overdue);
+}
+
+function holdOnlyDebtors() {
+  const eligibleIds = new Set(eligibleDebtors().map((d) => d.contactId));
+  return debtors.filter((d) => d.holdTotal > 0 && !eligibleIds.has(d.contactId));
+}
+
+function buildDebtorCard(d, { showToggle }) {
+  const status = debtorStatusMap[d.contactId] || null;
+  const card = document.createElement('div');
+  card.className = 'card' + (status ? ` status-${status}` : '') + (!showToggle ? ' hold-only' : '');
+
+  const info = document.createElement('div');
+  info.className = 'card-info';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'card-name';
+  nameEl.textContent = d.name;
+  if (d.id) {
+    nameEl.style.cursor = 'pointer';
+    nameEl.onclick = () => openStatementFor({ id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country });
+  }
+
+  const badges = document.createElement('div');
+  badges.className = 'card-badges';
+  for (const bucket of AGING_BUCKETS) {
+    const v = d.buckets[bucket] || 0;
+    if (bucket === 'Current' || v <= 0) continue;
+    const b = document.createElement('span');
+    b.className = 'card-badge';
+    b.textContent = `${bucket}: ${fmtMoneyWithCurrency(v, d.country)}`;
+    badges.appendChild(b);
+  }
+  if (d.holdTotal > 0) {
+    const hb = document.createElement('span');
+    hb.className = 'hold-badge';
+    hb.textContent = `📦 On hold: ${fmtMoneyWithCurrency(d.holdTotal, d.country)}`;
+    badges.appendChild(hb);
+  }
+  if (badges.children.length === 0) badges.textContent = '—';
+
+  info.appendChild(nameEl);
+  info.appendChild(badges);
+
+  const right = document.createElement('div');
+  right.className = 'card-right';
+  const total = document.createElement('div');
+  total.className = 'card-total';
+  total.textContent = fmtMoneyWithCurrency(d.total, d.country);
+  right.appendChild(total);
+
+  if (showToggle) {
+    const toggle = document.createElement('div');
+    toggle.className = 'status-toggle';
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'stop-btn' + (status === 'stop' ? ' on' : '');
+    stopBtn.textContent = 'Stop';
+    stopBtn.onclick = () => setDebtorStatus(d.contactId, 'stop');
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'clear-btn' + (status === 'clear' ? ' on' : '');
+    clearBtn.textContent = 'Clear';
+    clearBtn.onclick = () => setDebtorStatus(d.contactId, 'clear');
+    toggle.appendChild(stopBtn);
+    toggle.appendChild(clearBtn);
+    right.appendChild(toggle);
+  }
+
+  card.appendChild(info);
+  card.appendChild(right);
+  return card;
+}
+
+function renderDebtorsCards() {
+  const eligible = eligibleDebtors();
+  const eligibleGrid = document.getElementById('eligibleCardGrid');
+  const noEligibleEl = document.getElementById('noEligible');
+  eligibleGrid.innerHTML = '';
+  if (eligible.length === 0) {
+    noEligibleEl.style.display = 'block';
+  } else {
+    noEligibleEl.style.display = 'none';
+    for (const d of eligible) eligibleGrid.appendChild(buildDebtorCard(d, { showToggle: true }));
+  }
+
+  const holdOnly = holdOnlyDebtors();
+  const holdOnlySection = document.getElementById('holdOnlySection');
+  const holdOnlyGrid = document.getElementById('holdOnlyCardGrid');
+  holdOnlyGrid.innerHTML = '';
+  if (holdOnly.length === 0) {
+    holdOnlySection.style.display = 'none';
+  } else {
+    holdOnlySection.style.display = 'block';
+    for (const d of holdOnly) holdOnlyGrid.appendChild(buildDebtorCard(d, { showToggle: false }));
+  }
+}
+
+function renderDebtorsStats() {
+  const eligible = eligibleDebtors();
+  let stopN = 0, clearN = 0, stopAmt = 0;
+  for (const d of eligible) {
+    const st = debtorStatusMap[d.contactId];
+    if (st === 'stop') { stopN++; stopAmt += d.total; }
+    else if (st === 'clear') clearN++;
+  }
+  const pendingN = eligible.length - stopN - clearN;
+  const holdN = debtors.filter((d) => d.holdTotal > 0).length;
+
+  const el = document.getElementById('debtorsStats');
+  el.innerHTML = `
+    <div class="stat s-red"><strong>${stopN}</strong>On Stop</div>
+    <div class="stat s-green"><strong>${clearN}</strong>Cleared</div>
+    <div class="stat"><strong>${pendingN}</strong>Pending</div>
+    ${holdN > 0 ? `<div class="stat s-amber"><strong>${holdN}</strong>Stock on hold</div>` : ''}
+    ${stopN > 0 ? `<div class="stat s-red"><strong>${fmtMoney(stopAmt)}</strong>Total on stop</div>` : ''}
+  `;
+}
+
 function renderDebtorsTable() {
+  renderDebtorsCards();
+  renderDebtorsStats();
+
   for (const th of document.querySelectorAll('.debtors-table th.sortable')) {
     const arrow = th.querySelector('.sort-arrow');
     arrow.textContent = th.dataset.sort === debtorsSortField ? (debtorsSortDir === 'asc' ? '▲' : '▼') : '';
@@ -1004,7 +1311,7 @@ function renderDebtorsTable() {
     nameTd.className = 'name-cell';
     nameTd.textContent = d.name;
     if (d.id) {
-      nameTd.onclick = () => selectCustomer({ id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country });
+      nameTd.onclick = () => openStatementFor({ id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country });
     }
 
     const acctTd = document.createElement('td');
@@ -1063,6 +1370,16 @@ function renderDebtorsTable() {
 function setDebtorsStatus(msg, isError) {
   els.debtorsStatus.textContent = msg;
   els.debtorsStatus.classList.toggle('error', !!isError);
+}
+
+// Matches the original debtors-stop-supply tool's Email button exactly —
+// a plain mailto: link, no attachment. Brendan prints/exports the PDF
+// separately (via the button next to this one) and attaches it by hand.
+function emailDebtorsList() {
+  const dateStr = fmtDate(new Date());
+  const subject = `Debtors Overdue List ${dateStr}`;
+  const body = `Please find attached the Debtors Overdue List as at ${dateStr}.\n\nCustomers highlighted in red are on stop supply.`;
+  window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_self');
 }
 
 // Builds the full data object a statement needs (join of AM invoices to
@@ -1416,6 +1733,7 @@ document.addEventListener('click', (e) => {
 });
 
 async function init() {
+  switchTab('debtors');
   try {
     await loadCustomers();
   } catch (err) {
