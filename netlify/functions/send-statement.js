@@ -20,7 +20,7 @@ function emailBodyHtml({ customerName, balanceDue, invoiceCount, attachedInvoice
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family:Arial,Helvetica,sans-serif;background:#f4f5f7;padding:24px 0;">
 <tr><td align="center">
 <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:6px;">
-<tr><td style="padding:32px 32px 4px;font-size:20px;font-weight:700;color:#1a1a1a;">KOH INDUSTRIES</td></tr>
+<tr><td style="padding:32px 32px 8px;"><img src="https://koh-statements.netlify.app/logo.png" alt="KOH Industries" width="160" style="display:block;height:auto;"></td></tr>
 <tr><td style="padding:0 32px 24px;font-size:11px;color:#6b7280;letter-spacing:2px;">WNDRR</td></tr>
 <tr><td style="padding:0 32px 16px;font-size:14px;color:#1a1a1a;">Hi ${customerName},</td></tr>
 <tr><td style="padding:0 32px 16px;font-size:14px;color:#1a1a1a;line-height:1.5;">Please find attached your current account statement from KOH Industries — ${invoiceCount} open ${invoiceWord} totalling:</td></tr>

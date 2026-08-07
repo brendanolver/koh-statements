@@ -29,6 +29,8 @@
   }
   .toolbar h1 { font-size: 20px; margin: 0 0 4px; }
   .toolbar .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .toolbar-brand { display: flex; align-items: center; gap: 16px; }
+  .app-logo { height: 44px; width: auto; flex: none; }
 
   .picker {
     position: relative;
@@ -180,6 +182,9 @@
     border-bottom: 1.5px solid var(--ink);
     white-space: nowrap;
   }
+  table.debtors-table th.sortable { cursor: pointer; user-select: none; }
+  table.debtors-table th.sortable:hover { color: var(--ink); }
+  table.debtors-table th .sort-arrow { display: inline-block; width: 10px; }
   table.debtors-table td {
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
@@ -200,6 +205,7 @@
     color: #e65100;
     border: 1px solid #ffcc80;
   }
+  .overdue-amount { color: #d0021b; font-weight: 700; }
   .status-toggle { display: flex; gap: 4px; }
   .status-toggle button { padding: 4px 8px; font-size: 10px; font-weight: 700; border-radius: 4px; }
   .status-toggle .stop-btn { border-color: #f5c6cb; color: #d0021b; background: transparent; }
@@ -247,7 +253,8 @@
   .sheet.visible { display: block; }
 
   .sheet .brand { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
-  .sheet .brand small { display: block; font-size: 10px; font-weight: 400; color: var(--muted); letter-spacing: 2px; }
+  .sheet .brand small { display: block; font-size: 10px; font-weight: 400; color: var(--muted); letter-spacing: 2px; margin-top: 6px; }
+  .brand-logo { height: 46px; width: auto; display: block; }
 
   .head-row { display: flex; justify-content: space-between; margin-top: 24px; gap: 24px; }
   .head-row h2 { font-size: 30px; margin: 0 0 16px; font-weight: 300; letter-spacing: 1px; }
@@ -305,8 +312,13 @@
 <body>
 
   <div class="toolbar no-print">
-    <h1>KOH Industries — Statement Builder</h1>
-    <div class="sub">Pulls live balances from Xero and full invoice/PO numbers from ApparelMagic.</div>
+    <div class="toolbar-brand">
+      <img src="https://koh-statements.netlify.app/logo.png" alt="KOH Industries" class="app-logo">
+      <div>
+        <h1>KOH Industries — Statement Builder</h1>
+        <div class="sub">Pulls live balances from Xero and full invoice/PO numbers from ApparelMagic.</div>
+      </div>
+    </div>
     <div class="picker">
       <input id="customerInput" type="text" placeholder="Search customer (e.g. FOOTLOCKER)…" autocomplete="off">
       <div id="customerResults" class="results" style="display:none;"></div>
@@ -324,12 +336,12 @@
         <thead>
           <tr>
             <th></th>
-            <th>Name</th>
+            <th class="sortable" data-sort="name" onclick="setDebtorsSort('name')">Name<span class="sort-arrow"></span></th>
             <th>Account No.</th>
             <th>Email</th>
-            <th class="num">Stock on Hold</th>
-            <th class="num">Outstanding Balance</th>
-            <th class="num">Overdue</th>
+            <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')">Stock on Hold<span class="sort-arrow"></span></th>
+            <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')">Outstanding Balance<span class="sort-arrow"></span></th>
+            <th class="num sortable" data-sort="overdue" onclick="setDebtorsSort('overdue')">Overdue<span class="sort-arrow"></span></th>
             <th>Status</th>
           </tr>
         </thead>
@@ -365,7 +377,7 @@
   </div>
 
   <div id="sheet" class="sheet">
-    <div class="brand">KOH INDUSTRIES<small>WNDRR</small></div>
+    <div class="brand"><img src="https://koh-statements.netlify.app/logo.png" alt="KOH Industries" class="brand-logo"><small>WNDRR</small></div>
 
     <div class="head-row">
       <div>
@@ -469,6 +481,8 @@ const els = {
 let customers = [];
 let debtors = [];
 let debtorStatusMap = {}; // contactId -> 'stop' | 'clear'
+let debtorsSortField = 'overdue';
+let debtorsSortDir = 'desc';
 let queue = []; // { id, accountNumber, name, country, status, data, recipientEmail, error }
 let activeCustomerId = null;
 let currentStatementData = null; // whatever's currently rendered in #sheet — used by the single-statement Send button
@@ -755,6 +769,10 @@ function fmtMoney(n) {
   return '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtMoneyWithCurrency(n, country) {
+  return `${fmtMoney(n)} ${currencyFor(country)}`;
+}
+
 async function fetchOpenXeroInvoices(contactId) {
   const all = [];
   for (let page = 1; page <= 20; page++) {
@@ -940,9 +958,32 @@ async function loadDebtors() {
   }
 }
 
+function setDebtorsSort(field) {
+  if (debtorsSortField === field) {
+    debtorsSortDir = debtorsSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    debtorsSortField = field;
+    debtorsSortDir = field === 'name' ? 'asc' : 'desc'; // money columns default highest-first, name default A-Z
+  }
+  renderDebtorsTable();
+}
+
+function sortedDebtors() {
+  const dir = debtorsSortDir === 'asc' ? 1 : -1;
+  return debtors.slice().sort((a, b) => {
+    if (debtorsSortField === 'name') return a.name.localeCompare(b.name) * dir;
+    return ((a[debtorsSortField] || 0) - (b[debtorsSortField] || 0)) * dir;
+  });
+}
+
 function renderDebtorsTable() {
+  for (const th of document.querySelectorAll('.debtors-table th.sortable')) {
+    const arrow = th.querySelector('.sort-arrow');
+    arrow.textContent = th.dataset.sort === debtorsSortField ? (debtorsSortDir === 'asc' ? '▲' : '▼') : '';
+  }
+
   els.debtorsRows.innerHTML = '';
-  for (const d of debtors) {
+  for (const d of sortedDebtors()) {
     const status = debtorStatusMap[d.contactId] || null;
     const tr = document.createElement('tr');
     tr.className = status ? `status-${status}` : '';
@@ -977,7 +1018,7 @@ function renderDebtorsTable() {
     if (d.holdTotal > 0) {
       const badge = document.createElement('span');
       badge.className = 'hold-badge';
-      badge.textContent = fmtMoney(d.holdTotal);
+      badge.textContent = fmtMoneyWithCurrency(d.holdTotal, d.country);
       holdTd.appendChild(badge);
     } else {
       holdTd.textContent = '—';
@@ -985,11 +1026,12 @@ function renderDebtorsTable() {
 
     const totalTd = document.createElement('td');
     totalTd.className = 'num';
-    totalTd.textContent = fmtMoney(d.total);
+    totalTd.textContent = fmtMoneyWithCurrency(d.total, d.country);
 
     const overdueTd = document.createElement('td');
     overdueTd.className = 'num';
-    overdueTd.textContent = fmtMoney(d.overdue);
+    overdueTd.textContent = fmtMoneyWithCurrency(d.overdue, d.country);
+    if (d.overdue > 0) overdueTd.classList.add('overdue-amount');
 
     const statusTd = document.createElement('td');
     const toggle = document.createElement('div');
@@ -1102,7 +1144,8 @@ function computeAging(invoices) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   for (const r of rows) {
     total += r.balance || 0;
-    if (r.dueDate && r.dueDate < today) overdue += r.balance || 0;
+    r.isOverdue = !!(r.dueDate && r.dueDate < today);
+    if (r.isOverdue) overdue += r.balance || 0;
     else current += r.balance || 0;
   }
   return { rows, total, overdue, current };
@@ -1136,13 +1179,15 @@ function renderStatement(data) {
       <td>${fmtDate(r.dueDate)}</td>
       <td class="num">${fmtMoney(r.amount)}</td>
       <td class="num">${fmtMoney(r.payments)}</td>
-      <td class="num">${fmtMoney(r.balance)}</td>
+      <td class="num${r.isOverdue ? ' overdue-amount' : ''}">${fmtMoney(r.balance)}</td>
     `;
     tbody.appendChild(tr);
   }
 
   document.getElementById('totalBalance').textContent = fmtMoney(total);
-  document.getElementById('agingOverdue').textContent = fmtMoney(overdue);
+  const agingOverdueEl = document.getElementById('agingOverdue');
+  agingOverdueEl.textContent = fmtMoney(overdue);
+  agingOverdueEl.classList.toggle('overdue-amount', overdue > 0);
   document.getElementById('agingCurrent').textContent = fmtMoney(current);
   document.getElementById('agingTotal').textContent = fmtMoney(total);
 
@@ -1160,7 +1205,7 @@ function renderStatement(data) {
 function buildStatementWorkbook(data) {
   const { rows, total } = computeAging(data.invoices);
   const currency = currencyFor(data.country);
-  const moneyFmt = '$#,##0.00';
+  const moneyFmt = `$#,##0.00" ${currency}"`; // Excel custom number format — real number, currency shown as trailing literal text
 
   const aoa = [
     ['Date', 'Invoice #', 'PO Number', 'Due Date', 'Invoice Amount', 'Payments', `Balance ${currency}`],
@@ -1178,7 +1223,7 @@ function buildStatementWorkbook(data) {
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
   for (let r = 1; r <= rows.length; r++) {
     for (const col of ['E', 'F', 'G']) {
       const cell = ws[`${col}${r + 1}`];
