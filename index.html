@@ -1404,6 +1404,22 @@ function renderCustomersTable() {
     tr.appendChild(overdueTd);
     els.customersRows.appendChild(tr);
   }
+
+  // Totals row — grouped by currency so AUD and NZD balances are never
+  // silently added together as if they were the same unit.
+  const sumsByCurrency = new Map();
+  for (const d of debtors) {
+    const cur = currencyFor(d.country);
+    if (!sumsByCurrency.has(cur)) sumsByCurrency.set(cur, { total: 0, overdue: 0 });
+    const s = sumsByCurrency.get(cur);
+    s.total += d.total || 0;
+    s.overdue += d.overdue || 0;
+  }
+  const totalLine = (key) => Array.from(sumsByCurrency.entries()).map(([cur, s]) => `${fmtMoney(s[key])} ${cur}`).join(' + ');
+  const totalTr = document.createElement('tr');
+  totalTr.className = 'total-row';
+  totalTr.innerHTML = `<td></td><td>Total</td><td></td><td></td><td></td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td>`;
+  els.customersRows.appendChild(totalTr);
 }
 
 // Debtors tab — reproduces the original debtors-stop-supply tool's table:
