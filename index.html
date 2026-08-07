@@ -1409,25 +1409,60 @@ function renderCustomersTable() {
 // Debtors tab — reproduces the original debtors-stop-supply tool's table:
 // one column per calendar-month bucket, Stock on Hold inserted before
 // Total (only if anyone actually has stock on hold — a conditional column,
-// same as the original), a totals row, and a % of total row. No sorting,
-// no checkboxes, no per-row Stop/Clear — that's only ever set via the card
-// grid, same as the original (only cards had toggle buttons; table rows
-// just reflected the colour, and only the name/total cells go bold-
-// coloured — the middle bucket cells just get the tinted background).
-// Sorted overdue-first, matching the cards above it.
+// same as the original), a totals row, and a % of total row. No per-row
+// Stop/Clear here — that's only ever set via the card grid, same as the
+// original (only cards had toggle buttons; table rows just reflected the
+// colour, and only the name/total cells go bold-coloured — the middle
+// bucket cells just get the tinted background). All columns sortable by
+// clicking the header; alphabetical by name by default.
 function moneyOrParen(v) {
   return v < 0 ? `(${fmtMoney(Math.abs(v))})` : fmtMoney(v);
 }
 
+let debtorsTableSortField = 'name';
+let debtorsTableSortDir = 'asc';
+
+function setDebtorsTableSort(field) {
+  if (debtorsTableSortField === field) {
+    debtorsTableSortDir = debtorsTableSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    debtorsTableSortField = field;
+    debtorsTableSortDir = field === 'name' ? 'asc' : 'desc'; // money columns default highest-first, name default A-Z
+  }
+  renderDebtorsAgingTable();
+}
+
+function sortedDebtorsForTable() {
+  const dir = debtorsTableSortDir === 'asc' ? 1 : -1;
+  return debtors.slice().sort((a, b) => {
+    let av, bv;
+    if (debtorsTableSortField === 'name') {
+      av = a.name.toLowerCase(); bv = b.name.toLowerCase();
+    } else if (debtorsTableSortField === 'hold') {
+      av = a.holdTotal || 0; bv = b.holdTotal || 0;
+    } else if (debtorsTableSortField === 'total') {
+      av = a.total || 0; bv = b.total || 0;
+    } else {
+      const idx = Number(debtorsTableSortField.slice('bucket'.length));
+      av = a.buckets[idx] || 0; bv = b.buckets[idx] || 0;
+    }
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+}
+
 function renderDebtorsAgingTable() {
-  const rows = debtors.slice().sort((a, b) => b.overdue - a.overdue);
+  const rows = sortedDebtorsForTable();
   const hasHold = debtors.some((d) => d.holdTotal > 0);
   const sums = AGING_BUCKET_LABELS.map(() => 0);
   let holdSum = 0, grandTotal = 0;
 
-  let headHtml = '<th>Name</th>' + AGING_BUCKET_LABELS.map((b) => `<th class="num">${b}</th>`).join('');
-  if (hasHold) headHtml += '<th class="num th-hold">Stock on Hold</th>';
-  headHtml += '<th class="num">Total</th>';
+  const arrow = (field) => (debtorsTableSortField === field ? (debtorsTableSortDir === 'asc' ? ' ▲' : ' ▼') : '');
+  let headHtml = `<th class="sortable" onclick="setDebtorsTableSort('name')">Name${arrow('name')}</th>`
+    + AGING_BUCKET_LABELS.map((b, i) => `<th class="num sortable" onclick="setDebtorsTableSort('bucket${i}')">${b}${arrow('bucket' + i)}</th>`).join('');
+  if (hasHold) headHtml += `<th class="num sortable th-hold" onclick="setDebtorsTableSort('hold')">Stock on Hold${arrow('hold')}</th>`;
+  headHtml += `<th class="num sortable" onclick="setDebtorsTableSort('total')">Total${arrow('total')}</th>`;
   document.getElementById('debtorsTableHead').innerHTML = `<tr>${headHtml}</tr>`;
 
   els.debtorsRows.innerHTML = '';
