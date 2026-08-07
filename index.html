@@ -259,6 +259,10 @@
   table.debtors-table tr.status-stop td { background: #fff0f2; }
   table.debtors-table tr.status-clear td { background: #f0faf4; }
   table.debtors-table tr.status-hold-tint td { background: #fff8f0; }
+  table.debtors-table tr.status-stop td.emph { color: #d0021b; font-weight: 700; }
+  table.debtors-table tr.status-clear td.emph { color: #1a7a3c; font-weight: 700; }
+  table.debtors-table td.td-hold { color: #e65100; font-weight: 600; }
+  table.debtors-table td.neg { color: #bbb; }
   table.debtors-table tr.total-row td { background: #f8f8f8; font-weight: 700; border-top: 2px solid var(--border); }
   table.debtors-table tr.pct-row td { background: #f8f8f8; color: var(--muted); font-size: 11px; border-top: none; }
   table.debtors-table th {
@@ -281,8 +285,6 @@
   }
   table.debtors-table tr:last-child td { border-bottom: none; }
   table.debtors-table th.num, table.debtors-table td.num { text-align: right; }
-  table.debtors-table tr.status-stop td { background: #fff0f2; }
-  table.debtors-table tr.status-clear td { background: #f0faf4; }
   table.debtors-table .name-cell { cursor: pointer; font-weight: 600; }
   table.debtors-table .name-cell:hover { text-decoration: underline; }
   .hold-badge {
@@ -403,7 +405,15 @@
     .debtors-panel { page: debtors-page; max-width: none; }
     .debtors-table { font-size: 9px; }
     .debtors-table th, .debtors-table td { padding: 4px 6px; }
+    .debtors-table-section { page-break-before: always; }
+    .print-hdr { display: block; }
+    #debtorsView table.debtors-table th { background: #000; color: #fff; }
+    #debtorsView table.debtors-table th.th-hold { background: #3a2800; color: #ffcc80; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   }
+  .print-hdr { display: none; }
+  .print-hdr h2 { font-size: 18px; font-weight: 700; margin-bottom: 3px; }
+  .print-hdr p { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
 </style>
 </head>
 <body>
@@ -435,6 +445,11 @@
   </div>
 
   <div id="debtorsView" class="debtors-panel">
+    <div class="print-hdr">
+      <h2>Aged Receivables Summary</h2>
+      <p id="printAsAt1"></p>
+    </div>
+
     <div class="debtors-header no-print">
       <h2>Outstanding Balances <span class="debtors-subtitle">— Debtors / Stop Supply</span></h2>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -446,45 +461,38 @@
       </div>
     </div>
 
-    <div id="debtorsStats" class="stats no-print"></div>
+    <div id="debtorsStats" class="stats"></div>
 
     <div class="legend no-print">
       <div class="li"><span class="dot d-red"></span> Stop Supply</div>
       <div class="li"><span class="dot d-green"></span> Cleared / OK</div>
       <div class="li"><span class="dot d-none"></span> No status set</div>
       <div class="li"><span class="dot d-amber"></span> Stock on hold</div>
-      <div class="legend-note">Eligible = 61+ days overdue</div>
+      <div class="legend-note" id="eligibleThreshold"></div>
     </div>
 
     <div id="debtorsStatus" class="status-line no-print" style="margin:0 0 10px;"></div>
 
-    <div class="debtors-section no-print">
+    <div class="debtors-section">
       <div class="sec-title">Eligible for stop supply review</div>
-      <div id="noEligible" class="err" style="display:none;">No customers have balances 61+ days overdue.</div>
+      <div id="noEligible" class="err" style="display:none;">No customers have balances older than last month.</div>
       <div id="eligibleCardGrid" class="card-grid"></div>
     </div>
 
-    <div id="holdOnlySection" class="debtors-section no-print" style="display:none;">
+    <div id="holdOnlySection" class="debtors-section" style="display:none;">
       <div class="sec-title">Stock on hold — not overdue</div>
       <div id="holdOnlyCardGrid" class="card-grid"></div>
     </div>
 
-    <div class="debtors-section">
+    <div class="debtors-section debtors-table-section">
       <div class="sec-title">Full debtors table</div>
+      <div class="print-hdr">
+        <h2>Aged Receivables Summary</h2>
+        <p id="printAsAt2"></p>
+      </div>
       <div class="debtors-table-wrap">
         <table class="debtors-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th class="num">Current</th>
-              <th class="num">1-30 Days</th>
-              <th class="num">31-60 Days</th>
-              <th class="num">61-90 Days</th>
-              <th class="num">90+ Days</th>
-              <th class="num th-hold">Stock on Hold</th>
-              <th class="num">Total</th>
-            </tr>
-          </thead>
+          <thead id="debtorsTableHead"></thead>
           <tbody id="debtorsRows"></tbody>
         </table>
       </div>
@@ -1005,18 +1013,34 @@ async function fetchContactsByIds(ids) {
   return all;
 }
 
-// Fixed day-range buckets rather than the original tool's calendar-month
-// columns — simpler to compute correctly from DueDate alone. "Eligible for
-// stop-supply review" (61+ days) is the closest equivalent of the original
-// tool's "2+ months old" threshold.
-const AGING_BUCKETS = ['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days'];
-function agingBucketFor(dueDate, asOf) {
-  if (!dueDate || dueDate >= asOf) return 'Current';
-  const daysOverdue = Math.floor((asOf - dueDate) / 86400000);
-  if (daysOverdue <= 30) return '1-30 Days';
-  if (daysOverdue <= 60) return '31-60 Days';
-  if (daysOverdue <= 90) return '61-90 Days';
-  return '90+ Days';
+// Matches the original debtors-stop-supply tool exactly: buckets by
+// INVOICE DATE's calendar month (not due date), with dynamic month-name
+// columns — verified against real data (FootLocker invoices dated 7 Jul
+// 2026 landed in "JULY 2026", invoices dated 11 Jun 2026 in "JUNE 2026").
+// Buckets are an array [currentMonth, -1mo, -2mo, -3mo, Older].
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+let AGING_BUCKET_LABELS = [];
+
+function buildAgingBucketLabels(asOf) {
+  const labels = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(asOf.getFullYear(), asOf.getMonth() - i, 1);
+    labels.push(`${MONTH_NAMES[d.getMonth()].toUpperCase()} ${d.getFullYear()}`);
+  }
+  labels.push('OLDER');
+  return labels;
+}
+
+function invoiceBucketIndex(invDate, asOf) {
+  if (!invDate) return 0;
+  const monthsBack = (asOf.getFullYear() * 12 + asOf.getMonth()) - (invDate.getFullYear() * 12 + invDate.getMonth());
+  if (monthsBack <= 0) return 0;
+  if (monthsBack >= 4) return 4; // Older
+  return monthsBack;
+}
+
+function fmtAsAtDate(d) {
+  return `As at ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 async function buildDebtorsList() {
@@ -1026,6 +1050,7 @@ async function buildDebtorsList() {
   ]);
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
+  AGING_BUCKET_LABELS = buildAgingBucketLabels(today);
   const byContact = new Map();
 
   for (const inv of openInvoices) {
@@ -1033,21 +1058,19 @@ async function buildDebtorsList() {
     const name = inv.Contact && inv.Contact.Name;
     if (!contactId || !name) continue;
     if (!byContact.has(contactId)) {
-      byContact.set(contactId, {
-        contactId,
-        name,
-        total: 0,
-        overdue: 0,
-        holdTotal: 0,
-        buckets: Object.fromEntries(AGING_BUCKETS.map((b) => [b, 0])),
-      });
+      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0] });
     }
     const entry = byContact.get(contactId);
     const amountDue = inv.AmountDue || 0;
-    const bucket = agingBucketFor(xeroDate(inv.DueDate), today);
+    const bucketIdx = invoiceBucketIndex(xeroDate(inv.Date), today);
+    const dueDate = xeroDate(inv.DueDate);
     entry.total += amountDue;
-    entry.buckets[bucket] += amountDue;
-    if (bucket !== 'Current') entry.overdue += amountDue;
+    entry.buckets[bucketIdx] += amountDue;
+    // "Overdue" (Statements-tab column) stays due-date based — a distinct,
+    // more precise real-time signal from the Aged-Receivables-style monthly
+    // bucketing below, which exists specifically to replicate the original
+    // tool's report.
+    if (dueDate && dueDate < today) entry.overdue += amountDue;
   }
 
   for (const inv of submittedInvoices) {
@@ -1058,14 +1081,7 @@ async function buildDebtorsList() {
     // paid up, new order stuck awaiting approval) — without this, they'd
     // never enter byContact at all and silently vanish from the dashboard.
     if (!byContact.has(contactId)) {
-      byContact.set(contactId, {
-        contactId,
-        name,
-        total: 0,
-        overdue: 0,
-        holdTotal: 0,
-        buckets: Object.fromEntries(AGING_BUCKETS.map((b) => [b, 0])),
-      });
+      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0] });
     }
     byContact.get(contactId).holdTotal += (inv.Total || 0);
   }
@@ -1185,10 +1201,11 @@ function sortedDebtors() {
   });
 }
 
-// "Eligible for stop supply review" — the closest fixed-day-range
-// equivalent of the original tool's "2+ months old" threshold.
+// "Eligible for stop supply review" — matches the original tool exactly:
+// any balance invoiced 2+ calendar months back (bucket index 2, 3, or
+// Older/4), not just "not current month".
 function isEligible(d) {
-  return (d.buckets['61-90 Days'] || 0) + (d.buckets['90+ Days'] || 0) > 0;
+  return (d.buckets[2] || 0) + (d.buckets[3] || 0) + (d.buckets[4] || 0) > 0;
 }
 
 function eligibleDebtors() {
@@ -1218,12 +1235,16 @@ function buildDebtorCard(d, { showToggle }) {
 
   const badges = document.createElement('div');
   badges.className = 'card-badges';
-  for (const bucket of AGING_BUCKETS) {
-    const v = d.buckets[bucket] || 0;
-    if (bucket === 'Current' || v <= 0) continue;
+  // Only the eligible-contributing buckets (index 2+) show on cards, same
+  // as the original — e.g. a customer with balances in both "last month"
+  // and "2 months ago" only shows the "2 months ago" badge, since that's
+  // the one actually driving eligibility.
+  for (let i = 2; i < AGING_BUCKET_LABELS.length; i++) {
+    const v = d.buckets[i] || 0;
+    if (v <= 0) continue;
     const b = document.createElement('span');
     b.className = 'card-badge';
-    b.textContent = `${bucket}: ${fmtMoneyWithCurrency(v, d.country)}`;
+    b.textContent = `${AGING_BUCKET_LABELS[i]}: ${fmtMoneyWithCurrency(v, d.country)}`;
     badges.appendChild(b);
   }
   if (d.holdTotal > 0) {
@@ -1308,6 +1329,11 @@ function renderDebtorsStats() {
     ${holdN > 0 ? `<div class="stat s-amber"><strong>${holdN}</strong>Stock on hold</div>` : ''}
     ${stopN > 0 ? `<div class="stat s-red"><strong>${fmtMoney(stopAmt)}</strong>Total on stop</div>` : ''}
   `;
+
+  const thresholdEl = document.getElementById('eligibleThreshold');
+  if (thresholdEl && AGING_BUCKET_LABELS[2]) {
+    thresholdEl.textContent = `Eligible = ${AGING_BUCKET_LABELS[2]} or older invoice date`;
+  }
 }
 
 // Statements tab — plain browsing list, no Stop/Clear (that's the Debtors
@@ -1381,16 +1407,28 @@ function renderCustomersTable() {
 }
 
 // Debtors tab — reproduces the original debtors-stop-supply tool's table:
-// one column per aging bucket (its equivalent of the Excel export's
-// calendar-month columns), Stock on Hold inserted before Total, a totals
-// row, and a % of total row. No sorting, no checkboxes, no per-row
-// Stop/Clear — that's only ever set via the card grid, same as the
-// original (only cards had toggle buttons; table rows just reflected the
-// colour). Sorted overdue-first, matching the cards above it.
+// one column per calendar-month bucket, Stock on Hold inserted before
+// Total (only if anyone actually has stock on hold — a conditional column,
+// same as the original), a totals row, and a % of total row. No sorting,
+// no checkboxes, no per-row Stop/Clear — that's only ever set via the card
+// grid, same as the original (only cards had toggle buttons; table rows
+// just reflected the colour, and only the name/total cells go bold-
+// coloured — the middle bucket cells just get the tinted background).
+// Sorted overdue-first, matching the cards above it.
+function moneyOrParen(v) {
+  return v < 0 ? `(${fmtMoney(Math.abs(v))})` : fmtMoney(v);
+}
+
 function renderDebtorsAgingTable() {
   const rows = debtors.slice().sort((a, b) => b.overdue - a.overdue);
-  const sums = { hold: 0, total: 0 };
-  for (const b of AGING_BUCKETS) sums[b] = 0;
+  const hasHold = debtors.some((d) => d.holdTotal > 0);
+  const sums = AGING_BUCKET_LABELS.map(() => 0);
+  let holdSum = 0, grandTotal = 0;
+
+  let headHtml = '<th>Name</th>' + AGING_BUCKET_LABELS.map((b) => `<th class="num">${b}</th>`).join('');
+  if (hasHold) headHtml += '<th class="num th-hold">Stock on Hold</th>';
+  headHtml += '<th class="num">Total</th>';
+  document.getElementById('debtorsTableHead').innerHTML = `<tr>${headHtml}</tr>`;
 
   els.debtorsRows.innerHTML = '';
   for (const d of rows) {
@@ -1400,27 +1438,30 @@ function renderDebtorsAgingTable() {
 
     const nameTd = document.createElement('td');
     nameTd.textContent = d.name;
+    if (status) nameTd.classList.add('emph');
     tr.appendChild(nameTd);
 
-    for (const bucket of AGING_BUCKETS) {
-      const v = d.buckets[bucket] || 0;
-      sums[bucket] += v;
+    for (let i = 0; i < AGING_BUCKET_LABELS.length; i++) {
+      const v = d.buckets[i] || 0;
+      sums[i] += v;
       const td = document.createElement('td');
-      td.className = 'num';
-      td.textContent = v > 0 ? fmtMoney(v) : '—';
+      td.className = 'num' + (v < 0 ? ' neg' : '');
+      td.textContent = moneyOrParen(v);
       tr.appendChild(td);
     }
 
-    const holdTd = document.createElement('td');
-    holdTd.className = 'num';
-    holdTd.textContent = d.holdTotal > 0 ? fmtMoney(d.holdTotal) : '—';
-    sums.hold += d.holdTotal || 0;
-    tr.appendChild(holdTd);
+    if (hasHold) {
+      const holdTd = document.createElement('td');
+      holdTd.className = 'num td-hold' + (d.holdTotal > 0 ? '' : ' neg');
+      holdTd.textContent = d.holdTotal > 0 ? fmtMoney(d.holdTotal) : '—';
+      holdSum += d.holdTotal || 0;
+      tr.appendChild(holdTd);
+    }
 
     const totalTd = document.createElement('td');
-    totalTd.className = 'num';
-    totalTd.textContent = fmtMoney(d.total);
-    sums.total += d.total || 0;
+    totalTd.className = 'num' + (status ? ' emph' : '');
+    totalTd.textContent = moneyOrParen(d.total);
+    grandTotal += d.total || 0;
     tr.appendChild(totalTd);
 
     els.debtorsRows.appendChild(tr);
@@ -1428,20 +1469,26 @@ function renderDebtorsAgingTable() {
 
   const totalTr = document.createElement('tr');
   totalTr.className = 'total-row';
-  totalTr.innerHTML = '<td>Total</td>'
-    + AGING_BUCKETS.map((b) => `<td class="num">${fmtMoney(sums[b])}</td>`).join('')
-    + `<td class="num">${fmtMoney(sums.hold)}</td>`
-    + `<td class="num">${fmtMoney(sums.total)}</td>`;
+  let totalHtml = '<td>Total</td>' + sums.map((v) => `<td class="num">${moneyOrParen(v)}</td>`).join('');
+  if (hasHold) totalHtml += `<td class="num td-hold">${fmtMoney(holdSum)}</td>`;
+  totalHtml += `<td class="num">${moneyOrParen(grandTotal)}</td>`;
+  totalTr.innerHTML = totalHtml;
   els.debtorsRows.appendChild(totalTr);
 
-  const pct = (v) => (sums.total > 0 ? `${(v / sums.total * 100).toFixed(2)}%` : '—');
+  const pct = (v) => (grandTotal !== 0 ? `${(v / grandTotal * 100).toFixed(2)}%` : '—');
   const pctTr = document.createElement('tr');
   pctTr.className = 'pct-row';
-  pctTr.innerHTML = '<td>% of total</td>'
-    + AGING_BUCKETS.map((b) => `<td class="num">${pct(sums[b])}</td>`).join('')
-    + `<td class="num">${pct(sums.hold)}</td>`
-    + '<td class="num">100.00%</td>';
+  let pctHtml = '<td>% of total</td>' + sums.map((v) => `<td class="num">${pct(v)}</td>`).join('');
+  if (hasHold) pctHtml += '<td class="num">—</td>';
+  pctHtml += '<td class="num">100.00%</td>';
+  pctTr.innerHTML = pctHtml;
   els.debtorsRows.appendChild(pctTr);
+
+  const asAt = fmtAsAtDate(new Date());
+  const asAt1 = document.getElementById('printAsAt1');
+  const asAt2 = document.getElementById('printAsAt2');
+  if (asAt1) asAt1.textContent = asAt;
+  if (asAt2) asAt2.textContent = asAt;
 }
 
 function renderAll() {
