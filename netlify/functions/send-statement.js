@@ -1,3 +1,5 @@
+const JSZip = require('jszip');
+
 const PDFSHIFT_URL = 'https://api.pdfshift.io/v3/convert/pdf';
 const RESEND_URL = 'https://api.resend.com/emails';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -13,7 +15,7 @@ function fmtMoney(n) {
 function emailBodyHtml({ customerName, balanceDue, invoiceCount, attachedInvoiceCount, currency }) {
   const invoiceWord = invoiceCount === 1 ? 'invoice' : 'invoices';
   const invoiceCopiesLine = attachedInvoiceCount > 0
-    ? `<tr><td style="padding:0 32px 16px;font-size:13px;color:#6b7280;line-height:1.6;">Copies of the ${attachedInvoiceCount} underlying invoice${attachedInvoiceCount === 1 ? '' : 's'} are attached as well.</td></tr>`
+    ? `<tr><td style="padding:0 32px 16px;font-size:13px;color:#6b7280;line-height:1.6;">Copies of the ${attachedInvoiceCount} underlying invoice${attachedInvoiceCount === 1 ? '' : 's'} are included in the attached zip file.</td></tr>`
     : '';
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family:Arial,Helvetica,sans-serif;background:#f4f5f7;padding:24px 0;">
 <tr><td align="center">
@@ -52,23 +54,50 @@ async function pdfFromSource(source) {
   return buf.toString('base64');
 }
 
-// Fetches each underlying AM invoice PDF in parallel — one slow/failed
+// Fetches each underlying AM invoice PDF in parallel (one slow/failed
 // invoice shouldn't block the statement email from going out, so failures
-// are just dropped (not thrown) rather than failing the whole send.
-async function fetchInvoicePdfAttachments(invoicePdfs) {
+// are just dropped rather than failing the whole send), then bundles them
+// into a single zip attachment rather than one file per invoice — a
+// customer with 10 open invoices would otherwise get 11 separate PDFs in
+// one email. Returns null when there's nothing to zip.
+async function buildInvoicesZipAttachment(invoicePdfs, customerName) {
   const results = await Promise.allSettled(
     (invoicePdfs || []).map(async ({ invoiceNumber, printUrl }) => ({
-      filename: `Invoice ${invoiceNumber}.pdf`,
-      content: await pdfFromSource(printUrl),
-      content_type: 'application/pdf',
+      invoiceNumber,
+      base64: await pdfFromSource(printUrl),
     }))
   );
-  return results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  const pdfs = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  if (pdfs.length === 0) return null;
+
+  const zip = new JSZip();
+  for (const { invoiceNumber, base64 } of pdfs) {
+    zip.file(`Invoice ${invoiceNumber}.pdf`, base64, { base64: true });
+  }
+  const zipBase64 = await zip.generateAsync({ type: 'base64' });
+
+  return {
+    filename: `Invoices - ${customerName}.zip`,
+    content: zipBase64,
+    content_type: 'application/zip',
+    count: pdfs.length,
+  };
 }
 
-async function sendEmail({ recipientEmail, customerName, statementPdfBase64, invoiceAttachments, balanceDue, invoiceCount, currency }) {
+async function sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, balanceDue, invoiceCount, currency }) {
   const apiKey = (process.env.RESEND_API_KEY || '').trim();
   const from = (process.env.STATEMENTS_FROM_EMAIL || '').trim();
+
+  const attachments = [
+    {
+      filename: `Statement - ${customerName}.pdf`,
+      content: statementPdfBase64,
+      content_type: 'application/pdf',
+    },
+  ];
+  if (invoicesZip) {
+    attachments.push({ filename: invoicesZip.filename, content: invoicesZip.content, content_type: invoicesZip.content_type });
+  }
 
   const res = await fetch(RESEND_URL, {
     method: 'POST',
@@ -78,15 +107,8 @@ async function sendEmail({ recipientEmail, customerName, statementPdfBase64, inv
       to: recipientEmail,
       reply_to: 'brendan@kohindustries.com',
       subject: `Statement from KOH Industries — ${customerName}`,
-      html: emailBodyHtml({ customerName, balanceDue, invoiceCount, attachedInvoiceCount: invoiceAttachments.length, currency }),
-      attachments: [
-        {
-          filename: `Statement - ${customerName}.pdf`,
-          content: statementPdfBase64,
-          content_type: 'application/pdf',
-        },
-        ...invoiceAttachments,
-      ],
+      html: emailBodyHtml({ customerName, balanceDue, invoiceCount, attachedInvoiceCount: invoicesZip ? invoicesZip.count : 0, currency }),
+      attachments,
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -121,11 +143,11 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: `"${recipientEmail}" doesn't look like a valid email address` }) };
     }
 
-    const [statementPdfBase64, invoiceAttachments] = await Promise.all([
+    const [statementPdfBase64, invoicesZip] = await Promise.all([
       pdfFromSource(html),
-      fetchInvoicePdfAttachments(invoicePdfs),
+      buildInvoicesZipAttachment(invoicePdfs, customerName),
     ]);
-    const result = await sendEmail({ recipientEmail, customerName, statementPdfBase64, invoiceAttachments, balanceDue, invoiceCount, currency });
+    const result = await sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, balanceDue, invoiceCount, currency });
 
     return {
       statusCode: 200,
