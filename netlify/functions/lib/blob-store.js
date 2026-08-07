@@ -6,8 +6,8 @@ const { getStore } = require('@netlify/blobs');
 // into every function's environment; NETLIFY_AUTH_TOKEN is a Personal Access
 // Token that has to be set manually (Netlify has no way to auto-inject a
 // token with API-wide scope into a function for security reasons).
-function xeroTokenStore() {
-  const opts = { name: 'xero-tokens' };
+function namedStore(name) {
+  const opts = { name };
   const siteID = process.env.SITE_ID || process.env.NETLIFY_SITE_ID;
   const token = process.env.NETLIFY_AUTH_TOKEN;
   if (siteID && token) {
@@ -17,4 +17,12 @@ function xeroTokenStore() {
   return getStore(opts);
 }
 
-module.exports = { xeroTokenStore };
+function xeroTokenStore() {
+  return namedStore('xero-tokens');
+}
+
+function debtorStatusStore() {
+  return namedStore('debtor-status');
+}
+
+module.exports = { xeroTokenStore, debtorStatusStore };

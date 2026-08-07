@@ -149,6 +149,63 @@
   }
   .send-status { font-size: 13px; color: var(--muted); }
 
+  .debtors-panel {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 0 16px;
+  }
+  .debtors-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .debtors-header h2 { font-size: 16px; font-weight: 700; }
+  .debtors-header button { padding: 6px 12px; font-size: 13px; }
+  .debtors-table-wrap {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  table.debtors-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.debtors-table th {
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    padding: 10px 12px;
+    border-bottom: 1.5px solid var(--ink);
+    white-space: nowrap;
+  }
+  table.debtors-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  table.debtors-table tr:last-child td { border-bottom: none; }
+  table.debtors-table th.num, table.debtors-table td.num { text-align: right; }
+  table.debtors-table tr.status-stop td { background: #fff0f2; }
+  table.debtors-table tr.status-clear td { background: #f0faf4; }
+  table.debtors-table .name-cell { cursor: pointer; font-weight: 600; }
+  table.debtors-table .name-cell:hover { text-decoration: underline; }
+  .hold-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #fff3e0;
+    color: #e65100;
+    border: 1px solid #ffcc80;
+  }
+  .status-toggle { display: flex; gap: 4px; }
+  .status-toggle button { padding: 4px 8px; font-size: 10px; font-weight: 700; border-radius: 4px; }
+  .status-toggle .stop-btn { border-color: #f5c6cb; color: #d0021b; background: transparent; }
+  .status-toggle .stop-btn.on { background: #d0021b; color: #fff; border-color: #d0021b; }
+  .status-toggle .clear-btn { border-color: #b7dfca; color: #1a7a3c; background: transparent; }
+  .status-toggle .clear-btn.on { background: #1a7a3c; color: #fff; border-color: #1a7a3c; }
+
   .status-line {
     max-width: 900px;
     margin: 16px auto;
@@ -252,6 +309,31 @@
     <div class="picker">
       <input id="customerInput" type="text" placeholder="Search customer (e.g. FOOTLOCKER)…" autocomplete="off">
       <div id="customerResults" class="results" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div id="debtorsPanel" class="debtors-panel no-print">
+    <div class="debtors-header">
+      <h2>Outstanding Balances</h2>
+      <button onclick="loadDebtors()">Refresh</button>
+    </div>
+    <div id="debtorsStatus" class="status-line" style="margin:0 0 10px;"></div>
+    <div class="debtors-table-wrap">
+      <table class="debtors-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Name</th>
+            <th>Account No.</th>
+            <th>Email</th>
+            <th class="num">Stock on Hold</th>
+            <th class="num">Outstanding Balance</th>
+            <th class="num">Overdue</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="debtorsRows"></tbody>
+      </table>
     </div>
   </div>
 
@@ -379,9 +461,13 @@ const els = {
   recipientInput: document.getElementById('recipientInput'),
   sendBtn: document.getElementById('sendBtn'),
   sendStatus: document.getElementById('sendStatus'),
+  debtorsStatus: document.getElementById('debtorsStatus'),
+  debtorsRows: document.getElementById('debtorsRows'),
 };
 
 let customers = [];
+let debtors = [];
+let debtorStatusMap = {}; // contactId -> 'stop' | 'clear'
 let queue = []; // { id, accountNumber, name, country, status, data, recipientEmail, error }
 let activeCustomerId = null;
 let currentStatementData = null; // whatever's currently rendered in #sheet — used by the single-statement Send button
@@ -685,6 +771,250 @@ async function fetchOpenXeroInvoices(contactId) {
     if (rows.length < 100) break;
   }
   return all;
+}
+
+// ---------------------------------------------------------------------------
+// Debtors dashboard — org-wide (no ContactIDs filter) equivalents of the
+// above, for the "everyone with a balance" landing view.
+// ---------------------------------------------------------------------------
+
+async function fetchAllOpenInvoicesOrgWide() {
+  const all = [];
+  for (let page = 1; page <= 30; page++) {
+    const params = new URLSearchParams({ path: 'Invoices', where: 'Type=="ACCREC" && AmountDue>0', page: String(page) });
+    const res = await fetch(`${XERO_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.Detail || `Xero invoices fetch failed (${res.status})`);
+    const rows = data.Invoices || [];
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  return all;
+}
+
+// Xero's UI calls Status=="SUBMITTED" invoices "Awaiting Approval" — this is
+// the live equivalent of the AM "stock on hold" CSV export the old debtors
+// tool required uploading by hand.
+async function fetchSubmittedInvoicesOrgWide() {
+  const all = [];
+  for (let page = 1; page <= 30; page++) {
+    const params = new URLSearchParams({ path: 'Invoices', where: 'Type=="ACCREC" && Status=="SUBMITTED"', page: String(page) });
+    const res = await fetch(`${XERO_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.Detail || `Xero invoices fetch failed (${res.status})`);
+    const rows = data.Invoices || [];
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  return all;
+}
+
+// Invoice.Contact doesn't include EmailAddress — one batched lookup for just
+// the contacts that actually have a balance, rather than one call each.
+async function fetchContactsByIds(ids) {
+  if (ids.length === 0) return [];
+  const all = [];
+  const CHUNK = 50; // defensive — keeps the query string a sane length
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const params = new URLSearchParams({ path: 'Contacts', IDs: chunk.join(',') });
+    const res = await fetch(`${XERO_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.Detail || `Xero contacts fetch failed (${res.status})`);
+    all.push(...(data.Contacts || []));
+  }
+  return all;
+}
+
+// Fixed day-range buckets rather than the original tool's calendar-month
+// columns — simpler to compute correctly from DueDate alone. "Eligible for
+// stop-supply review" (61+ days) is the closest equivalent of the original
+// tool's "2+ months old" threshold.
+const AGING_BUCKETS = ['Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days'];
+function agingBucketFor(dueDate, asOf) {
+  if (!dueDate || dueDate >= asOf) return 'Current';
+  const daysOverdue = Math.floor((asOf - dueDate) / 86400000);
+  if (daysOverdue <= 30) return '1-30 Days';
+  if (daysOverdue <= 60) return '31-60 Days';
+  if (daysOverdue <= 90) return '61-90 Days';
+  return '90+ Days';
+}
+
+async function buildDebtorsList() {
+  const [openInvoices, submittedInvoices] = await Promise.all([
+    fetchAllOpenInvoicesOrgWide(),
+    fetchSubmittedInvoicesOrgWide(),
+  ]);
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const byContact = new Map();
+
+  for (const inv of openInvoices) {
+    const contactId = inv.Contact && inv.Contact.ContactID;
+    const name = inv.Contact && inv.Contact.Name;
+    if (!contactId || !name) continue;
+    if (!byContact.has(contactId)) {
+      byContact.set(contactId, {
+        contactId,
+        name,
+        total: 0,
+        overdue: 0,
+        holdTotal: 0,
+        buckets: Object.fromEntries(AGING_BUCKETS.map((b) => [b, 0])),
+      });
+    }
+    const entry = byContact.get(contactId);
+    const amountDue = inv.AmountDue || 0;
+    const bucket = agingBucketFor(xeroDate(inv.DueDate), today);
+    entry.total += amountDue;
+    entry.buckets[bucket] += amountDue;
+    if (bucket !== 'Current') entry.overdue += amountDue;
+  }
+
+  for (const inv of submittedInvoices) {
+    const contactId = inv.Contact && inv.Contact.ContactID;
+    if (!contactId || !byContact.has(contactId)) continue; // only relevant for customers already carrying a balance
+    byContact.get(contactId).holdTotal += (inv.Total || 0);
+  }
+
+  const contacts = await fetchContactsByIds(Array.from(byContact.keys()));
+  const emailByContactId = new Map(contacts.map((c) => [c.ContactID, c.EmailAddress]));
+
+  return Array.from(byContact.values())
+    .map((d) => {
+      const amCustomer = customers.find((c) => c.name === d.name);
+      return {
+        ...d,
+        email: emailByContactId.get(d.contactId) || '',
+        id: amCustomer ? amCustomer.id : null,
+        accountNumber: amCustomer ? amCustomer.accountNumber : null,
+        country: amCustomer ? amCustomer.country : null,
+      };
+    })
+    .sort((a, b) => b.overdue - a.overdue);
+}
+
+async function loadDebtorStatusMap() {
+  try {
+    const res = await fetch('/.netlify/functions/debtor-status');
+    debtorStatusMap = await res.json();
+  } catch {
+    debtorStatusMap = {}; // non-fatal — the dashboard just shows no marks yet
+  }
+}
+
+async function setDebtorStatus(contactId, status) {
+  const newStatus = debtorStatusMap[contactId] === status ? null : status; // clicking the active one clears it
+  if (newStatus) debtorStatusMap[contactId] = newStatus;
+  else delete debtorStatusMap[contactId];
+  renderDebtorsTable(); // optimistic — reflects immediately, corrected below if the save fails
+
+  try {
+    const res = await fetch('/.netlify/functions/debtor-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contactId, status: newStatus }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Save failed (${res.status})`);
+  } catch (err) {
+    setDebtorsStatus(`Failed to save status — try again: ${err.message}`, true);
+  }
+}
+
+async function loadDebtors() {
+  setDebtorsStatus('Loading outstanding balances from Xero…');
+  els.debtorsRows.innerHTML = '';
+  try {
+    const [list] = await Promise.all([buildDebtorsList(), loadDebtorStatusMap()]);
+    debtors = list;
+    renderDebtorsTable();
+    setDebtorsStatus('');
+  } catch (err) {
+    setDebtorsStatus(err.message, true);
+  }
+}
+
+function renderDebtorsTable() {
+  els.debtorsRows.innerHTML = '';
+  for (const d of debtors) {
+    const status = debtorStatusMap[d.contactId] || null;
+    const tr = document.createElement('tr');
+    tr.className = status ? `status-${status}` : '';
+
+    const checkboxTd = document.createElement('td');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    if (d.id) {
+      checkbox.checked = isQueued(d.id);
+      checkbox.onclick = () => toggleQueue({ id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country });
+    } else {
+      checkbox.disabled = true;
+      checkbox.title = 'No matching ApparelMagic customer found by name';
+    }
+    checkboxTd.appendChild(checkbox);
+
+    const nameTd = document.createElement('td');
+    nameTd.className = 'name-cell';
+    nameTd.textContent = d.name;
+    if (d.id) {
+      nameTd.onclick = () => selectCustomer({ id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country });
+    }
+
+    const acctTd = document.createElement('td');
+    acctTd.textContent = d.accountNumber ? `AM - C${d.accountNumber}` : '—';
+
+    const emailTd = document.createElement('td');
+    emailTd.textContent = d.email || '—';
+
+    const holdTd = document.createElement('td');
+    holdTd.className = 'num';
+    if (d.holdTotal > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'hold-badge';
+      badge.textContent = fmtMoney(d.holdTotal);
+      holdTd.appendChild(badge);
+    } else {
+      holdTd.textContent = '—';
+    }
+
+    const totalTd = document.createElement('td');
+    totalTd.className = 'num';
+    totalTd.textContent = fmtMoney(d.total);
+
+    const overdueTd = document.createElement('td');
+    overdueTd.className = 'num';
+    overdueTd.textContent = fmtMoney(d.overdue);
+
+    const statusTd = document.createElement('td');
+    const toggle = document.createElement('div');
+    toggle.className = 'status-toggle';
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'stop-btn' + (status === 'stop' ? ' on' : '');
+    stopBtn.textContent = 'Stop';
+    stopBtn.onclick = () => setDebtorStatus(d.contactId, 'stop');
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'clear-btn' + (status === 'clear' ? ' on' : '');
+    clearBtn.textContent = 'Clear';
+    clearBtn.onclick = () => setDebtorStatus(d.contactId, 'clear');
+    toggle.appendChild(stopBtn);
+    toggle.appendChild(clearBtn);
+    statusTd.appendChild(toggle);
+
+    tr.appendChild(checkboxTd);
+    tr.appendChild(nameTd);
+    tr.appendChild(acctTd);
+    tr.appendChild(emailTd);
+    tr.appendChild(holdTd);
+    tr.appendChild(totalTd);
+    tr.appendChild(overdueTd);
+    tr.appendChild(statusTd);
+    els.debtorsRows.appendChild(tr);
+  }
+}
+
+function setDebtorsStatus(msg, isError) {
+  els.debtorsStatus.textContent = msg;
+  els.debtorsStatus.classList.toggle('error', !!isError);
 }
 
 // Builds the full data object a statement needs (join of AM invoices to
@@ -1034,7 +1364,15 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.picker')) els.results.style.display = 'none';
 });
 
-loadCustomers().catch((err) => setStatus(`Failed to load customers: ${err.message}`, true));
+async function init() {
+  try {
+    await loadCustomers();
+  } catch (err) {
+    setStatus(`Failed to load customers: ${err.message}`, true);
+  }
+  loadDebtors(); // needs the AM customer cache above for account-number matching
+}
+init();
 </script>
 </body>
 </html>
