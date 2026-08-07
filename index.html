@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KOH Industries — Statement Builder</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     --ink: #1a1a1a;
@@ -266,6 +267,7 @@
 
   <div id="printActions" class="actions no-print" style="display:none;">
     <button class="primary" onclick="window.print()">Print / Save as PDF</button>
+    <button onclick="exportStatementXlsx()">Export xlsx</button>
     <button onclick="resetToPicker()">Change customer</button>
   </div>
 
@@ -504,6 +506,8 @@ async function sendQueueItem(item) {
       recipientEmail: item.recipientEmail,
       balanceDue: total,
       invoiceCount: rows.length,
+      invoicePdfs: invoicePdfList(rows),
+      currency: currencyFor(item.data.country),
     });
     item.status = 'sent';
   } catch (err) {
@@ -719,6 +723,7 @@ async function buildStatementData(customer) {
         invoiceNumber: am ? am.invoice_id : xi.InvoiceNumber,
         poNumber: am ? am.customer_po : '',
         matched: !!am,
+        printUrl: am ? am.print_url : null,
         amount: xi.Total,
         payments: (xi.Total || 0) - (xi.AmountDue || 0),
         balance: xi.AmountDue,
@@ -811,9 +816,54 @@ function renderStatement(data) {
 }
 
 // ---------------------------------------------------------------------------
+// xlsx export — same rows/columns as the on-screen table.
+// ---------------------------------------------------------------------------
+
+function exportStatementXlsx() {
+  if (!currentStatementData) return;
+  const { rows, total } = computeAging(currentStatementData.invoices);
+  const currency = currencyFor(currentStatementData.country);
+  const moneyFmt = '$#,##0.00';
+
+  const aoa = [
+    ['Date', 'Invoice #', 'PO Number', 'Due Date', 'Invoice Amount', 'Payments', `Balance ${currency}`],
+    ...rows.map((r) => [
+      fmtDate(r.date),
+      String(r.invoiceNumber),
+      r.poNumber || '',
+      fmtDate(r.dueDate),
+      Number((r.amount || 0).toFixed(2)),
+      Number((r.payments || 0).toFixed(2)),
+      Number((r.balance || 0).toFixed(2)),
+    ]),
+    [],
+    ['', '', '', '', '', `Balance Due ${currency}`, Number(total.toFixed(2))],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+  for (let r = 1; r <= rows.length; r++) {
+    for (const col of ['E', 'F', 'G']) {
+      const cell = ws[`${col}${r + 1}`];
+      if (cell) cell.z = moneyFmt;
+    }
+  }
+  const totalCell = ws[`G${rows.length + 3}`];
+  if (totalCell) totalCell.z = moneyFmt;
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Statement');
+  XLSX.writeFile(wb, `Statement - ${currentStatementData.customerName} - ${fmtDate(new Date())}.xlsx`);
+}
+
+// ---------------------------------------------------------------------------
 // Emailing — captures the *already-rendered* #sheet exactly as it appears
 // on screen/print (same markup, same <style> block) so the PDF attachment
 // is guaranteed pixel-identical to what Print/Save as PDF already produces.
+// Also attaches each underlying invoice's real ApparelMagic PDF (fetched via
+// its print_url, already returned on the AM invoice record — the PDFShift
+// call for these passes that URL straight through as the "source" instead
+// of raw HTML).
 // ---------------------------------------------------------------------------
 
 function captureSheetHtml() {
@@ -822,11 +872,17 @@ function captureSheetHtml() {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">${styleHtml}</head><body>${sheetHtml}</body></html>`;
 }
 
-async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount }) {
+function invoicePdfList(rows) {
+  return rows
+    .filter((r) => r.matched && r.printUrl)
+    .map((r) => ({ invoiceNumber: r.invoiceNumber, printUrl: r.printUrl }));
+}
+
+async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency }) {
   const res = await fetch('/.netlify/functions/send-statement', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount }),
+    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
@@ -849,6 +905,8 @@ async function sendCurrentStatement() {
       recipientEmail: email,
       balanceDue: total,
       invoiceCount: rows.length,
+      invoicePdfs: invoicePdfList(rows),
+      currency: currencyFor(currentStatementData.country),
     });
     setSendStatus('Sent ✓');
   } catch (err) {
