@@ -1,6 +1,6 @@
 const JSZip = require('jszip');
+const { pdfFromSource } = require('./lib/pdf');
 
-const PDFSHIFT_URL = 'https://api.pdfshift.io/v3/convert/pdf';
 const RESEND_URL = 'https://api.resend.com/emails';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -36,24 +36,6 @@ ${invoiceCopiesLine}
 </table>`;
 }
 
-// PDFShift's `source` field accepts either raw HTML or a URL it fetches
-// itself — used both ways here: the statement (HTML we built) and each
-// underlying ApparelMagic invoice (its existing print_url, fetched directly).
-async function pdfFromSource(source) {
-  const apiKey = (process.env.PDFSHIFT_API_KEY || '').trim();
-  const res = await fetch(PDFSHIFT_URL, {
-    method: 'POST',
-    headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source, format: 'A4' }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`PDFShift failed (${res.status}): ${text.slice(0, 300)}`);
-  }
-  const buf = Buffer.from(await res.arrayBuffer());
-  return buf.toString('base64');
-}
-
 // Fetches each underlying AM invoice PDF in parallel (one slow/failed
 // invoice shouldn't block the statement email from going out, so failures
 // are just dropped rather than failing the whole send), then bundles them
@@ -84,7 +66,7 @@ async function buildInvoicesZipAttachment(invoicePdfs, customerName) {
   };
 }
 
-async function sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, balanceDue, invoiceCount, currency }) {
+async function sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, invoiceCount, currency }) {
   const apiKey = (process.env.RESEND_API_KEY || '').trim();
   const from = (process.env.STATEMENTS_FROM_EMAIL || '').trim();
 
@@ -95,6 +77,13 @@ async function sendEmail({ recipientEmail, customerName, statementPdfBase64, inv
       content_type: 'application/pdf',
     },
   ];
+  if (xlsxBase64) {
+    attachments.push({
+      filename: `Statement - ${customerName}.xlsx`,
+      content: xlsxBase64,
+      content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+  }
   if (invoicesZip) {
     attachments.push({ filename: invoicesZip.filename, content: invoicesZip.content, content_type: invoicesZip.content_type });
   }
@@ -135,7 +124,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency } = body;
+    const { html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64 } = body;
     if (!html || !customerName || !recipientEmail) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing html, customerName, or recipientEmail' }) };
     }
@@ -147,7 +136,7 @@ exports.handler = async (event) => {
       pdfFromSource(html),
       buildInvoicesZipAttachment(invoicePdfs, customerName),
     ]);
-    const result = await sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, balanceDue, invoiceCount, currency });
+    const result = await sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, invoiceCount, currency });
 
     return {
       statusCode: 200,

@@ -258,7 +258,10 @@
   <div id="queuePanel" class="queue-panel no-print" style="display:none;">
     <div class="queue-panel-header">
       <span id="queueSummary"></span>
-      <button class="primary" onclick="sendAllReady()">Send All Ready</button>
+      <div style="display:flex; gap:8px;">
+        <button id="downloadSelectedBtn" onclick="downloadQueueSelected()">Download Selected</button>
+        <button class="primary" onclick="sendAllReady()">Send All Ready</button>
+      </div>
     </div>
     <div id="queueList"></div>
   </div>
@@ -268,6 +271,7 @@
   <div id="printActions" class="actions no-print" style="display:none;">
     <button class="primary" onclick="window.print()">Print / Save as PDF</button>
     <button onclick="exportStatementXlsx()">Export xlsx</button>
+    <button id="downloadFilesBtn" onclick="downloadCurrentStatementFiles()">Download Files</button>
     <button onclick="resetToPicker()">Change customer</button>
   </div>
 
@@ -501,12 +505,10 @@ async function sendQueueItem(item) {
 
   try {
     await sendStatementEmail({
-      html: captureSheetHtml(),
-      customerName: item.data.customerName,
+      ...statementExportPayload(item.data),
       recipientEmail: item.recipientEmail,
       balanceDue: total,
       invoiceCount: rows.length,
-      invoicePdfs: invoicePdfList(rows),
       currency: currencyFor(item.data.country),
     });
     item.status = 'sent';
@@ -819,10 +821,9 @@ function renderStatement(data) {
 // xlsx export — same rows/columns as the on-screen table.
 // ---------------------------------------------------------------------------
 
-function exportStatementXlsx() {
-  if (!currentStatementData) return;
-  const { rows, total } = computeAging(currentStatementData.invoices);
-  const currency = currencyFor(currentStatementData.country);
+function buildStatementWorkbook(data) {
+  const { rows, total } = computeAging(data.invoices);
+  const currency = currencyFor(data.country);
   const moneyFmt = '$#,##0.00';
 
   const aoa = [
@@ -853,7 +854,18 @@ function exportStatementXlsx() {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Statement');
+  return wb;
+}
+
+function exportStatementXlsx() {
+  if (!currentStatementData) return;
+  const wb = buildStatementWorkbook(currentStatementData);
   XLSX.writeFile(wb, `Statement - ${currentStatementData.customerName} - ${fmtDate(new Date())}.xlsx`);
+}
+
+function buildStatementXlsxBase64(data) {
+  const wb = buildStatementWorkbook(data);
+  return XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
 }
 
 // ---------------------------------------------------------------------------
@@ -878,11 +890,94 @@ function invoicePdfList(rows) {
     .map((r) => ({ invoiceNumber: r.invoiceNumber, printUrl: r.printUrl }));
 }
 
-async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency }) {
+// ---------------------------------------------------------------------------
+// File downloads — one customer or a whole queue at once, same server
+// endpoint either way. A POST response can't be a plain link, so the file
+// is fetched as a blob and "clicked" via a throwaway anchor element.
+// ---------------------------------------------------------------------------
+
+function statementExportPayload(data) {
+  const { rows } = computeAging(data.invoices);
+  return {
+    customerName: data.customerName,
+    html: captureSheetHtml(),
+    xlsxBase64: buildStatementXlsxBase64(data),
+    invoicePdfs: invoicePdfList(rows),
+  };
+}
+
+async function downloadFilesBundle(customers) {
+  const res = await fetch('/.netlify/functions/export-files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customers }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Download failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const match = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : 'Statements.zip';
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadCurrentStatementFiles() {
+  if (!currentStatementData) return;
+  const btn = document.getElementById('downloadFilesBtn');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Downloading…';
+  try {
+    await downloadFilesBundle([statementExportPayload(currentStatementData)]);
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+async function downloadQueueSelected() {
+  const ready = queue.filter((c) => c.status === 'ready');
+  if (ready.length === 0) return;
+
+  const btn = document.getElementById('downloadSelectedBtn');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Downloading…';
+
+  try {
+    // Renders each queued customer into the visible sheet in turn to build
+    // its export payload — same sequential pattern sendAllReady() already
+    // uses, then one combined download at the end instead of N sends.
+    const customers = [];
+    for (const item of ready) {
+      renderStatement(item.data);
+      customers.push(statementExportPayload(item.data));
+    }
+    await downloadFilesBundle(customers);
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64 }) {
   const res = await fetch('/.netlify/functions/send-statement', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency }),
+    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64 }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
@@ -900,12 +995,10 @@ async function sendCurrentStatement() {
 
   try {
     await sendStatementEmail({
-      html: captureSheetHtml(),
-      customerName: currentStatementData.customerName,
+      ...statementExportPayload(currentStatementData),
       recipientEmail: email,
       balanceDue: total,
       invoiceCount: rows.length,
-      invoicePdfs: invoicePdfList(rows),
       currency: currencyFor(currentStatementData.country),
     });
     setSendStatus('Sent ✓');
