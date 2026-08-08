@@ -2,7 +2,7 @@ const { xeroTokenStore } = require('./lib/blob-store');
 
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0';
-const ALLOWED = ['Contacts', 'Invoices'];
+const ALLOWED = ['Contacts', 'Invoices', 'CreditNotes'];
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 function basicAuthHeader(clientId, clientSecret) {
