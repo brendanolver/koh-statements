@@ -772,13 +772,14 @@ async function sendQueueItem(item) {
   // during a batch send, which is intentional: it's visible proof of what's
   // being sent, not a distraction to hide.
   renderStatement(item.data);
-  const { total, rows } = computeAging(item.data.invoices);
+  const { total, overdue, rows } = computeAging(item.data.invoices);
 
   try {
     await sendStatementEmail({
       ...statementExportPayload(item.data),
       recipientEmail: item.recipientEmail,
       balanceDue: total,
+      overdue,
       invoiceCount: rows.length,
       currency: currencyFor(item.data.country),
     });
@@ -1647,6 +1648,7 @@ async function buildStatementData(customer) {
     addr1: sample.address_1 || '',
     addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
     recipientEmail: xeroContact.EmailAddress || '',
+    contactFirstName: xeroContact.FirstName || '',
     // Xero supports multiple named "Contact Persons" per contact, each with
     // their own email, separate from the one primary EmailAddress — none of
     // KOH's customers have this populated yet, but CC them automatically
@@ -1849,6 +1851,7 @@ function statementExportPayload(data) {
   const { rows } = computeAging(data.invoices);
   return {
     customerName: data.customerName,
+    contactFirstName: data.contactFirstName || '',
     html: captureSheetHtml(),
     xlsxBase64: buildStatementXlsxBase64(data),
     invoicePdfs: invoicePdfList(rows),
@@ -1923,11 +1926,11 @@ async function downloadQueueSelected() {
   }
 }
 
-async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }) {
+async function sendStatementEmail({ html, customerName, contactFirstName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }) {
   const res = await fetch('/.netlify/functions/send-statement', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }),
+    body: JSON.stringify({ html, customerName, contactFirstName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
@@ -1941,13 +1944,14 @@ async function sendCurrentStatement() {
 
   els.sendBtn.disabled = true;
   setSendStatus('Sending…');
-  const { total, rows } = computeAging(currentStatementData.invoices);
+  const { total, overdue, rows } = computeAging(currentStatementData.invoices);
 
   try {
     await sendStatementEmail({
       ...statementExportPayload(currentStatementData),
       recipientEmail: email,
       balanceDue: total,
+      overdue,
       invoiceCount: rows.length,
       currency: currencyFor(currentStatementData.country),
     });
