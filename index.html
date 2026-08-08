@@ -704,6 +704,13 @@ async function selectAllOverdue() {
     renderQueue();
     renderCustomersTable();
     await prepareQueueItem(item);
+    // Going fully sequential (previous fix) removed *overlapping* Xero
+    // calls, but sequential-but-fast still adds up to a high enough call
+    // rate to trip Xero's per-minute limit over a large batch (confirmed
+    // against a real 38-customer run — same customers failed every time,
+    // each fine in isolation). This explicit pause, on top of the
+    // credit-notes caching fix above, keeps the overall rate well clear.
+    await new Promise((r) => setTimeout(r, 800));
   }
 }
 
@@ -714,7 +721,18 @@ function removeFromQueue(id) {
 
 async function prepareQueueItem(item) {
   try {
-    const data = await buildStatementData(item);
+    let data;
+    try {
+      data = await buildStatementData(item);
+    } catch (err) {
+      // One retry after a pause — a transient Xero rate-limit hit (e.g.
+      // "Unexpected end of JSON input" from a truncated response) is
+      // common enough in a large batch that it's worth a single automatic
+      // retry rather than immediately surfacing as a failure the user has
+      // to manually re-click.
+      await new Promise((r) => setTimeout(r, 3000));
+      data = await buildStatementData(item);
+    }
     item.data = data;
     item.recipientEmail = data.recipientEmail;
     item.status = data.invoices.length ? 'ready' : 'empty';
@@ -1030,7 +1048,24 @@ async function fetchAllOpenInvoicesOrgWide() {
 // endpoint (tested live — both silently no-op), and there are only a
 // couple dozen of these org-wide, so fetch once, unfiltered, and match by
 // contact client-side, same as the org-wide invoice fetches already do.
+// Cached — this exact org-wide, unfiltered-by-contact result is identical
+// no matter which customer is asking for it, so buildStatementData calling
+// it once per customer (as it must, since there's no per-contact filter
+// that works) was silently making one fully redundant Xero call per
+// customer. Harmless for a single lookup, but a real problem in bulk: a
+// 38-customer "Select All Overdue" run was making ~38 identical extra Xero
+// calls on top of the ~76 genuinely necessary ones, and that combined
+// volume was enough to trip Xero's rate limit partway through (confirmed —
+// the same customers failed consistently, but each worked fine tested in
+// isolation). 60s TTL keeps it fresh without re-fetching mid-batch.
+let creditNotesCache = null;
+let creditNotesCacheAt = 0;
+const CREDIT_NOTES_CACHE_TTL_MS = 60 * 1000;
+
 async function fetchOutstandingCreditNotesOrgWide() {
+  if (creditNotesCache && Date.now() - creditNotesCacheAt < CREDIT_NOTES_CACHE_TTL_MS) {
+    return creditNotesCache;
+  }
   const all = [];
   for (let page = 1; page <= 10; page++) {
     const params = new URLSearchParams({
@@ -1045,6 +1080,8 @@ async function fetchOutstandingCreditNotesOrgWide() {
     all.push(...rows);
     if (rows.length < 100) break;
   }
+  creditNotesCache = all;
+  creditNotesCacheAt = Date.now();
   return all;
 }
 
