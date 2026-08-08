@@ -66,7 +66,7 @@ async function buildInvoicesZipAttachment(invoicePdfs, customerName) {
   };
 }
 
-async function sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, invoiceCount, currency }) {
+async function sendEmail({ recipientEmail, ccEmails, customerName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, invoiceCount, currency }) {
   const apiKey = (process.env.RESEND_API_KEY || '').trim();
   const from = (process.env.STATEMENTS_FROM_EMAIL || '').trim();
 
@@ -88,17 +88,22 @@ async function sendEmail({ recipientEmail, customerName, statementPdfBase64, inv
     attachments.push({ filename: invoicesZip.filename, content: invoicesZip.content, content_type: invoicesZip.content_type });
   }
 
+  const payload = {
+    from,
+    to: recipientEmail,
+    reply_to: 'brendan@kohindustries.com',
+    subject: `Statement from KOH Industries — ${customerName}`,
+    html: emailBodyHtml({ customerName, balanceDue, invoiceCount, attachedInvoiceCount: invoicesZip ? invoicesZip.count : 0, currency }),
+    attachments,
+  };
+  if (Array.isArray(ccEmails) && ccEmails.length > 0) {
+    payload.cc = ccEmails;
+  }
+
   const res = await fetch(RESEND_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to: recipientEmail,
-      reply_to: 'brendan@kohindustries.com',
-      subject: `Statement from KOH Industries — ${customerName}`,
-      html: emailBodyHtml({ customerName, balanceDue, invoiceCount, attachedInvoiceCount: invoicesZip ? invoicesZip.count : 0, currency }),
-      attachments,
-    }),
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -124,19 +129,20 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64 } = body;
+    const { html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails } = body;
     if (!html || !customerName || !recipientEmail) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing html, customerName, or recipientEmail' }) };
     }
     if (!EMAIL_RE.test(recipientEmail)) {
       return { statusCode: 400, body: JSON.stringify({ error: `"${recipientEmail}" doesn't look like a valid email address` }) };
     }
+    const validCcEmails = Array.isArray(ccEmails) ? ccEmails.filter((e) => EMAIL_RE.test(e)) : [];
 
     const [statementPdfBase64, invoicesZip] = await Promise.all([
       pdfFromSource(html),
       buildInvoicesZipAttachment(invoicePdfs, customerName),
     ]);
-    const result = await sendEmail({ recipientEmail, customerName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, invoiceCount, currency });
+    const result = await sendEmail({ recipientEmail, ccEmails: validCcEmails, customerName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, invoiceCount, currency });
 
     return {
       statusCode: 200,

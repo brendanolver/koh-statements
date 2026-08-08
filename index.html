@@ -538,6 +538,7 @@
 
   <div id="sendActions" class="send-row no-print" style="display:none;">
     <input id="recipientInput" type="email" placeholder="customer@email.com">
+    <span id="ccIndicator" class="send-status"></span>
     <button class="primary" id="sendBtn" onclick="sendCurrentStatement()">Send Statement</button>
     <span id="sendStatus" class="send-status"></span>
   </div>
@@ -641,6 +642,7 @@ const els = {
   recipientInput: document.getElementById('recipientInput'),
   sendBtn: document.getElementById('sendBtn'),
   sendStatus: document.getElementById('sendStatus'),
+  ccIndicator: document.getElementById('ccIndicator'),
   debtorsStatus: document.getElementById('debtorsStatus'),
   debtorsRows: document.getElementById('debtorsRows'),
   customersRows: document.getElementById('customersRows'),
@@ -1594,6 +1596,11 @@ async function buildStatementData(customer) {
     addr1: sample.address_1 || '',
     addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
     recipientEmail: xeroContact.EmailAddress || '',
+    // Xero supports multiple named "Contact Persons" per contact, each with
+    // their own email, separate from the one primary EmailAddress — none of
+    // KOH's customers have this populated yet, but CC them automatically
+    // the moment someone adds one (e.g. a specific AP contact) in Xero.
+    ccEmails: (xeroContact.ContactPersons || []).map((p) => p.EmailAddress).filter(Boolean),
     invoices: xeroInvoices.map((xi) => {
       const am = amByXeroId.get(String(xi.InvoiceID).toLowerCase());
       return {
@@ -1694,6 +1701,7 @@ function renderStatement(data) {
   els.printActions.style.display = 'flex';
   els.sendActions.style.display = 'flex';
   els.recipientInput.value = data.recipientEmail || '';
+  els.ccIndicator.textContent = (data.ccEmails && data.ccEmails.length) ? `+ CC: ${data.ccEmails.join(', ')}` : '';
   setSendStatus('');
 }
 
@@ -1783,6 +1791,7 @@ function statementExportPayload(data) {
     html: captureSheetHtml(),
     xlsxBase64: buildStatementXlsxBase64(data),
     invoicePdfs: invoicePdfList(rows),
+    ccEmails: data.ccEmails || [],
   };
 }
 
@@ -1853,11 +1862,11 @@ async function downloadQueueSelected() {
   }
 }
 
-async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64 }) {
+async function sendStatementEmail({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }) {
   const res = await fetch('/.netlify/functions/send-statement', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64 }),
+    body: JSON.stringify({ html, customerName, recipientEmail, balanceDue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
