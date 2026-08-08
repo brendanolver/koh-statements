@@ -515,7 +515,7 @@
           <tr>
             <th></th>
             <th class="sortable" data-sort="name" onclick="setDebtorsSort('name')">Name<span class="sort-arrow"></span></th>
-            <th>Account No.</th>
+            <th class="sortable" data-sort="accountNumber" onclick="setDebtorsSort('accountNumber')">Account No.<span class="sort-arrow"></span></th>
             <th>Email</th>
             <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')">Stock on Hold<span class="sort-arrow"></span></th>
             <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')">Outstanding Balance<span class="sort-arrow"></span></th>
@@ -841,7 +841,13 @@ async function loadCustomers() {
 function renderResults(query) {
   const q = query.trim().toLowerCase();
   if (!q) { els.results.style.display = 'none'; return; }
-  const matches = customers.filter((c) => c.name && c.name.toLowerCase().includes(q)).slice(0, 20);
+  const matches = customers.filter((c) => {
+    if (c.name && c.name.toLowerCase().includes(q)) return true;
+    if (!c.accountNumber) return false;
+    const acctRaw = String(c.accountNumber).toLowerCase();
+    const acctFormatted = `am - c${acctRaw}`;
+    return acctRaw.includes(q) || acctFormatted.includes(q);
+  }).slice(0, 20);
 
   els.results.innerHTML = '';
   if (matches.length === 0) {
@@ -864,9 +870,16 @@ function renderResults(query) {
 
       const label = document.createElement('span');
       label.textContent = c.name;
+      label.style.flex = '1';
+
+      const acctLabel = document.createElement('span');
+      acctLabel.textContent = c.accountNumber ? `AM - C${c.accountNumber}` : '';
+      acctLabel.style.color = 'var(--muted)';
+      acctLabel.style.fontSize = '12px';
 
       row.appendChild(checkbox);
       row.appendChild(label);
+      row.appendChild(acctLabel);
       // Clicking the row itself (not the checkbox) renders immediately and
       // makes sure this customer is in the queue too, matching how a single
       // lookup worked before the queue existed.
@@ -1240,7 +1253,7 @@ function setDebtorsSort(field) {
     debtorsSortDir = debtorsSortDir === 'asc' ? 'desc' : 'asc';
   } else {
     debtorsSortField = field;
-    debtorsSortDir = field === 'name' ? 'asc' : 'desc'; // money columns default highest-first, name default A-Z
+    debtorsSortDir = (field === 'name' || field === 'accountNumber') ? 'asc' : 'desc'; // money columns default highest-first, identifier columns default ascending
   }
   renderCustomersTable(); // sorting only affects the Statements-tab customer list
 }
