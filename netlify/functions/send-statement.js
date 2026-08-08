@@ -5,7 +5,9 @@ const RESEND_URL = 'https://api.resend.com/emails';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function fmtMoney(n) {
-  return '$' + Number(n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const v = Number(n || 0);
+  const abs = Math.abs(v).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v < 0 ? `($${abs})` : `$${abs}`;
 }
 
 // Table-based, inline-styled — arbitrary CSS (flexbox/grid, like the full

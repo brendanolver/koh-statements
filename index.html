@@ -936,7 +936,9 @@ function fmtDate(d) {
 }
 
 function fmtMoney(n) {
-  return '$' + (n || 0).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const v = n || 0;
+  const abs = Math.abs(v).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v < 0 ? `($${abs})` : `$${abs}`;
 }
 
 function fmtMoneyWithCurrency(n, country) {
@@ -975,6 +977,31 @@ async function fetchAllOpenInvoicesOrgWide() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || data.Detail || `Xero invoices fetch failed (${res.status})`);
     const rows = data.Invoices || [];
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  return all;
+}
+
+// Unallocated/partially-allocated credit notes — a customer with a $686.97
+// credit sitting against their account isn't reflected in any invoice's
+// AmountDue, so without this they'd silently vanish from every balance
+// figure. No ContactID/ContactIDs filter param actually works on this Xero
+// endpoint (tested live — both silently no-op), and there are only a
+// couple dozen of these org-wide, so fetch once, unfiltered, and match by
+// contact client-side, same as the org-wide invoice fetches already do.
+async function fetchOutstandingCreditNotesOrgWide() {
+  const all = [];
+  for (let page = 1; page <= 10; page++) {
+    const params = new URLSearchParams({
+      path: 'CreditNotes',
+      where: 'Type=="ACCRECCREDIT" && Status=="AUTHORISED" && RemainingCredit>0',
+      page: String(page),
+    });
+    const res = await fetch(`${XERO_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.Detail || `Xero credit notes fetch failed (${res.status})`);
+    const rows = data.CreditNotes || [];
     all.push(...rows);
     if (rows.length < 100) break;
   }
@@ -1046,9 +1073,10 @@ function fmtAsAtDate(d) {
 }
 
 async function buildDebtorsList() {
-  const [openInvoices, submittedInvoices] = await Promise.all([
+  const [openInvoices, submittedInvoices, creditNotes] = await Promise.all([
     fetchAllOpenInvoicesOrgWide(),
     fetchSubmittedInvoicesOrgWide(),
+    fetchOutstandingCreditNotesOrgWide(),
   ]);
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -1073,6 +1101,27 @@ async function buildDebtorsList() {
     // bucketing below, which exists specifically to replicate the original
     // tool's report.
     if (dueDate && dueDate < today) entry.overdue += amountDue;
+  }
+
+  // Credit notes reduce Total and net into their own invoice-date bucket
+  // (exactly how Xero's own Aged Receivables report treats them — confirmed
+  // against the original tool's reference data, e.g. a 2020 credit note
+  // showing as a negative figure in the "Older" column). They deliberately
+  // do NOT reduce "Overdue" — a credit note has no due date, so which
+  // specific overdue invoice it offsets isn't something to guess at here;
+  // same treatment as the statement's own Current/Overdue split below.
+  for (const cn of creditNotes) {
+    const contactId = cn.Contact && cn.Contact.ContactID;
+    const name = cn.Contact && cn.Contact.Name;
+    if (!contactId || !name) continue;
+    if (!byContact.has(contactId)) {
+      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0] });
+    }
+    const entry = byContact.get(contactId);
+    const remaining = -(cn.RemainingCredit || 0);
+    const bucketIdx = invoiceBucketIndex(xeroDate(cn.Date), today);
+    entry.total += remaining;
+    entry.buckets[bucketIdx] += remaining;
   }
 
   for (const inv of submittedInvoices) {
@@ -1571,9 +1620,10 @@ function emailDebtorsList() {
 // lookup and to background-prep each queued customer for a batch send —
 // single source of truth so the two paths can't drift apart.
 async function buildStatementData(customer) {
-  const [amInvoices, xeroContact] = await Promise.all([
+  const [amInvoices, xeroContact, allCreditNotes] = await Promise.all([
     fetchAllAmInvoices(customer.accountNumber),
     findXeroContact(customer.name),
+    fetchOutstandingCreditNotesOrgWide(),
   ]);
 
   const amByXeroId = new Map();
@@ -1582,6 +1632,7 @@ async function buildStatementData(customer) {
   }
 
   const xeroInvoices = await fetchOpenXeroInvoices(xeroContact.ContactID);
+  const creditNotes = allCreditNotes.filter((cn) => cn.Contact && cn.Contact.ContactID === xeroContact.ContactID);
 
   // Address block: AM's ship-to fields on the invoice itself (matches what
   // the current Xero statement actually shows — not the Xero contact's
@@ -1614,7 +1665,17 @@ async function buildStatementData(customer) {
         payments: (xi.Total || 0) - (xi.AmountDue || 0),
         balance: xi.AmountDue,
       };
-    }),
+    }).concat(creditNotes.map((cn) => ({
+      date: xeroDate(cn.Date),
+      dueDate: null, // credit notes have no due date — nets into "Current", not "Overdue" (see computeAging)
+      invoiceNumber: cn.CreditNoteNumber,
+      poNumber: '',
+      matched: true, // no AM equivalent is ever expected for a credit note — not a data gap worth flagging
+      printUrl: null,
+      amount: -(cn.RemainingCredit || 0),
+      payments: 0,
+      balance: -(cn.RemainingCredit || 0),
+    }))),
   };
 }
 
@@ -1712,7 +1773,7 @@ function renderStatement(data) {
 function buildStatementWorkbook(data) {
   const { rows, total } = computeAging(data.invoices);
   const currency = currencyFor(data.country);
-  const moneyFmt = '$#,##0.00'; // currency only shown once, in the header/footer labels below — not per cell
+  const moneyFmt = '$#,##0.00;($#,##0.00)'; // currency only shown once, in the header/footer labels below — not per cell
 
   const aoa = [
     ['Date', 'Invoice #', 'PO Number', 'Due Date', 'Invoice Amount', 'Payments', `Balance ${currency}`],
