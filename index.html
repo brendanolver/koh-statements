@@ -686,17 +686,24 @@ function toggleQueue(customer) {
 
 // Queues every customer with a genuine overdue balance (skipping anyone
 // already queued, and anyone with no AM match — same as the per-row
-// checkbox, which is disabled in that case too). Staggered rather than
-// fired all at once: each addition kicks off its own Xero/AM fetch in the
-// background, and with 30-40+ overdue customers a simultaneous burst risks
-// tripping Xero's API rate limit — small delay between each keeps it well
-// under that without meaningfully slowing down the overall selection.
+// checkbox, which is disabled in that case too).
+//
+// Deliberately awaits each customer's prepareQueueItem fully before
+// starting the next, rather than firing them all in the background —
+// verified against a real run of 38 overdue customers: a 150ms stagger
+// between *starting* each fetch still let many overlap mid-flight (each
+// one makes several sequential Xero calls internally), and 17 of the 38
+// failed with truncated/empty responses — Xero's API rate/concurrency
+// limit being tripped. Fully sequential is slower but reliable; the queue
+// panel already shows live per-row progress, so there's nothing to wait on.
 async function selectAllOverdue() {
   const targets = debtors.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id));
   for (const d of targets) {
-    toggleQueue({ id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country });
+    const item = { id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country, status: 'loading', data: null, recipientEmail: '', error: '' };
+    queue.push(item);
+    renderQueue();
     renderCustomersTable();
-    await new Promise((r) => setTimeout(r, 150));
+    await prepareQueueItem(item);
   }
 }
 
