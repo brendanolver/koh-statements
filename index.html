@@ -508,7 +508,10 @@
   </div>
 
   <div class="customers-panel no-print">
-    <div class="sec-title">All Customers</div>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+      <div class="sec-title" style="margin-bottom:0;">All Customers</div>
+      <button onclick="selectAllOverdue()">Select All Overdue</button>
+    </div>
     <div class="debtors-table-wrap">
       <table class="debtors-table">
         <thead>
@@ -679,6 +682,22 @@ function toggleQueue(customer) {
     prepareQueueItem(item);
   }
   renderQueue();
+}
+
+// Queues every customer with a genuine overdue balance (skipping anyone
+// already queued, and anyone with no AM match — same as the per-row
+// checkbox, which is disabled in that case too). Staggered rather than
+// fired all at once: each addition kicks off its own Xero/AM fetch in the
+// background, and with 30-40+ overdue customers a simultaneous burst risks
+// tripping Xero's API rate limit — small delay between each keeps it well
+// under that without meaningfully slowing down the overall selection.
+async function selectAllOverdue() {
+  const targets = debtors.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id));
+  for (const d of targets) {
+    toggleQueue({ id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country });
+    renderCustomersTable();
+    await new Promise((r) => setTimeout(r, 150));
+  }
 }
 
 function removeFromQueue(id) {
