@@ -2504,6 +2504,14 @@ function defaultGreetingName(agentName) {
   return last.trim().split(' ')[0] || agentName;
 }
 
+// AM's own invoice.date field is US-format (MM/DD/YYYY) — converts from the
+// unambiguous date_internal (YYYY-MM-DD) instead of parsing that string, so
+// there's no risk of misreading e.g. 07/08 as either date.
+function isoToDmy(iso) {
+  const parts = String(iso || '').split('-');
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : '';
+}
+
 // Flattens invoices to one row per (invoice, commission-line) — an invoice
 // can carry more than one agent's commission — then groups agent -> customer,
 // matching the shape of AM's own report. amount_commission is already in the
@@ -2533,7 +2541,7 @@ function buildCommissionReport(invoices, salespeople) {
       // matching the invoice's own commission amount to the cent).
       cust.invoices.push({
         invoiceNum: inv.invoice_id,
-        date: inv.date,
+        date: isoToDmy(inv.date_internal),
         po: inv.customer_po || '',
         rate: c.rate,
         transBalance: Number(inv.amount || 0),
