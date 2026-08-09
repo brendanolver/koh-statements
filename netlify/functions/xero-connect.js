@@ -6,7 +6,9 @@ const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 // Notes live under accounting.transactions. Corrected here, and upgraded to
 // the non-.read variants for write access (Bills Import pushing bills and
 // contacts directly instead of a manual CSV import).
-const SCOPES = 'offline_access accounting.contacts accounting.transactions';
+// accounting.settings.read added after a live 401 on GET TaxRates —
+// TaxRates/Currencies/Organisation live under settings, not transactions.
+const SCOPES = 'offline_access accounting.contacts accounting.transactions accounting.settings.read';
 
 exports.handler = async (event) => {
   try {
