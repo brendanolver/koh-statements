@@ -2,15 +2,14 @@ const { getValidConnection } = require('./lib/xero-auth');
 
 const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0';
 
-// TODO: confirm against a real `GET /Invoices?path=TaxRates` call on the
-// live org (via xero-proxy.js, now that TaxRates is allowlisted there)
-// before this is ever used to actually create a bill. The CSV export uses
-// Xero's *display* tax-rate names — the API's TaxType field wants the short
-// code, which needs verifying rather than guessing for real financial data.
+// Confirmed against a real GET /TaxRates call on the live org — 2 of the 3
+// original placeholder guesses were wrong (EXEMPTEXPENSES not
+// INPUTEXEMPTEXPENSES, BASEXCLUDED not NONE), which is exactly why this
+// wasn't trusted for anything real until verified.
 const TAX_TYPE_MAP = {
   'GST on Expenses': 'INPUT',
-  'GST Free Expenses': 'INPUTEXEMPTEXPENSES',
-  'BAS Excluded': 'NONE',
+  'GST Free Expenses': 'EXEMPTEXPENSES',
+  'BAS Excluded': 'BASEXCLUDED',
 };
 
 function escapeXeroString(s) {
@@ -104,6 +103,10 @@ async function createBill(connection, { contactId, invoiceNum, date, due, refere
       InvoiceNumber: invoiceNum,
       Reference: reference || undefined,
       Status: 'AUTHORISED',
+      // Xero defaults line amounts to tax-EXCLUSIVE when this is omitted —
+      // inv.amount is always the GST-inclusive total (that's what gets
+      // extracted), so without this every bill would land ~10% too high.
+      LineAmountTypes: 'Inclusive',
       LineItems: lineItems.map((li) => ({
         Description: li.description || 'Invoice',
         Quantity: 1,

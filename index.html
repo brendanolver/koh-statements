@@ -752,23 +752,26 @@
       <div style="border:.5px solid #f0f0f0;border-radius:12px;overflow:hidden;overflow-x:auto;margin-bottom:1.25rem">
         <table class="tbl">
           <colgroup>
-            <col style="width:17%"><col style="width:13%"><col style="width:10%"><col style="width:10%">
-            <col style="width:15%"><col style="width:11%"><col style="width:15%"><col style="width:9%">
+            <col style="width:14%"><col style="width:12%"><col style="width:9%"><col style="width:9%">
+            <col style="width:13%"><col style="width:10%"><col style="width:11%"><col style="width:13%"><col style="width:9%">
           </colgroup>
           <thead><tr>
             <th>Invoice</th><th>Supplier</th><th>Date</th><th>Due</th>
             <th>Account</th><th style="text-align:right">Amount</th>
-            <th style="text-align:right">Bank fee</th><th></th>
+            <th style="text-align:right">Bank fee</th><th>Xero</th><th></th>
           </tr></thead>
           <tbody id="invBody"></tbody>
         </table>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <button class="btn" onclick="clearAll()" style="font-size:13px;padding:9px 20px">Clear all</button>
-        <button class="btn dark" onclick="tryExportAll()" id="exportAllBtn" style="font-size:13px;padding:9px 26px">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-          Export All
-        </button>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="pushAllToXero()" id="pushXeroBtn" style="font-size:13px;padding:9px 20px">Push to Xero</button>
+          <button class="btn dark" onclick="tryExportAll()" id="exportAllBtn" style="font-size:13px;padding:9px 26px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Export All
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -2898,6 +2901,13 @@ function renderTbl(){
         +'<button class="fbtn hf" onclick="updFee('+idx+',0)">\xd7</button></div>'
       :'<button class="fbtn" onclick="addFee('+idx+')">+ Fee</button>';
     var isDupe=dupeNums[dupeKey(inv)];
+    var xc;
+    if(r.xeroStatus==='pushing') xc='<span style="font-size:11px;color:#888">Pushing…</span>';
+    else if(r.xeroStatus==='pushed') xc='<span style="font-size:11px;color:#2e7d32" title="Xero invoice '+(r.xeroMessage||'')+'">Pushed ✓</span>';
+    else if(r.xeroStatus==='skipped') xc='<span style="font-size:11px;color:#f57f17" title="'+(r.xeroMessage||'')+'">Skipped</span>';
+    else if(r.xeroStatus==='failed') xc='<span style="font-size:11px;color:#e53935" title="'+(r.xeroMessage||'')+'">Failed</span> <button class="al" onclick="xeroPushOne('+idx+')">Retry</button>';
+    else if(r.status==='ok') xc='<button class="al" onclick="xeroPushOne('+idx+')">Push</button>';
+    else xc='<span style="font-size:11px;color:#ccc">—</span>';
     return '<tr'+(isDupe?' style="background:#fff8e1"':'')+'>'
       +'<td class="inum" onclick="openReview('+idx+')" title="Click to check &amp; amend" style="font-family:monospace;font-size:11px'+(isDupe?';color:#f57f17':'')+'">'+inv.invoiceNum
       +(isDupe?' <span title="Duplicate invoice number" style="color:#f57f17">&#9888;</span>':'')
@@ -2908,12 +2918,13 @@ function renderTbl(){
       +'<td>'+ac+'</td>'
       +'<td style="text-align:right;font-weight:500">$'+(inv.amount||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
       +'<td style="text-align:right">'+fc+'</td>'
+      +'<td>'+xc+'</td>'
       +'<td><div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">'
       +'<button class="cbtn'+(r.confirmed?' done':'')+'" title="'+(r.confirmed?'Checked — click to undo':'Mark as checked')+'" onclick="toggleConfirm('+idx+')">&#10003;</button>'
       +'<button class="xb" onclick="removeFile('+idx+')">\xd7</button>'
       +'</div></td>'
       +'</tr>';
-  }).join('')||'<tr><td colspan="8" class="empty">No invoices yet</td></tr>';
+  }).join('')||'<tr><td colspan="9" class="empty">No invoices yet</td></tr>';
 }
 
 // ── Fee ───────────────────────────────────────────────────────────────
@@ -3074,6 +3085,83 @@ function exportMatchedOnly(){
   var m=invoices.filter(function(r){return r.invoice&&r.status==='ok';});
   if(!m.length){alert('No matched invoices to export.');return;}
   doExport(m);
+}
+
+// ── Push to Xero ─────────────────────────────────────────────────────
+async function xeroPushCall(action,params){
+  var r=await fetch('/.netlify/functions/xero-push',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:action,params:params})
+  });
+  var d=await r.json().catch(function(){return{};});
+  if(!r.ok||!d.ok) throw new Error((d&&d.error)||'Xero push failed ('+r.status+')');
+  return d.result;
+}
+
+function dmyToIso(dmy){
+  var m=String(dmy||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m?(m[3]+'-'+m[2]+'-'+m[1]):'';
+}
+
+// Pushes one row: resolve/sync the contact, check for a duplicate bill (the
+// actual safety net — not assumed to be enforced server-side), then create
+// the bill. inv.tax is unreliable (some extraction paths hardcode "GST on
+// Expenses" regardless of the account actually picked) — re-derive the real
+// tax rate from the assigned account itself rather than trust inv.tax.
+async function xeroPushOne(idx){
+  var row=invoices[idx]; if(!row||!row.invoice||row.status!=='ok') return;
+  var inv=row.invoice; var ec=row.ec||{};
+  row.xeroStatus='pushing'; renderTbl();
+  try{
+    var contactParams={name:inv.supplier};
+    if(ec.email) contactParams.email=ec.email;
+    if(ec.bsb) contactParams.bsb=ec.bsb;
+    if(ec.accNo) contactParams.accNo=ec.accNo;
+    if(ec.accName) contactParams.accName=ec.accName;
+    var contact=await xeroPushCall('findOrCreateContact',contactParams);
+
+    var dupe=await xeroPushCall('checkBillExists',{contactId:contact.contactId,invoiceNumber:inv.invoiceNum});
+    if(dupe.exists){
+      row.xeroStatus='skipped'; row.xeroMessage='Already in Xero';
+      renderTbl(); return;
+    }
+
+    var acctInfo=ACCOUNTS.find(function(a){return a.code===inv.account;});
+    var taxLabel=acctInfo?acctInfo.tax:inv.tax;
+    var lineItems=[{description:'Invoice '+inv.invoiceNum, amount:inv.amount, accountCode:inv.account, taxType:taxLabel}];
+    // Matches buildCSV()'s existing convention for the bank-fee row — same
+    // account/tax treatment, just via the live API instead of a CSV line.
+    if(inv.feeAmount>0){
+      lineItems.push({description:'Bank Fee - '+inv.invoiceNum, amount:inv.feeAmount, accountCode:'404', taxType:'GST Free Expenses'});
+    }
+    var bill=await xeroPushCall('createBill',{
+      contactId:contact.contactId, invoiceNum:inv.invoiceNum,
+      date:dmyToIso(inv.date), due:dmyToIso(inv.due), reference:inv.reference,
+      lineItems:lineItems
+    });
+    row.xeroStatus='pushed'; row.xeroMessage=bill.invoiceNumber;
+  }catch(e){
+    row.xeroStatus='failed'; row.xeroMessage=e.message;
+  }
+  renderTbl();
+}
+
+// Sequential with a delay between rows — same rate-limit lesson already
+// learned and fixed on the Debtors tab's "Select All Overdue".
+async function pushAllToXero(){
+  var btn=document.getElementById('pushXeroBtn');
+  if(btn.disabled) return;
+  var eligible=invoices.map(function(r,i){return i;}).filter(function(i){
+    var r=invoices[i];
+    return r.invoice&&r.status==='ok'&&r.xeroStatus!=='pushed'&&r.xeroStatus!=='skipped';
+  });
+  if(!eligible.length){ alert('No matched, un-pushed invoices to push.'); return; }
+  btn.disabled=true; btn.textContent='Pushing…';
+  for(var i=0;i<eligible.length;i++){
+    await xeroPushOne(eligible[i]);
+    if(i<eligible.length-1) await new Promise(function(res){setTimeout(res,700);});
+  }
+  btn.disabled=false; btn.textContent='Push to Xero';
 }
 
 async function tryExportAll(){
