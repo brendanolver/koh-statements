@@ -1,5 +1,5 @@
 const AM_BASE = 'https://kohindustries.app.apparelmagic.com/api';
-const ALLOWED = ['customers', 'invoices'];
+const ALLOWED = ['customers', 'invoices', 'salespeople'];
 
 exports.handler = async (event) => {
   const AM_TOKEN = process.env.AM_TOKEN;

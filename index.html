@@ -911,8 +911,31 @@
 </div>
 
 <div id="commissionView" style="display:none;">
-  <div class="sec-title">Commission</div>
-  <p style="color:var(--muted); font-size:14px; max-width:520px;">Not built yet — placeholder tab for a future feature. Come back to this when ready.</p>
+  <div class="debtors-panel">
+    <div class="debtors-header">
+      <h2>Commission <span class="debtors-subtitle">— monthly agent commission reports from ApparelMagic</span></h2>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <input type="month" id="commissionMonth" style="padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px">
+      <button class="primary" id="commissionGenerateBtn" onclick="generateCommissionReport()">Generate</button>
+      <span id="commissionStatus" class="send-status"></span>
+    </div>
+    <div id="commissionSummary" style="display:none;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span class="commission-summary-text"></span>
+      <button class="primary" onclick="sendAllReadyCommissionReports()">Send All Ready</button>
+    </div>
+    <div id="commissionTableWrap" style="display:none;overflow-x:auto">
+      <table class="debtors-table" style="min-width:820px">
+        <thead>
+          <tr>
+            <th>Agent</th><th>Customers</th><th>Invoices</th><th>Total Commission</th>
+            <th>Recipient email</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="commissionBody"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <div id="cashflowView" style="display:none;">
@@ -1268,6 +1291,70 @@ async function fetchAllAmInvoices(accountNumber) {
     if (!lastId || rows.length === 0) break;
   }
   return all;
+}
+
+// AM's invoices list endpoint has a confirmed bug: combining a
+// date_internal[gte]/[lte] filter with pagination[last_id] cursoring
+// silently drops genuinely-matching invoices from page 2 onward (verified
+// live — invoices 144199-144203, correctly dated within the filtered range
+// and each carrying real commission data, never appeared in any page of a
+// date-filtered org-wide pull). Cursoring WITHOUT a filter is reliable (used
+// everywhere else in this app), so instead of walking every invoice ever
+// raised, this walks the (much smaller) customers list, filters to accounts
+// with an agent assigned, then reuses the already-trusted per-customer
+// fetchAllAmInvoices for just those accounts — verified against a real
+// month: Volume 1 Brands - NZ's July 2026 total landed on $427.18, matching
+// Brendan's reference PDF to the cent.
+async function fetchAmCustomersWithAgents() {
+  const all = [];
+  let lastId = '';
+  for (let page = 0; page < 20; page++) {
+    const params = new URLSearchParams({ path: 'customers' });
+    if (lastId) params.set('pagination[last_id]', lastId);
+    const res = await fetch(`${AM_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok || data.meta?.errors?.length) {
+      throw new Error(data.meta?.errors?.join(', ') || data.error || `AM customers fetch failed (${res.status})`);
+    }
+    const rows = data.response || [];
+    all.push(...rows);
+    lastId = data.meta?.pagination?.last_id;
+    if (!lastId || rows.length === 0) break;
+  }
+  return all.filter((c) => Array.isArray(c.salespeople) && c.salespeople.length > 0);
+}
+
+// Runs `worker` over `items` with at most `limit` in flight at once — AM
+// hasn't shown any rate-limit behaviour in testing (unlike Xero, which has
+// an explicit documented lesson elsewhere in this file), so a modest pool
+// is used to keep a ~90-customer pull from taking minutes sequentially.
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function runner() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await worker(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runner));
+  return results;
+}
+
+// Small, uncursored (7 rows total) — cached for the session so repeat visits
+// to the tab don't refetch, but not persisted to localStorage since a
+// changed agent email should show up next load, not sit behind a TTL.
+let commissionSalespeopleCache = null;
+async function fetchAmSalespeople() {
+  if (commissionSalespeopleCache) return commissionSalespeopleCache;
+  const params = new URLSearchParams({ path: 'salespeople' });
+  const res = await fetch(`${AM_PROXY}?${params}`);
+  const data = await res.json();
+  if (!res.ok || data.meta?.errors?.length) {
+    throw new Error(data.meta?.errors?.join(', ') || data.error || `AM salespeople fetch failed (${res.status})`);
+  }
+  commissionSalespeopleCache = data.response || [];
+  return commissionSalespeopleCache;
 }
 
 async function findXeroContact(name) {
@@ -2377,8 +2464,217 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.picker')) els.results.style.display = 'none';
 });
 
+// ---------------------------------------------------------------------------
+// Commission tab — pulls each agent's invoice-level commission data from AM
+// for a chosen month (replicating AM's own "Commission Report (Transaction
+// Currency)") and emails each agent their own breakdown. Entirely read-only
+// against AM; the only side effect is the email send.
+// ---------------------------------------------------------------------------
+
+let commissionAgents = []; // [{ agentName, email, currency, customers: [...], total, status, error }]
+let commissionExpanded = {}; // agentName -> bool
+let commissionMonthLabel = '';
+
+function defaultCommissionMonthValue() {
+  const now = new Date();
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthValueToRange(monthValue) {
+  const [y, m] = monthValue.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 0); // last day of month
+  const iso = (d) => d.toISOString().slice(0, 10);
+  return { startISO: iso(start), endISO: iso(end), label: start.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }) };
+}
+
+// Flattens invoices to one row per (invoice, commission-line) — an invoice
+// can carry more than one agent's commission — then groups agent -> customer,
+// matching the shape of AM's own report. amount_commission is already in the
+// invoice's transaction currency (confirmed against a live NZD invoice), so
+// no currency conversion happens here.
+function buildCommissionReport(invoices, salespeople) {
+  const byAgent = new Map();
+  for (const inv of invoices) {
+    const commissions = inv.commissions || [];
+    if (!commissions.length) continue;
+    const currency = inv.currency_name || 'AUD';
+    for (const c of commissions) {
+      const agentName = c.name;
+      if (!byAgent.has(agentName)) {
+        const sp = salespeople.find((s) => s.name === agentName);
+        byAgent.set(agentName, { agentName, email: sp?.email || '', currency, customers: new Map(), total: 0 });
+      }
+      const agent = byAgent.get(agentName);
+      const custName = inv.customer_name || inv.name || 'Unknown';
+      if (!agent.customers.has(custName)) agent.customers.set(custName, { customerName: custName, invoices: [], subtotal: 0 });
+      const cust = agent.customers.get(custName);
+      const amount = Number(c.amount_commission || 0);
+      cust.invoices.push({
+        invoiceNum: inv.invoice_id,
+        date: inv.date,
+        po: inv.customer_po || '',
+        rate: c.rate,
+        commission: amount,
+      });
+      cust.subtotal += amount;
+      agent.total += amount;
+    }
+  }
+  return [...byAgent.values()]
+    .map((a) => ({ ...a, customers: [...a.customers.values()].sort((x, y) => y.subtotal - x.subtotal), status: 'ready', error: '' }))
+    .sort((a, b) => b.total - a.total);
+}
+
+function setCommissionStatus(msg, isError) {
+  const el = document.getElementById('commissionStatus');
+  el.textContent = msg || '';
+  el.style.color = isError ? '#b42318' : 'var(--muted)';
+}
+
+async function generateCommissionReport() {
+  const monthValue = document.getElementById('commissionMonth').value;
+  if (!monthValue) return;
+  const { startISO, endISO, label } = monthValueToRange(monthValue);
+  commissionMonthLabel = label;
+  document.getElementById('commissionGenerateBtn').disabled = true;
+  try {
+    setCommissionStatus('Loading agent customer list…');
+    const [agentCustomers, salespeople] = await Promise.all([
+      fetchAmCustomersWithAgents(),
+      fetchAmSalespeople(),
+    ]);
+    let done = 0;
+    setCommissionStatus(`Fetching invoices — 0/${agentCustomers.length} customers…`);
+    const perCustomerInvoices = await runWithConcurrency(agentCustomers, 6, async (cust) => {
+      const invoices = await fetchAllAmInvoices(cust.account_number);
+      done++;
+      setCommissionStatus(`Fetching invoices — ${done}/${agentCustomers.length} customers…`);
+      return invoices.filter((inv) => inv.date_internal >= startISO && inv.date_internal <= endISO);
+    });
+    const monthInvoices = perCustomerInvoices.flat();
+    commissionAgents = buildCommissionReport(monthInvoices, salespeople);
+    commissionExpanded = {};
+    setCommissionStatus(commissionAgents.length ? '' : 'No commission-earning invoices found for this month.');
+  } catch (err) {
+    commissionAgents = [];
+    setCommissionStatus(`Failed to load: ${err.message}`, true);
+  }
+  document.getElementById('commissionGenerateBtn').disabled = false;
+  renderCommissionTable();
+}
+
+function toggleCommissionExpand(agentName) {
+  commissionExpanded[agentName] = !commissionExpanded[agentName];
+  renderCommissionTable();
+}
+
+function commissionStatusLabel(agent) {
+  switch (agent.status) {
+    case 'ready': return 'Ready';
+    case 'sending': return 'Sending…';
+    case 'sent': return 'Sent ✓';
+    case 'failed': return `Failed: ${agent.error || 'unknown error'}`;
+    default: return '';
+  }
+}
+
+function renderCommissionTable() {
+  const body = document.getElementById('commissionBody');
+  const wrap = document.getElementById('commissionTableWrap');
+  const summary = document.getElementById('commissionSummary');
+  if (!commissionAgents.length) {
+    wrap.style.display = 'none';
+    summary.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  summary.style.display = 'flex';
+  const readyCount = commissionAgents.filter((a) => a.status === 'ready').length;
+  summary.querySelector('.commission-summary-text').textContent =
+    `${commissionAgents.length} agent${commissionAgents.length === 1 ? '' : 's'} — ${readyCount} ready to send`;
+
+  body.innerHTML = commissionAgents.map((agent, idx) => {
+    const expanded = !!commissionExpanded[agent.agentName];
+    const invoiceCount = agent.customers.reduce((n, c) => n + c.invoices.length, 0);
+    const safeName = agent.agentName.replace(/'/g, "\\'");
+    const detailRows = expanded ? agent.customers.map((cust) => `
+      <tr><td colspan="7" style="padding:0;background:#fafafa">
+        <table class="debtors-table" style="margin:6px 0 6px 24px;width:calc(100% - 24px)">
+          <tr><td colspan="5" style="font-weight:700;font-size:11px;padding:6px 8px;border-bottom:none">${cust.customerName} — ${fmtMoney(cust.subtotal)}</td></tr>
+          ${cust.invoices.map((li) => `
+            <tr>
+              <td style="padding:4px 8px;font-size:12px;border-bottom:none">Invoice ${li.invoiceNum}</td>
+              <td style="padding:4px 8px;font-size:12px;border-bottom:none">${li.date}</td>
+              <td style="padding:4px 8px;font-size:12px;color:var(--muted);border-bottom:none">${li.po}</td>
+              <td style="padding:4px 8px;font-size:12px;text-align:right;border-bottom:none">${li.rate}%</td>
+              <td style="padding:4px 8px;font-size:12px;text-align:right;font-weight:600;border-bottom:none">${fmtMoney(li.commission)}</td>
+            </tr>
+          `).join('')}
+        </table>
+      </td></tr>
+    `).join('') : '';
+    return `
+      <tr>
+        <td><span style="cursor:pointer" onclick="toggleCommissionExpand('${safeName}')">${expanded ? '▾' : '▸'} ${agent.agentName}</span></td>
+        <td>${agent.customers.length}</td>
+        <td>${invoiceCount}</td>
+        <td style="text-align:right;font-weight:700">${fmtMoney(agent.total)} ${agent.currency}</td>
+        <td><input type="email" value="${agent.email || ''}" placeholder="agent@email.com" style="width:100%;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].email=this.value"></td>
+        <td class="send-status">${commissionStatusLabel(agent)}</td>
+        <td><button style="padding:5px 12px;font-size:12px" ${agent.status === 'sending' ? 'disabled' : ''} onclick="sendCommissionReport(${idx})">Send</button></td>
+      </tr>
+      ${detailRows}
+    `;
+  }).join('');
+}
+
+async function sendCommissionReport(idx) {
+  const agent = commissionAgents[idx];
+  if (!agent) return;
+  if (!EMAIL_RE.test(agent.email || '')) {
+    agent.status = 'failed';
+    agent.error = 'Invalid or missing email address';
+    renderCommissionTable();
+    return;
+  }
+  agent.status = 'sending';
+  renderCommissionTable();
+  try {
+    const res = await fetch('/.netlify/functions/send-commission-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentName: agent.agentName,
+        recipientEmail: agent.email,
+        monthLabel: commissionMonthLabel,
+        customers: agent.customers,
+        total: agent.total,
+        currency: agent.currency,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
+    agent.status = 'sent';
+  } catch (err) {
+    agent.status = 'failed';
+    agent.error = err.message;
+  }
+  renderCommissionTable();
+}
+
+async function sendAllReadyCommissionReports() {
+  const readyIdxs = commissionAgents.map((a, i) => i).filter((i) => commissionAgents[i].status === 'ready');
+  for (const i of readyIdxs) {
+    await sendCommissionReport(i);
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
+
 async function init() {
   switchTab('debtors');
+  document.getElementById('commissionMonth').value = defaultCommissionMonthValue();
   try {
     await loadCustomers();
   } catch (err) {
