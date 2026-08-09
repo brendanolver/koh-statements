@@ -10,16 +10,16 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const SCHEMA = {
   type: 'object',
   properties: {
-    supplier_name: { type: ['string', 'null'], description: 'The company or person who issued/sent the invoice (never the recipient, KOH Industries / WNDRR).' },
-    invoice_number: { type: ['string', 'null'], description: 'The invoice number as printed on the document.' },
+    supplier_name: { type: ['string', 'null'], description: 'The company or person who issued/sent the invoice — never the recipient (KOH Industries / WNDRR), even if their details also appear on the page (e.g. in a "To:"/billing-address section).' },
+    invoice_number: { type: ['string', 'null'], description: "The invoice number as printed. If the source is a spreadsheet and the number shows a spreadsheet formatting artifact (e.g. '276.0' for what is really invoice 276), return the clean form ('276')." },
     invoice_date: { type: ['string', 'null'], description: 'Invoice/issue date in YYYY-MM-DD format.' },
     due_date: { type: ['string', 'null'], description: 'Payment due date in YYYY-MM-DD format, if shown.' },
     total_amount_inc_gst: { type: ['number', 'null'], description: 'The final total amount payable, including GST/tax.' },
     reference_or_po: { type: ['string', 'null'], description: 'A purchase order number or reference code, if shown.' },
-    bank_account_name: { type: ['string', 'null'], description: "The supplier's bank account name for payment, if shown." },
-    bank_bsb: { type: ['string', 'null'], description: 'BSB number for payment, if shown.' },
-    bank_account_number: { type: ['string', 'null'], description: 'Bank account number for payment, if shown.' },
-    email: { type: ['string', 'null'], description: "The supplier's contact email address, if shown." },
+    bank_account_name: { type: ['string', 'null'], description: "The SUPPLIER's own bank account name for receiving payment — never KOH Industries' or WNDRR's, if shown." },
+    bank_bsb: { type: ['string', 'null'], description: "The SUPPLIER's own BSB number for receiving payment, if shown." },
+    bank_account_number: { type: ['string', 'null'], description: "The SUPPLIER's own bank account number for receiving payment, if shown." },
+    email: { type: ['string', 'null'], description: "The SUPPLIER's own contact email address — never an email belonging to KOH Industries or WNDRR (e.g. one appearing under a \"To:\"/recipient/billing section), even if it's the only email on the page." },
   },
   required: [
     'supplier_name', 'invoice_number', 'invoice_date', 'due_date',
@@ -64,7 +64,7 @@ exports.handler = async (event) => {
       const clipped = String(text).slice(0, 8000);
       content = [{
         type: 'text',
-        text: 'Extract the fields from this supplier invoice text. The invoice is addressed TO KOH Industries or WNDRR — never return those as the supplier. If a field is not present, return null for it rather than guessing.\n\nInvoice text:\n\n' + clipped,
+        text: 'Extract the fields from this supplier invoice text. The invoice is addressed TO KOH Industries or WNDRR — every field you return (name, email, bank details) must belong to the SUPPLIER sending the invoice, never to KOH Industries or WNDRR, even where their details also appear on the page (e.g. in a billing/"To:" section). If a field is not present, return null for it rather than guessing.\n\nInvoice text:\n\n' + clipped,
       }];
     } else {
       if (!fileBase64) {
@@ -80,7 +80,7 @@ exports.handler = async (event) => {
         fileBlock,
         {
           type: 'text',
-          text: 'Extract the fields from this supplier invoice. The invoice is addressed TO KOH Industries or WNDRR — never return those as the supplier. If a field is not present on the document, return null for it rather than guessing.',
+          text: 'Extract the fields from this supplier invoice. The invoice is addressed TO KOH Industries or WNDRR — every field you return (name, email, bank details) must belong to the SUPPLIER sending the invoice, never to KOH Industries or WNDRR, even where their details also appear on the document (e.g. in a billing/"To:" section). If a field is not present on the document, return null for it rather than guessing.',
         },
       ];
     }

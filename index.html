@@ -2407,6 +2407,16 @@ function dueDefault(){
   var d=new Date(); d.setDate(d.getDate()+30);
   return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
 }
+// Some suppliers just don't print an invoice number. Rather than a random
+// hash (the old behaviour — technically unique, but unreadable), give these
+// a clean sequential placeholder. Safe to collide with another supplier's
+// real or placeholder number — Xero only requires uniqueness per-contact,
+// not globally (see the per-supplier duplicate check in renderTbl below).
+var placeholderSeq=0;
+function nextPlaceholderInvoiceNum(){
+  placeholderSeq++;
+  return (settings.prefix||'INV-')+String(placeholderSeq).padStart(3,'0');
+}
 function fmtD(s){
   if(!s) return today();
   var p = String(s).split(/[-\/]/);
@@ -2556,12 +2566,7 @@ function parseInv(text){
   var amt=parseAmt(text);
   if(!im&&amt===0) return null;
   var ac=rule?rule.account:null; var a=ACCOUNTS.find(function(x){return x.code===ac;});
-  return{invoiceNum:(function(){
-      if(im) return normInvNum(im);
-      var seed=(det?det.name:'UNK')+(dmVal||'')+(amt||'');
-      var hash=0;for(var i=0;i<seed.length;i++){hash=((hash<<5)-hash)+seed.charCodeAt(i);hash|=0;}
-      return (settings.prefix||'INV-')+(Math.abs(hash)%90000+10000);
-    })(),supplier:det?det.name:'Unknown',
+  return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),supplier:det?det.name:'Unknown',
     isNew:det&&!rule,isUnmatched:!det,date:dmVal?fmtD(dmVal):today(),due:duVal?fmtD(duVal):dueDefault(),
     amount:amt,account:ac,accountName:a?a.name:'',tax:'GST on Expenses',
     currency:settings.currency||'AUD',reference:rf?rf[1]:'',feeAmount:0};
@@ -2578,8 +2583,7 @@ function parsePart(text){
   var dmVal=dmRaw?parseTextDate(dmRaw[1]):'';
   var duVal=duRaw?parseTextDate(duRaw[1]):'';
   var rf=text.match(/(?:Reference)[:\s]+(\d{5,12})/i);
-  return{invoiceNum:im?normInvNum(im):
-    (function(){var seed=text.substring(0,200);var hash=0;for(var i=0;i<seed.length;i++){hash=((hash<<5)-hash)+seed.charCodeAt(i);hash|=0;}return (settings.prefix||'INV-')+(Math.abs(hash)%90000+10000);})(),
+  return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),
     supplier:'Unknown',isNew:false,isUnmatched:true,
     date:dmVal?fmtD(dmVal):today(),due:duVal?fmtD(duVal):dueDefault(),
     amount:parseAmt(text),account:null,accountName:'',tax:'GST on Expenses',
@@ -2705,15 +2709,6 @@ async function applyAiExtractionFromText(text,row){
   }
 }
 
-// Same placeholder-number scheme parseInv/parsePart use when no invoice
-// number is found, kept as its own copy here rather than refactoring those
-// (unrelated, already-working regex functions) to share it.
-function placeholderInvoiceNum(seed){
-  var hash=0;
-  for(var i=0;i<seed.length;i++){hash=((hash<<5)-hash)+seed.charCodeAt(i);hash|=0;}
-  return (settings.prefix||'INV-')+(Math.abs(hash)%90000+10000);
-}
-
 // Photographed/scanned invoices (JPEG/PNG) have no embedded text layer, so
 // there's no regex pipeline to run and nothing for guessSup() to fall back
 // on either — the AI call is the only extraction path here. Always routes
@@ -2730,7 +2725,7 @@ async function extImage(arr,row,mimeType){
   var ai=await callExtractInvoice(b64,mimeType);
 
   row.invoice={
-    invoiceNum:(ai&&ai.invoice_number)?normInvNum(ai.invoice_number):placeholderInvoiceNum(row.name),
+    invoiceNum:(ai&&ai.invoice_number)?normInvNum(ai.invoice_number):nextPlaceholderInvoiceNum(),
     supplier:'Unknown', isNew:false, isUnmatched:true,
     date:(ai&&isoToDMY(ai.invoice_date))||today(),
     due:(ai&&isoToDMY(ai.due_date))||dueDefault(),
@@ -2846,18 +2841,25 @@ function renderFL(){
   }).join('');
 }
 
+// Xero only requires an invoice number to be unique per-contact — two
+// different suppliers both using "INV-001" is completely normal and not a
+// conflict. Key on supplier+number together, not the number alone.
+function dupeKey(inv){ return (inv.supplier||'')+'|'+inv.invoiceNum; }
+
 function renderTbl(){
   var matched=invoices.filter(function(r){return r.invoice&&['ok','new','unmatched'].indexOf(r.status)>=0;});
   document.getElementById('invSec').style.display=matched.length?'block':'none';
-  // Find duplicate invoice numbers
+  // Find invoice numbers duplicated within the same supplier
   var numCount={};
-  matched.forEach(function(r){var n=r.invoice.invoiceNum;numCount[n]=(numCount[n]||0)+1;});
+  matched.forEach(function(r){var k=dupeKey(r.invoice);numCount[k]=(numCount[k]||0)+1;});
   var dupeNums={};
-  Object.keys(numCount).forEach(function(n){if(numCount[n]>1)dupeNums[n]=true;});
+  Object.keys(numCount).forEach(function(k){if(numCount[k]>1)dupeNums[k]=true;});
   var dupeWarning=document.getElementById('dupeAlert');
   if(Object.keys(dupeNums).length){
+    var dupeLabels=[];
+    matched.forEach(function(r){var num=r.invoice.invoiceNum;if(dupeNums[dupeKey(r.invoice)]&&dupeLabels.indexOf(num)<0)dupeLabels.push(num);});
     dupeWarning.style.display='flex';
-    dupeWarning.querySelector('span').textContent='Duplicate invoice numbers detected: '+Object.keys(dupeNums).join(', ')+' — these will be dropped by Xero.';
+    dupeWarning.querySelector('span').textContent='Duplicate invoice numbers for the same supplier detected: '+dupeLabels.join(', ')+' — these will be dropped by Xero.';
   } else {
     dupeWarning.style.display='none';
   }
@@ -2888,7 +2890,7 @@ function renderTbl(){
         +'<input class="fi" type="number" min="0" step="0.01" value="'+inv.feeAmount.toFixed(2)+'" onchange="updFee('+idx+',this.value)">'
         +'<button class="fbtn hf" onclick="updFee('+idx+',0)">\xd7</button></div>'
       :'<button class="fbtn" onclick="addFee('+idx+')">+ Fee</button>';
-    var isDupe=dupeNums[inv.invoiceNum];
+    var isDupe=dupeNums[dupeKey(inv)];
     return '<tr'+(isDupe?' style="background:#fff8e1"':'')+'>'
       +'<td class="inum" onclick="openReview('+idx+')" title="Click to check &amp; amend" style="font-family:monospace;font-size:11px'+(isDupe?';color:#f57f17':'')+'">'+inv.invoiceNum
       +(isDupe?' <span title="Duplicate invoice number" style="color:#f57f17">&#9888;</span>':'')
@@ -3287,11 +3289,11 @@ function fixDuplicates(){
   var matched=invoices.filter(function(r){return r.invoice&&['ok','new','unmatched'].indexOf(r.status)>=0;});
   var seen={};
   matched.forEach(function(r){
-    var n=r.invoice.invoiceNum;
-    if(!seen[n]){seen[n]=1;}
+    var k=dupeKey(r.invoice);
+    if(!seen[k]){seen[k]=1;}
     else{
-      seen[n]++;
-      r.invoice.invoiceNum=n+'-'+seen[n];
+      seen[k]++;
+      r.invoice.invoiceNum=r.invoice.invoiceNum+'-'+seen[k];
     }
   });
   renderTbl();
