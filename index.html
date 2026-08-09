@@ -2489,6 +2489,17 @@ function monthValueToRange(monthValue) {
   return { startISO: iso(start), endISO: iso(end), label: start.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }) };
 }
 
+// Agent names are "Agency Name - Person Name" (e.g. "Lifestyle Agencies -
+// Pete Francis"), occasionally just an agency/region with no person (e.g.
+// "Volume 1 Brands - NZ") — this is only ever a starting guess for the email
+// greeting, always editable per row before sending (e.g. to "Stacey/Dan"
+// when a report goes to two people at one agency).
+function defaultGreetingName(agentName) {
+  const parts = agentName.split(' - ');
+  const last = parts[parts.length - 1] || agentName;
+  return last.trim().split(' ')[0] || agentName;
+}
+
 // Flattens invoices to one row per (invoice, commission-line) — an invoice
 // can carry more than one agent's commission — then groups agent -> customer,
 // matching the shape of AM's own report. amount_commission is already in the
@@ -2504,7 +2515,7 @@ function buildCommissionReport(invoices, salespeople) {
       const agentName = c.name;
       if (!byAgent.has(agentName)) {
         const sp = salespeople.find((s) => s.name === agentName);
-        byAgent.set(agentName, { agentName, email: sp?.email || '', currency, customers: new Map(), total: 0 });
+        byAgent.set(agentName, { agentName, email: sp?.email || '', greetingName: defaultGreetingName(agentName), currency, customers: new Map(), total: 0 });
       }
       const agent = byAgent.get(agentName);
       const custName = inv.customer_name || inv.name || 'Unknown';
@@ -2608,7 +2619,7 @@ function renderCommissionTable() {
               <td style="padding:4px 8px;font-size:12px;border-bottom:none">Invoice ${li.invoiceNum}</td>
               <td style="padding:4px 8px;font-size:12px;border-bottom:none">${li.date}</td>
               <td style="padding:4px 8px;font-size:12px;color:var(--muted);border-bottom:none">${li.po}</td>
-              <td style="padding:4px 8px;font-size:12px;text-align:right;border-bottom:none">${li.rate}%</td>
+              <td style="padding:4px 8px;font-size:12px;text-align:right;border-bottom:none">${Number(li.rate).toFixed(2)}%</td>
               <td style="padding:4px 8px;font-size:12px;text-align:right;font-weight:600;border-bottom:none">${fmtMoney(li.commission)}</td>
             </tr>
           `).join('')}
@@ -2621,7 +2632,10 @@ function renderCommissionTable() {
         <td>${agent.customers.length}</td>
         <td>${invoiceCount}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(agent.total)} ${agent.currency}</td>
-        <td><input type="email" value="${agent.email || ''}" placeholder="agent@email.com" style="width:100%;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].email=this.value"></td>
+        <td>
+          <input type="text" value="${agent.email || ''}" placeholder="agent@email.com, agent2@email.com" style="width:100%;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px;margin-bottom:4px" oninput="commissionAgents[${idx}].email=this.value">
+          <input type="text" value="${agent.greetingName || ''}" placeholder="Greeting name(s), e.g. Stacey/Dan" style="width:100%;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].greetingName=this.value">
+        </td>
         <td class="send-status">${commissionStatusLabel(agent)}</td>
         <td><button style="padding:5px 12px;font-size:12px" ${agent.status === 'sending' ? 'disabled' : ''} onclick="sendCommissionReport(${idx})">Send</button></td>
       </tr>
@@ -2633,7 +2647,8 @@ function renderCommissionTable() {
 async function sendCommissionReport(idx) {
   const agent = commissionAgents[idx];
   if (!agent) return;
-  if (!EMAIL_RE.test(agent.email || '')) {
+  const recipientEmails = (agent.email || '').split(',').map((e) => e.trim()).filter(Boolean);
+  if (!recipientEmails.length || !recipientEmails.every((e) => EMAIL_RE.test(e))) {
     agent.status = 'failed';
     agent.error = 'Invalid or missing email address';
     renderCommissionTable();
@@ -2647,7 +2662,8 @@ async function sendCommissionReport(idx) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agentName: agent.agentName,
-        recipientEmail: agent.email,
+        greetingName: agent.greetingName || agent.agentName,
+        recipientEmails,
         monthLabel: commissionMonthLabel,
         customers: agent.customers,
         total: agent.total,
