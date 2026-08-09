@@ -2,7 +2,11 @@ const crypto = require('crypto');
 const { xeroTokenStore } = require('./lib/blob-store');
 
 const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
-const SCOPES = 'offline_access accounting.contacts.read accounting.invoices.read';
+// accounting.invoices.read isn't a real Xero scope — Invoices/Bills/Credit
+// Notes live under accounting.transactions. Corrected here, and upgraded to
+// the non-.read variants for write access (Bills Import pushing bills and
+// contacts directly instead of a manual CSV import).
+const SCOPES = 'offline_access accounting.contacts accounting.transactions';
 
 exports.handler = async (event) => {
   try {
