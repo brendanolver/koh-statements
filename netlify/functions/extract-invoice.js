@@ -47,20 +47,43 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    // fileBase64/mediaType is the general shape; pdfBase64 is kept working
-    // for whatever's still calling the original single-purpose shape.
+    // Three input shapes: fileBase64+mediaType (PDF/image — original path),
+    // pdfBase64 (kept working for whatever still calls the single-purpose
+    // shape), or plain text (CSV/XLSX — those already get their content
+    // flattened to text client-side for the regex pipeline, and Claude has
+    // no way to parse raw XLSX bytes anyway, so reusing that same text is
+    // both simpler and more reliable than trying to ship the binary file).
     const fileBase64 = body.fileBase64 || body.pdfBase64;
     const mediaType = body.mediaType || 'application/pdf';
-    if (!fileBase64) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Missing fileBase64' }) };
-    }
-    if (mediaType !== 'application/pdf' && !IMAGE_TYPES.includes(mediaType)) {
-      return { statusCode: 400, body: JSON.stringify({ error: `Unsupported mediaType: ${mediaType}` }) };
-    }
+    const text = body.text;
 
-    const fileBlock = mediaType === 'application/pdf'
-      ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: fileBase64 } }
-      : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+    let content;
+    if (text) {
+      // Cap length — a large spreadsheet shouldn't turn into an oversized,
+      // expensive request; any single invoice's fields live well within this.
+      const clipped = String(text).slice(0, 8000);
+      content = [{
+        type: 'text',
+        text: 'Extract the fields from this supplier invoice text. The invoice is addressed TO KOH Industries or WNDRR — never return those as the supplier. If a field is not present, return null for it rather than guessing.\n\nInvoice text:\n\n' + clipped,
+      }];
+    } else {
+      if (!fileBase64) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Missing fileBase64 or text' }) };
+      }
+      if (mediaType !== 'application/pdf' && !IMAGE_TYPES.includes(mediaType)) {
+        return { statusCode: 400, body: JSON.stringify({ error: `Unsupported mediaType: ${mediaType}` }) };
+      }
+      const fileBlock = mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+      content = [
+        fileBlock,
+        {
+          type: 'text',
+          text: 'Extract the fields from this supplier invoice. The invoice is addressed TO KOH Industries or WNDRR — never return those as the supplier. If a field is not present on the document, return null for it rather than guessing.',
+        },
+      ];
+    }
 
     const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
@@ -73,16 +96,7 @@ exports.handler = async (event) => {
         model: MODEL,
         max_tokens: 1024,
         output_config: { format: { type: 'json_schema', schema: SCHEMA } },
-        messages: [{
-          role: 'user',
-          content: [
-            fileBlock,
-            {
-              type: 'text',
-              text: 'Extract the fields from this supplier invoice. The invoice is addressed TO KOH Industries or WNDRR — never return those as the supplier. If a field is not present on the document, return null for it rather than guessing.',
-            },
-          ],
-        }],
+        messages: [{ role: 'user', content }],
       }),
     });
 

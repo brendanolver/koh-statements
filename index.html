@@ -2644,29 +2644,61 @@ async function callExtractInvoice(fileBase64,mediaType){
   return null;
 }
 
+// CSV/XLSX already get their content flattened to plain text client-side for
+// the regex pipeline below — reusing that same text here is simpler and more
+// reliable than trying to ship the raw file, and Claude can't parse XLSX
+// binary directly anyway.
+async function callExtractInvoiceText(text){
+  try{
+    var r=await fetch('/.netlify/functions/extract-invoice',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:text})
+    });
+    if(r.ok){ var d=await r.json(); return d&&d.fields; }
+  } catch(e){}
+  return null;
+}
+
+// Shared by every extraction path — only overwrites a field when the AI
+// actually returned one, so a partial response still improves on whatever
+// the regex pipeline found rather than blanking fields. Returns false when
+// there was nothing to apply, so callers know whether to fall back further.
+function overlayAiFields(ai,row){
+  if(!ai) return false;
+  if(ai.supplier_name&&row.ec) row.ec.sugName=ai.supplier_name;
+  if(ai.email&&row.ec) row.ec.email=ai.email;
+  if(ai.bank_bsb&&row.ec) row.ec.bsb=ai.bank_bsb;
+  if(ai.bank_account_number&&row.ec) row.ec.accNo=ai.bank_account_number;
+  if(ai.bank_account_name&&row.ec) row.ec.accNm=ai.bank_account_name;
+  if(row.invoice){
+    if(ai.invoice_number) row.invoice.invoiceNum=normInvNum(ai.invoice_number);
+    var dmy=isoToDMY(ai.invoice_date); if(dmy) row.invoice.date=dmy;
+    var duy=isoToDMY(ai.due_date); if(duy) row.invoice.due=duy;
+    if(typeof ai.total_amount_inc_gst==='number'&&ai.total_amount_inc_gst>0) row.invoice.amount=ai.total_amount_inc_gst;
+    if(ai.reference_or_po) row.invoice.reference=ai.reference_or_po;
+  }
+  return true;
+}
+
 // Sends the PDF itself to Claude for structured field extraction — far more
 // reliable than the regex pipeline above for messy/varied invoice layouts.
-// Only overwrites a field when the AI actually returned one, so a partial
-// response still improves on the regex result rather than blanking fields.
 // On any failure (network, missing env var, bad response) it falls back to
 // the same guessSup() heuristic the app used before this existed, so a
 // PDFSHIFT/Anthropic outage degrades to prior behaviour rather than breaking.
 async function applyAiExtraction(pdfB64,text,row){
   var ai=await callExtractInvoice(pdfB64,'application/pdf');
+  if(overlayAiFields(ai,row)){
+    renderFL(); renderTbl();
+  } else {
+    guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=n;renderFL();renderTbl();}});
+  }
+}
 
-  if(ai){
-    if(ai.supplier_name&&row.ec) row.ec.sugName=ai.supplier_name;
-    if(ai.email&&row.ec) row.ec.email=ai.email;
-    if(ai.bank_bsb&&row.ec) row.ec.bsb=ai.bank_bsb;
-    if(ai.bank_account_number&&row.ec) row.ec.accNo=ai.bank_account_number;
-    if(ai.bank_account_name&&row.ec) row.ec.accNm=ai.bank_account_name;
-    if(row.invoice){
-      if(ai.invoice_number) row.invoice.invoiceNum=normInvNum(ai.invoice_number);
-      var dmy=isoToDMY(ai.invoice_date); if(dmy) row.invoice.date=dmy;
-      var duy=isoToDMY(ai.due_date); if(duy) row.invoice.due=duy;
-      if(typeof ai.total_amount_inc_gst==='number'&&ai.total_amount_inc_gst>0) row.invoice.amount=ai.total_amount_inc_gst;
-      if(ai.reference_or_po) row.invoice.reference=ai.reference_or_po;
-    }
+// Same idea for CSV/XLSX — the regex pipeline already ran and populated
+// row.invoice/row.ec by the time this is called, this just improves on it.
+async function applyAiExtractionFromText(text,row){
+  var ai=await callExtractInvoiceText(text);
+  if(overlayAiFields(ai,row)){
     renderFL(); renderTbl();
   } else {
     guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=n;renderFL();renderTbl();}});
@@ -2754,13 +2786,14 @@ function extCSV(text,row){
   if(inv){ row.invoice=inv; row.status=inv.isNew?'new':inv.isUnmatched?'unmatched':'ok'; }
   else { row.status='unmatched'; row.invoice=parsePart(text); }
   renderFL(); renderTbl(); chkPend();
-  guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=n;renderFL();renderTbl();}});
+  applyAiExtractionFromText(text,row);
 }
 
 async function extXLS(buf,row){
+  var text=null;
   try{
     var wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:false});
-    var text='';
+    text='';
     for(var k=0;k<wb.SheetNames.length;k++){
       var sheet=wb[wb.SheetNames[k]];
       var range=XLSX.utils.decode_range(sheet['!ref']||'A1');
@@ -2779,6 +2812,7 @@ async function extXLS(buf,row){
     else { row.status='unmatched'; row.invoice=parsePart(text); }
   } catch(e){ row.status='error'; }
   renderFL(); renderTbl(); chkPend();
+  if(text) applyAiExtractionFromText(text,row);
 }
 
 // ── Render ────────────────────────────────────────────────────────────
