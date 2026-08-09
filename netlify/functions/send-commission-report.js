@@ -22,11 +22,11 @@ function emailBodyHtml({ greetingName, monthLabel, total }) {
 </table>`;
 }
 
-async function sendEmail({ agentName, greetingName, recipientEmails, monthLabel, customers, total, currency }) {
+async function sendEmail({ agentName, greetingName, recipientEmails, monthLabel, customers, total, netTotal, currency }) {
   const apiKey = (process.env.RESEND_API_KEY || '').trim();
   const from = (process.env.STATEMENTS_FROM_EMAIL || '').trim();
 
-  const pdfBase64 = await pdfFromSource(buildCommissionReportHtml({ agentName, monthLabel, customers, total, currency }));
+  const pdfBase64 = await pdfFromSource(buildCommissionReportHtml({ agentName, monthLabel, customers, total, netTotal, currency }));
 
   const payload = {
     from,
@@ -72,7 +72,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { agentName, greetingName, recipientEmails, monthLabel, customers, total, currency } = body;
+    const { agentName, greetingName, recipientEmails, monthLabel, customers, total, netTotal, currency } = body;
     if (!agentName || !monthLabel || !Array.isArray(customers) || !Array.isArray(recipientEmails)) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing agentName, monthLabel, customers, or recipientEmails' }) };
     }
@@ -81,7 +81,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'recipientEmails must be a non-empty list of valid email addresses' }) };
     }
 
-    const result = await sendEmail({ agentName, greetingName: greetingName || agentName, recipientEmails: validEmails, monthLabel, customers, total, currency });
+    const result = await sendEmail({ agentName, greetingName: greetingName || agentName, recipientEmails: validEmails, monthLabel, customers, total, netTotal, currency });
 
     return {
       statusCode: 200,

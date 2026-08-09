@@ -6,22 +6,27 @@ function fmtMoney(n) {
 
 // Standalone document — converted to PDF via PDFShift, shared by the email
 // send path (attachment) and the direct-download path so both always
-// produce byte-identical reports. Mirrors the in-app expanded detail view:
-// Customer -> Invoice rows, per-customer subtotal, grand total at the end.
-function buildCommissionReportHtml({ agentName, monthLabel, customers, total, currency }) {
+// produce byte-identical reports. Columns match AM's own "Commission Report
+// (Transaction Currency)" export: Invoice / Date / PO / Trans. Balance /
+// Net / Rate / Commission, per-customer subtotal (Net + Commission), grand
+// total at the end (Net + Commission) — verified against a real invoice:
+// Trans. Balance = amount, Net = amount_subtotal, Commission = Net * Rate.
+function buildCommissionReportHtml({ agentName, monthLabel, customers, total, netTotal, currency }) {
   const customerBlocks = (customers || []).map((cust) => {
     const rows = (cust.invoices || []).map((li) => `
       <tr>
         <td>Invoice ${li.invoiceNum}</td>
         <td>${li.date || ''}</td>
         <td>${li.po || ''}</td>
+        <td class="num">${fmtMoney(li.transBalance)}</td>
+        <td class="num">${fmtMoney(li.net)}</td>
         <td class="num">${Number(li.rate).toFixed(2)}%</td>
         <td class="num">${fmtMoney(li.commission)}</td>
       </tr>`).join('');
     return `
-      <tr class="cust-row"><td colspan="5">${cust.customerName}</td></tr>
+      <tr class="cust-row"><td colspan="7">${cust.customerName}</td></tr>
       ${rows}
-      <tr class="subtotal-row"><td colspan="4">Subtotal</td><td class="num">${fmtMoney(cust.subtotal)}</td></tr>`;
+      <tr class="subtotal-row"><td colspan="4">Subtotal</td><td class="num">${fmtMoney(cust.netSubtotal)}</td><td></td><td class="num">${fmtMoney(cust.subtotal)}</td></tr>`;
   }).join('');
 
   return `<html><head><meta charset="utf-8"><style>
@@ -39,10 +44,10 @@ function buildCommissionReportHtml({ agentName, monthLabel, customers, total, cu
     <h1>Commission Report — ${monthLabel}</h1>
     <div class="sub">${agentName}</div>
     <table>
-      <thead><tr><th>Invoice</th><th>Date</th><th>PO</th><th class="num">Rate</th><th class="num">Commission</th></tr></thead>
+      <thead><tr><th>Invoice</th><th>Date</th><th>PO</th><th class="num">Trans. Balance</th><th class="num">Net</th><th class="num">Rate</th><th class="num">Commission</th></tr></thead>
       <tbody>
         ${customerBlocks}
-        <tr class="total-row"><td colspan="4">Total (ex GST)</td><td class="num">${fmtMoney(total)} ${currency || 'AUD'}</td></tr>
+        <tr class="total-row"><td colspan="4">Total (ex GST)</td><td class="num">${fmtMoney(netTotal)}</td><td></td><td class="num">${fmtMoney(total)} ${currency || 'AUD'}</td></tr>
       </tbody>
     </table>
   </body></html>`;

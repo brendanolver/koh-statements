@@ -20,12 +20,12 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { agentName, monthLabel, customers, total, currency } = body;
+    const { agentName, monthLabel, customers, total, netTotal, currency } = body;
     if (!agentName || !monthLabel || !Array.isArray(customers)) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing agentName, monthLabel, or customers' }) };
     }
 
-    const pdfBase64 = await pdfFromSource(buildCommissionReportHtml({ agentName, monthLabel, customers, total, currency }));
+    const pdfBase64 = await pdfFromSource(buildCommissionReportHtml({ agentName, monthLabel, customers, total, netTotal, currency }));
     const filename = `Commission Report - ${agentName} - ${monthLabel}.pdf`.replace(/"/g, "'");
 
     return {
