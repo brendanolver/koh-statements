@@ -1,5 +1,6 @@
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-5';
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 // One field per thing the Bills Import table/CSV export actually needs — see
 // extPDF() in the Bills tab, which maps this straight into row.invoice/row.ec.
@@ -46,10 +47,20 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { pdfBase64 } = body;
-    if (!pdfBase64) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Missing pdfBase64' }) };
+    // fileBase64/mediaType is the general shape; pdfBase64 is kept working
+    // for whatever's still calling the original single-purpose shape.
+    const fileBase64 = body.fileBase64 || body.pdfBase64;
+    const mediaType = body.mediaType || 'application/pdf';
+    if (!fileBase64) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Missing fileBase64' }) };
     }
+    if (mediaType !== 'application/pdf' && !IMAGE_TYPES.includes(mediaType)) {
+      return { statusCode: 400, body: JSON.stringify({ error: `Unsupported mediaType: ${mediaType}` }) };
+    }
+
+    const fileBlock = mediaType === 'application/pdf'
+      ? { type: 'document', source: { type: 'base64', media_type: mediaType, data: fileBase64 } }
+      : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
 
     const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
@@ -65,10 +76,7 @@ exports.handler = async (event) => {
         messages: [{
           role: 'user',
           content: [
-            {
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
-            },
+            fileBlock,
             {
               type: 'text',
               text: 'Extract the fields from this supplier invoice. The invoice is addressed TO KOH Industries or WNDRR — never return those as the supplier. If a field is not present on the document, return null for it rather than guessing.',

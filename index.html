@@ -726,14 +726,14 @@
 
   <div id="sec-process" class="sec on">
     <div class="upload" id="uploadWrap">
-      <p class="usub">Drop PDF, Excel or CSV invoices here or click to browse</p>
+      <p class="usub">Drop PDF, JPEG, PNG, Excel or CSV invoices here or click to browse</p>
       <button class="btn" onclick="document.getElementById('fi').click()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="16" height="16"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
         Upload files
       </button>
-      <input type="file" id="fi" accept=".pdf,.xlsx,.xls,.csv" multiple style="display:none" onchange="handleFiles(this.files)">
+      <input type="file" id="fi" accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png" multiple style="display:none" onchange="handleFiles(this.files)">
     </div>
-    <div class="drop" id="dropMore" onclick="document.getElementById('fi').click()">+ Drop more files (PDF, Excel, CSV)</div>
+    <div class="drop" id="dropMore" onclick="document.getElementById('fi').click()">+ Drop more files (PDF, JPEG, PNG, Excel, CSV)</div>
     <div class="alert" id="dupeAlert" style="display:none;background:#fff8e1;color:#f57f17;border-color:#ffe082">
       <span></span>
       <button class="btn" onclick="fixDuplicates()" style="font-size:12px;padding:6px 16px;flex-shrink:0;border-color:#f57f17;color:#f57f17">Auto-fix</button>
@@ -894,7 +894,7 @@
     <div style="display:flex;align-items:center;margin-top:1.25rem;gap:8px">
       <button class="btn" id="rvView" onclick="viewSource()" style="font-size:12px;padding:7px 16px;display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        View original PDF
+        View original
       </button>
       <div style="display:flex;gap:8px;margin-left:auto">
         <button class="btn" onclick="closeReview()" style="font-size:13px;padding:9px 20px">Cancel</button>
@@ -2592,7 +2592,7 @@ function handleFiles(files){
   document.getElementById('dropMore').style.display='block';
   Array.from(files).forEach(function(f){
     var ext=f.name.split('.').pop().toLowerCase();
-    if(['pdf','xlsx','xls','csv'].indexOf(ext)<0) return;
+    if(['pdf','xlsx','xls','csv','jpg','jpeg','png'].indexOf(ext)<0) return;
     var row={name:f.name,status:'reading',invoice:null,ec:null,file:null};
     invoices.push(row); renderFL();
     var reader=new FileReader();
@@ -2603,6 +2603,11 @@ function handleFiles(files){
     } else if(ext==='csv'){
       reader.onload=function(e){extCSV(e.target.result,row);};
       reader.readAsText(f);
+    } else if(ext==='jpg'||ext==='jpeg'||ext==='png'){
+      row.file=f;
+      var mimeType=ext==='png'?'image/png':'image/jpeg';
+      reader.onload=function(e){extImage(new Uint8Array(e.target.result),row,mimeType);};
+      reader.readAsArrayBuffer(f);
     } else {
       reader.onload=function(e){extXLS(e.target.result,row);};
       reader.readAsArrayBuffer(f);
@@ -2624,6 +2629,21 @@ function arrayBufferToBase64(bytes){
   return btoa(binary);
 }
 
+// Shared by the PDF and image extraction paths. Returns the parsed `fields`
+// object on success, or null on any failure (network, missing env var, bad
+// response) — callers decide their own fallback since PDFs have a regex
+// pipeline to fall back to and images don't.
+async function callExtractInvoice(fileBase64,mediaType){
+  try{
+    var r=await fetch('/.netlify/functions/extract-invoice',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({fileBase64:fileBase64,mediaType:mediaType})
+    });
+    if(r.ok){ var d=await r.json(); return d&&d.fields; }
+  } catch(e){}
+  return null;
+}
+
 // Sends the PDF itself to Claude for structured field extraction — far more
 // reliable than the regex pipeline above for messy/varied invoice layouts.
 // Only overwrites a field when the AI actually returned one, so a partial
@@ -2632,14 +2652,7 @@ function arrayBufferToBase64(bytes){
 // the same guessSup() heuristic the app used before this existed, so a
 // PDFSHIFT/Anthropic outage degrades to prior behaviour rather than breaking.
 async function applyAiExtraction(pdfB64,text,row){
-  var ai=null;
-  try{
-    var r=await fetch('/.netlify/functions/extract-invoice',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({pdfBase64:pdfB64})
-    });
-    if(r.ok){ var d=await r.json(); ai=d&&d.fields; }
-  } catch(e){ /* fall through to heuristic below */ }
+  var ai=await callExtractInvoice(pdfB64,'application/pdf');
 
   if(ai){
     if(ai.supplier_name&&row.ec) row.ec.sugName=ai.supplier_name;
@@ -2658,6 +2671,50 @@ async function applyAiExtraction(pdfB64,text,row){
   } else {
     guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=n;renderFL();renderTbl();}});
   }
+}
+
+// Same placeholder-number scheme parseInv/parsePart use when no invoice
+// number is found, kept as its own copy here rather than refactoring those
+// (unrelated, already-working regex functions) to share it.
+function placeholderInvoiceNum(seed){
+  var hash=0;
+  for(var i=0;i<seed.length;i++){hash=((hash<<5)-hash)+seed.charCodeAt(i);hash|=0;}
+  return (settings.prefix||'INV-')+(Math.abs(hash)%90000+10000);
+}
+
+// Photographed/scanned invoices (JPEG/PNG) have no embedded text layer, so
+// there's no regex pipeline to run and nothing for guessSup() to fall back
+// on either — the AI call is the only extraction path here. Always routes
+// to 'unmatched' (never auto-assigns a P&L account) since there's no text
+// for detSup()'s keyword match to run against; on AI failure the row still
+// opens for manual review with empty fields, same as any other unmatched
+// invoice — just more to fill in by hand than usual.
+async function extImage(arr,row,mimeType){
+  var b64=null;
+  try{ b64=arrayBufferToBase64(arr); }catch(e){}
+  if(!b64){ row.status='error'; renderFL(); return; }
+
+  row.ec={email:'',bsb:'',accNo:'',accNm:'',sugName:''};
+  var ai=await callExtractInvoice(b64,mimeType);
+
+  row.invoice={
+    invoiceNum:(ai&&ai.invoice_number)?normInvNum(ai.invoice_number):placeholderInvoiceNum(row.name),
+    supplier:'Unknown', isNew:false, isUnmatched:true,
+    date:(ai&&isoToDMY(ai.invoice_date))||today(),
+    due:(ai&&isoToDMY(ai.due_date))||dueDefault(),
+    amount:(ai&&typeof ai.total_amount_inc_gst==='number')?ai.total_amount_inc_gst:0,
+    account:null, accountName:'', tax:'GST on Expenses',
+    currency:settings.currency||'AUD', reference:(ai&&ai.reference_or_po)||'', feeAmount:0
+  };
+  if(ai){
+    row.ec.sugName=ai.supplier_name||'';
+    row.ec.email=ai.email||'';
+    row.ec.bsb=ai.bank_bsb||'';
+    row.ec.accNo=ai.bank_account_number||'';
+    row.ec.accNm=ai.bank_account_name||'';
+  }
+  row.status='unmatched';
+  renderFL(); renderTbl(); chkPend();
 }
 
 async function extPDF(arr,row){
@@ -2844,7 +2901,7 @@ function openReview(idx){
   sel.innerHTML='<option value="">— none —</option>'+ACCOUNTS.map(function(a){
     return '<option value="'+a.code+'"'+(inv.account===a.code?' selected':'')+'>'+a.code+' \xb7 '+a.name+'</option>';
   }).join('');
-  document.getElementById('rvView').style.display=(r.file&&r.name.toLowerCase().endsWith('.pdf'))?'inline-flex':'none';
+  document.getElementById('rvView').style.display=(r.file&&/\.(pdf|jpe?g|png)$/i.test(r.name))?'inline-flex':'none';
   document.getElementById('rvBg').classList.add('on');
 }
 function closeReview(){document.getElementById('rvBg').classList.remove('on');rvIdx=null;}
