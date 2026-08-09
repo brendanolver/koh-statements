@@ -15,8 +15,23 @@ function emailBodyHtml({ greetingName, monthLabel, total }) {
 <tr><td style="padding:0 32px 16px;font-size:14px;color:#1a1a1a;line-height:1.6;">Hi ${greetingName},</td></tr>
 <tr><td style="padding:0 32px 16px;font-size:14px;color:#1a1a1a;line-height:1.6;">Please find attached ${monthLabel} commission report.</td></tr>
 <tr><td style="padding:0 32px 16px;font-size:14px;color:#1a1a1a;line-height:1.6;">Please check over the report &amp; let me know if there are any issues.</td></tr>
-<tr><td style="padding:0 32px 24px;font-size:14px;color:#1a1a1a;line-height:1.6;">If not can you please email back an invoice for ${fmtMoney(total)} ex gst we'll get it paid to you asap.</td></tr>
-<tr><td style="padding:16px 32px 32px;border-top:1px solid #d8dbe0;font-size:12px;color:#6b7280;">KOH Industries Pty Ltd — Unit 5, 6 Builders Close, Wendouree Victoria 3355, Australia</td></tr>
+<tr><td style="padding:0 32px 28px;font-size:14px;color:#1a1a1a;line-height:1.6;">If not can you please email back an invoice for ${fmtMoney(total)} ex gst we'll get it paid to you asap.</td></tr>
+<tr><td style="padding:20px 32px 4px;border-top:1px solid #d8dbe0;font-size:14px;color:#1a1a1a;">Regards,</td></tr>
+<tr><td style="padding:14px 32px 16px;">
+  <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+    <td style="padding-right:16px;"><img src="https://koh-statements.netlify.app/logo.png" alt="KOH Industries" width="86" style="display:block;height:auto;"></td>
+    <td style="border-left:2px solid #1a1a1a;padding-left:16px;">
+      <div style="font-size:16px;font-weight:800;color:#1a1a1a;line-height:1.3;">Brendan Olver</div>
+      <div style="font-size:13px;font-weight:600;color:#1a1a1a;line-height:1.3;">Director</div>
+    </td>
+  </tr></table>
+</td></tr>
+<tr><td style="padding:0 32px 32px;font-size:12px;color:#1a1a1a;line-height:1.8;">
+  Mobile: 0418 519939<br>
+  Email: brendan@kohindustries.com<br>
+  Unit 5, 6 Builders Close,<br>
+  Wendouree VIC 3355
+</td></tr>
 </table>
 </td></tr>
 </table>`;
