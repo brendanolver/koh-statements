@@ -2493,6 +2493,21 @@ function monthValueToRange(monthValue) {
   return { startISO: iso(start), endISO: iso(end), label: start.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }) };
 }
 
+// Per-agent recipient emails saved locally so Brendan doesn't have to
+// re-paste multiple addresses every month — AM's own salesperson record
+// only ever has one email on file, so this is the only place a
+// multi-recipient list can live. Keyed by agent name (stable across
+// months), not by month, so it's a one-time setup per agent.
+const COMMISSION_EMAILS_KEY = 'commissionAgentEmailsV1';
+function loadSavedAgentEmails() {
+  try { return JSON.parse(localStorage.getItem(COMMISSION_EMAILS_KEY) || '{}'); } catch { return {}; }
+}
+function saveAgentEmail(agentName, email) {
+  const saved = loadSavedAgentEmails();
+  saved[agentName] = email;
+  localStorage.setItem(COMMISSION_EMAILS_KEY, JSON.stringify(saved));
+}
+
 // Agent names are "Agency Name - Person Name" (e.g. "Lifestyle Agencies -
 // Pete Francis"), occasionally just an agency/region with no person (e.g.
 // "Volume 1 Brands - NZ") — this is only ever a starting guess for the email
@@ -2518,6 +2533,7 @@ function isoToDmy(iso) {
 // invoice's transaction currency (confirmed against a live NZD invoice), so
 // no currency conversion happens here.
 function buildCommissionReport(invoices, salespeople) {
+  const savedEmails = loadSavedAgentEmails();
   const byAgent = new Map();
   for (const inv of invoices) {
     const commissions = inv.commissions || [];
@@ -2527,7 +2543,9 @@ function buildCommissionReport(invoices, salespeople) {
       const agentName = c.name;
       if (!byAgent.has(agentName)) {
         const sp = salespeople.find((s) => s.name === agentName);
-        byAgent.set(agentName, { agentName, email: sp?.email || '', greetingName: defaultGreetingName(agentName), currency, customers: new Map(), total: 0, netTotal: 0 });
+        // A saved multi-recipient list always wins over AM's single email
+        // on file — once Brendan sets it up for an agent, it sticks.
+        byAgent.set(agentName, { agentName, email: savedEmails[agentName] || sp?.email || '', greetingName: defaultGreetingName(agentName), currency, customers: new Map(), total: 0, netTotal: 0 });
       }
       const agent = byAgent.get(agentName);
       const custName = inv.customer_name || inv.name || 'Unknown';
@@ -2673,7 +2691,7 @@ function renderCommissionTable() {
         <td style="text-align:right;font-weight:700">${fmtMoney(agent.total)} ${agent.currency}</td>
         <td>
           <div style="display:flex;flex-direction:column;gap:4px">
-            <input type="text" value="${agent.email || ''}" placeholder="agent@email.com, agent2@email.com" style="width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].email=this.value">
+            <input type="text" value="${agent.email || ''}" placeholder="agent@email.com, agent2@email.com" style="width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].email=this.value; saveAgentEmail('${safeName}', this.value)">
             <input type="text" value="${agent.greetingName || ''}" placeholder="Greeting name(s), e.g. Stacey/Dan" style="width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].greetingName=this.value">
           </div>
         </td>
