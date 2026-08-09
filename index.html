@@ -2625,7 +2625,13 @@ function renderCommissionTable() {
           `).join('')}
         </table>
       </td></tr>
-    `).join('') : '';
+    `).join('') + `
+      <tr><td colspan="7" style="padding:0;background:#fafafa">
+        <table class="debtors-table" style="margin:0 0 6px 24px;width:calc(100% - 24px)">
+          <tr><td colspan="4" style="font-weight:700;font-size:12px;padding:8px;border-top:2px solid var(--ink);border-bottom:none">Total (ex GST)</td><td style="font-weight:700;font-size:12px;text-align:right;padding:8px;border-top:2px solid var(--ink);border-bottom:none">${fmtMoney(agent.total)} ${agent.currency}</td></tr>
+        </table>
+      </td></tr>
+    ` : '';
     return `
       <tr>
         <td><span style="cursor:pointer" onclick="toggleCommissionExpand('${safeName}')">${expanded ? '▾' : '▸'} ${agent.agentName}</span></td>
@@ -2637,7 +2643,10 @@ function renderCommissionTable() {
           <input type="text" value="${agent.greetingName || ''}" placeholder="Greeting name(s), e.g. Stacey/Dan" style="width:100%;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].greetingName=this.value">
         </td>
         <td class="send-status">${commissionStatusLabel(agent)}</td>
-        <td><button style="padding:5px 12px;font-size:12px" ${agent.status === 'sending' ? 'disabled' : ''} onclick="sendCommissionReport(${idx})">Send</button></td>
+        <td style="white-space:nowrap">
+          <button style="padding:5px 12px;font-size:12px" ${agent.downloading ? 'disabled' : ''} onclick="downloadCommissionReport(${idx})">${agent.downloading ? 'Downloading…' : 'Download PDF'}</button>
+          <button style="padding:5px 12px;font-size:12px" ${agent.status === 'sending' ? 'disabled' : ''} onclick="sendCommissionReport(${idx})">Send</button>
+        </td>
       </tr>
       ${detailRows}
     `;
@@ -2677,6 +2686,48 @@ async function sendCommissionReport(idx) {
     agent.status = 'failed';
     agent.error = err.message;
   }
+  renderCommissionTable();
+}
+
+// Same fetch -> blob -> object URL -> programmatic <a download> pattern as
+// downloadFilesBundle (a POST can't be a plain link) — no send involved,
+// just the PDF the email would otherwise attach.
+async function downloadCommissionReport(idx) {
+  const agent = commissionAgents[idx];
+  if (!agent || agent.downloading) return;
+  agent.downloading = true;
+  renderCommissionTable();
+  try {
+    const res = await fetch('/.netlify/functions/download-commission-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentName: agent.agentName,
+        monthLabel: commissionMonthLabel,
+        customers: agent.customers,
+        total: agent.total,
+        currency: agent.currency,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Download failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const match = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `Commission Report - ${agent.agentName}.pdf`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(`Download failed: ${err.message}`);
+  }
+  agent.downloading = false;
   renderCommissionTable();
 }
 
