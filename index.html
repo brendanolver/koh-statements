@@ -533,6 +533,7 @@
     <button class="tab-btn" data-tab="statements" onclick="switchTab('statements')">Statements</button>
     <button class="tab-btn" data-tab="bills" onclick="switchTab('bills')">Bills</button>
     <button class="tab-btn" data-tab="commission" onclick="switchTab('commission')">Commission</button>
+    <button class="tab-btn" data-tab="cashflow" onclick="switchTab('cashflow')">Cashflow</button>
   </div>
 
   <div id="queuePanel" class="queue-panel no-print" style="display:none;">
@@ -911,6 +912,11 @@
 
 <div id="commissionView" style="display:none;">
   <div class="sec-title">Commission</div>
+  <p style="color:var(--muted); font-size:14px; max-width:520px;">Not built yet — placeholder tab for a future feature. Come back to this when ready.</p>
+</div>
+
+<div id="cashflowView" style="display:none;">
+  <div class="sec-title">Cashflow</div>
   <p style="color:var(--muted); font-size:14px; max-width:520px;">Not built yet — placeholder tab for a future feature. Come back to this when ready.</p>
 </div>
 <script>
@@ -1589,6 +1595,7 @@ function switchTab(tab) {
   document.getElementById('statementsView').style.display = tab === 'statements' ? 'block' : 'none';
   document.getElementById('billsView').style.display = tab === 'bills' ? 'block' : 'none';
   document.getElementById('commissionView').style.display = tab === 'commission' ? 'block' : 'none';
+  document.getElementById('cashflowView').style.display = tab === 'cashflow' ? 'block' : 'none';
   for (const btn of document.querySelectorAll('.tab-btn')) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   }
