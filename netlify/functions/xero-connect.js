@@ -2,13 +2,14 @@ const crypto = require('crypto');
 const { xeroTokenStore } = require('./lib/blob-store');
 
 const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
-// accounting.invoices.read isn't a real Xero scope — Invoices/Bills/Credit
-// Notes live under accounting.transactions. Corrected here, and upgraded to
-// the non-.read variants for write access (Bills Import pushing bills and
-// contacts directly instead of a manual CSV import).
-// accounting.settings.read added after a live 401 on GET TaxRates —
-// TaxRates/Currencies/Organisation live under settings, not transactions.
-const SCOPES = 'offline_access accounting.contacts accounting.transactions accounting.settings.read';
+// Xero moved to a granular scope model — accounting.invoices(.read) is the
+// real, current scope (confirmed against this app's own scope list on
+// developer.xero.com); accounting.transactions is the old broad-scope name
+// and isn't valid here (caused a live invalid_scope error). Dropping the
+// .read suffix on contacts/invoices grants write access — Bills Import
+// pushing bills and contacts directly instead of a manual CSV import.
+// accounting.settings.read added for GET TaxRates (settings, not invoices).
+const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read';
 
 exports.handler = async (event) => {
   try {
