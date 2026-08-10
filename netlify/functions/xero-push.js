@@ -45,12 +45,17 @@ async function xeroPost(connection, path, body) {
     },
     body: JSON.stringify(body),
   });
-  const data = await res.json().catch(() => ({}));
+  const rawText = await res.text();
+  let data;
+  try { data = JSON.parse(rawText || '{}'); } catch { data = {}; }
   if (!res.ok) {
-    // Xero validation errors surface per-element, not just a top-level message.
+    // Xero validation errors surface per-element, not just a top-level message
+    // — and even that top-level message is sometimes only a fragment (e.g.
+    // "To update fields..." with nothing after it), so fall all the way back
+    // to the raw response body rather than silently losing detail.
     const elementErrors = data.Elements && data.Elements[0] && data.Elements[0].ValidationErrors;
-    const detail = (elementErrors && elementErrors.map((v) => v.Message).join('; ')) || data.Message;
-    throw new Error(detail || `Xero POST ${path} failed (${res.status})`);
+    const detail = (elementErrors && elementErrors.map((v) => v.Message).join('; ')) || data.Message || data.Detail;
+    throw new Error(detail || rawText.slice(0, 500) || `Xero POST ${path} failed (${res.status})`);
   }
   return data;
 }
@@ -59,6 +64,17 @@ async function xeroPost(connection, path, body) {
 // create. Only writes fields that were actually supplied — never blanks an
 // existing email/bank detail in Xero just because this particular invoice
 // didn't have one attached to it.
+//
+// BankAccountDetails is the one field that only goes out on CREATE, never
+// on an update to an existing contact — Xero rejects that write outright
+// (a security restriction: bank details can be set when a contact is first
+// created, but not silently changed afterward via the API, so a compromised
+// integration can't redirect where a supplier gets paid). Live-confirmed:
+// every contact this app tried to push a bill for had already been created
+// (either genuinely pre-existing, or by an earlier attempt of this app's
+// own that got as far as the contact step before failing later), so every
+// retry was hitting the update path and failing at this exact point —
+// explains three unrelated suppliers all failing identically.
 async function findOrCreateContact(connection, { name, email, bsb, accNo, accName }) {
   if (!name) throw new Error('Contact name required');
   const existing = await xeroGet(connection, 'Contacts', { where: `Name=="${escapeXeroString(name)}"` });
@@ -72,7 +88,7 @@ async function findOrCreateContact(connection, { name, email, bsb, accNo, accNam
   if (found) contactPayload.ContactID = found.ContactID;
   contactPayload.Name = name;
   if (email) contactPayload.EmailAddress = email;
-  if (bankAccountDetails) contactPayload.BankAccountDetails = bankAccountDetails;
+  if (bankAccountDetails && !found) contactPayload.BankAccountDetails = bankAccountDetails;
 
   const result = await xeroPost(connection, 'Contacts', { Contacts: [contactPayload] });
   const contact = result.Contacts && result.Contacts[0];
