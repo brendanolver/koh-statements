@@ -2485,12 +2485,20 @@ function defaultCommissionMonthValue() {
   return `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// Built as plain strings, never via Date -> toISOString() — that round-trips
+// through UTC, and in any UTC-positive timezone (e.g. Melbourne, UTC+10/11)
+// local midnight on the 1st is still the previous day in UTC, silently
+// shifting the whole range back by one: startISO came out "2026-06-30" for
+// July, pulling in a June 30 invoice that shouldn't have counted (confirmed
+// live — it was the exact source of a $27.26 commission discrepancy against
+// AM's own report) and, in the same bug, excluding any real July 31
+// invoices from endISO ("2026-07-30") on the other end.
 function monthValueToRange(monthValue) {
   const [y, m] = monthValue.split('-').map(Number);
-  const start = new Date(y, m - 1, 1);
-  const end = new Date(y, m, 0); // last day of month
-  const iso = (d) => d.toISOString().slice(0, 10);
-  return { startISO: iso(start), endISO: iso(end), label: start.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }) };
+  const pad = (n) => String(n).padStart(2, '0');
+  const lastDay = new Date(y, m, 0).getDate(); // day-of-month only — local getDate(), no UTC conversion
+  const label = new Date(y, m - 1, 1).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+  return { startISO: `${y}-${pad(m)}-01`, endISO: `${y}-${pad(m)}-${pad(lastDay)}`, label };
 }
 
 // Per-agent recipient emails, saved server-side (Netlify Blobs) so a saved
@@ -2593,7 +2601,7 @@ function buildCommissionReport(invoices, salespeople, savedEmails) {
     }
   }
   return [...byAgent.values()]
-    .map((a) => ({ ...a, customers: [...a.customers.values()].sort((x, y) => y.subtotal - x.subtotal), status: 'ready', error: '' }))
+    .map((a) => ({ ...a, customers: [...a.customers.values()].sort((x, y) => x.customerName.localeCompare(y.customerName)), status: 'ready', error: '' }))
     .sort((a, b) => b.total - a.total);
 }
 
