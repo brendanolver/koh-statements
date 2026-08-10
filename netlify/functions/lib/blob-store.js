@@ -29,4 +29,8 @@ function commissionEmailsStore() {
   return namedStore('commission-emails');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore };
+function billsCounterStore() {
+  return namedStore('bills-counter');
+}
+
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore };

@@ -1,7 +1,7 @@
 const { getValidConnection } = require('./lib/xero-auth');
 
 const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0';
-const ALLOWED = ['Contacts', 'Invoices', 'CreditNotes', 'TaxRates'];
+const ALLOWED = ['Contacts', 'Invoices', 'CreditNotes', 'TaxRates', 'Accounts'];
 
 exports.handler = async (event) => {
   try {

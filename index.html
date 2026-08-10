@@ -830,7 +830,14 @@
         <button class="btn dark" onclick="saveSettings()" style="font-size:13px;padding:9px 22px">Save</button>
       </div>
     </div>
-    <div style="font-size:10px;letter-spacing:.12em;color:#aaa;font-weight:500;margin:.75rem 0">IMPORT DATA</div>
+    <div style="font-size:10px;letter-spacing:.12em;color:#aaa;font-weight:500;margin:.75rem 0">SYNCED FROM XERO</div>
+    <div class="sbox">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div><div style="font-size:13px;font-weight:500;margin-bottom:2px">Chart of Accounts &amp; Contacts</div><div style="font-size:12px;color:#aaa" id="xeroSyncSt">Refreshes automatically whenever this tab opens</div></div>
+        <button class="btn" onclick="refreshXeroAccountsAndContacts(true).then(updateXeroSyncStatus)" style="font-size:12px;padding:7px 16px;flex-shrink:0">Refresh now</button>
+      </div>
+    </div>
+    <div style="font-size:10px;letter-spacing:.12em;color:#aaa;font-weight:500;margin:.75rem 0">MANUAL IMPORT (fallback)</div>
     <div class="sbox">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
         <div><div style="font-size:13px;font-weight:500;margin-bottom:2px">Chart of Accounts</div><div style="font-size:12px;color:#aaa">Accounting → Chart of Accounts → Export</div></div>
@@ -1725,6 +1732,9 @@ function switchTab(tab) {
   document.getElementById('cashflowView').style.display = tab === 'cashflow' ? 'block' : 'none';
   for (const btn of document.querySelectorAll('.tab-btn')) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
+  }
+  if (tab === 'bills' && typeof refreshXeroAccountsAndContacts === 'function') {
+    refreshXeroAccountsAndContacts(); // TTL-cached — cheap to call on every tab switch
   }
 }
 
@@ -2954,9 +2964,29 @@ function dueDefault(){
 // a clean sequential placeholder. Safe to collide with another supplier's
 // real or placeholder number — Xero only requires uniqueness per-contact,
 // not globally (see the per-supplier duplicate check in renderTbl below).
+// Persisted server-side (bills-counter.js, same Blobs pattern as debtor
+// status / commission emails) so the sequence keeps counting up across
+// sessions and devices instead of restarting at INV-001 every time the
+// page reloads. loadPlaceholderSeq() fetches the real value on startup;
+// until that resolves, placeholderSeq stays 0 (matches prior behaviour on
+// a fresh install / before the first ever save).
 var placeholderSeq=0;
+async function loadPlaceholderSeq(){
+  try{
+    var r=await fetch('/.netlify/functions/bills-counter');
+    var d=await r.json();
+    if(typeof d.value==='number') placeholderSeq=d.value;
+  }catch(e){}
+}
+function savePlaceholderSeq(){
+  fetch('/.netlify/functions/bills-counter',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({value:placeholderSeq})
+  }).catch(function(){});
+}
 function nextPlaceholderInvoiceNum(){
   placeholderSeq++;
+  savePlaceholderSeq();
   return (settings.prefix||'INV-')+String(placeholderSeq).padStart(3,'0');
 }
 function fmtD(s){
@@ -3205,13 +3235,28 @@ async function callExtractInvoiceText(text){
   return null;
 }
 
+// Supplier names extracted verbatim off an invoice sometimes don't match
+// who Brendan actually wants the bill attributed to (e.g. a business name
+// on the invoice vs. the individual he actually deals with/pays). Applied
+// wherever a raw extracted name is about to become the suggested supplier,
+// across every extraction path (AI, image, regex fallback) — add more
+// entries here for future "always treat X as Y" asks.
+var SUPPLIER_ALIASES={'Advanced Star Cleaning':'Lance Elliot'};
+function resolveSupplierAlias(name){
+  if(!name) return name;
+  for(var k in SUPPLIER_ALIASES){
+    if(name.toUpperCase().indexOf(k.toUpperCase())>=0) return SUPPLIER_ALIASES[k];
+  }
+  return name;
+}
+
 // Shared by every extraction path — only overwrites a field when the AI
 // actually returned one, so a partial response still improves on whatever
 // the regex pipeline found rather than blanking fields. Returns false when
 // there was nothing to apply, so callers know whether to fall back further.
 function overlayAiFields(ai,row){
   if(!ai) return false;
-  if(ai.supplier_name&&row.ec) row.ec.sugName=ai.supplier_name;
+  if(ai.supplier_name&&row.ec) row.ec.sugName=resolveSupplierAlias(ai.supplier_name);
   if(ai.email&&row.ec) row.ec.email=ai.email;
   if(ai.bank_bsb&&row.ec) row.ec.bsb=ai.bank_bsb;
   if(ai.bank_account_number&&row.ec) row.ec.accNo=ai.bank_account_number;
@@ -3236,7 +3281,7 @@ async function applyAiExtraction(pdfB64,text,row){
   if(overlayAiFields(ai,row)){
     renderFL(); renderTbl();
   } else {
-    guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=n;renderFL();renderTbl();}});
+    guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=resolveSupplierAlias(n);renderFL();renderTbl();}});
   }
 }
 
@@ -3247,7 +3292,7 @@ async function applyAiExtractionFromText(text,row){
   if(overlayAiFields(ai,row)){
     renderFL(); renderTbl();
   } else {
-    guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=n;renderFL();renderTbl();}});
+    guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=resolveSupplierAlias(n);renderFL();renderTbl();}});
   }
 }
 
@@ -3276,7 +3321,7 @@ async function extImage(arr,row,mimeType){
     currency:settings.currency||'AUD', reference:(ai&&ai.reference_or_po)||'', feeAmount:0
   };
   if(ai){
-    row.ec.sugName=ai.supplier_name||'';
+    row.ec.sugName=resolveSupplierAlias(ai.supplier_name||'');
     row.ec.email=ai.email||'';
     row.ec.bsb=ai.bank_bsb||'';
     row.ec.accNo=ai.bank_account_number||'';
@@ -3313,7 +3358,7 @@ async function extPDF(arr,row){
     } else { row.status='unmatched'; row.invoice=parsePart(text); }
     renderFL(); renderTbl(); chkPend();
     if(pdfB64) applyAiExtraction(pdfB64,text,row);
-    else guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=n;renderFL();renderTbl();}});
+    else guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=resolveSupplierAlias(n);renderFL();renderTbl();}});
   } catch(e){ row.status='error'; renderFL(); }
 }
 
@@ -4034,6 +4079,102 @@ function saveSettings(){
   saveS(); alert('Settings saved.');
 }
 
+// ── Live Xero sync (Chart of Accounts + Contacts) ────────────────────────
+// Replaces what used to be one-off manual CSV imports (importCOA/
+// importContacts below, kept as a manual fallback) — pulled fresh from
+// Xero whenever the Bills tab is opened, so a new account/contact added in
+// Xero shows up here without Brendan re-exporting a CSV. TTL-cached so
+// clicking between tabs doesn't refetch every time.
+var XERO_SYNC_TTL_MS=30*60*1000; // 30 min
+var XERO_SYNC_CACHE_KEY='wndrr_xero_sync_at';
+
+// Confirmed short codes (INPUT/EXEMPTEXPENSES/BASEXCLUDED) against a live
+// GET /TaxRates call while building the Xero push feature — same mapping,
+// inverted, plus sane guesses for the couple of other codes Xero accounts
+// commonly carry. Falls back to "GST on Expenses" (matching what the old
+// CSV-import path always defaulted to) for anything unrecognised.
+var TAX_CODE_TO_LABEL={
+  'INPUT':'GST on Expenses','OUTPUT':'GST on Expenses','GSTONIMPORTS':'GST on Expenses',
+  'EXEMPTEXPENSES':'GST Free Expenses','EXEMPTOUTPUT':'GST Free Expenses','ZERORATED':'GST Free Expenses',
+  'BASEXCLUDED':'BAS Excluded','NONE':'BAS Excluded',
+};
+var ACCOUNT_TYPE_LABEL={'DIRECTCOSTS':'Direct Costs','EXPENSE':'Expense','OVERHEADS':'Overheads'};
+var EXPENSE_ACCOUNT_TYPES=['DIRECTCOSTS','EXPENSE','OVERHEADS'];
+
+async function fetchXeroAccountsLive(){
+  var res=await fetch(XERO_PROXY+'?'+new URLSearchParams({path:'Accounts'}));
+  var data=await res.json();
+  if(!res.ok) throw new Error(data.error||data.Detail||('Xero accounts fetch failed ('+res.status+')'));
+  return (data.Accounts||[])
+    .filter(function(a){return a.Status==='ACTIVE'&&EXPENSE_ACCOUNT_TYPES.indexOf(a.Type)>=0;})
+    .map(function(a){
+      return{code:a.Code,name:a.Name,type:ACCOUNT_TYPE_LABEL[a.Type]||'Expense',
+        tax:TAX_CODE_TO_LABEL[a.TaxType]||'GST on Expenses'};
+    })
+    .sort(function(x,y){return x.name.localeCompare(y.name);});
+}
+
+async function fetchXeroContactsLive(){
+  var all=[];
+  for(var page=1;page<=20;page++){
+    var res=await fetch(XERO_PROXY+'?'+new URLSearchParams({path:'Contacts',page:String(page)}));
+    var data=await res.json();
+    if(!res.ok) throw new Error(data.error||data.Detail||('Xero contacts fetch failed ('+res.status+')'));
+    var rows=data.Contacts||[];
+    all.push.apply(all,rows);
+    if(rows.length<100) break;
+  }
+  return all.map(function(c){
+    var details=c.BankAccountDetails||'';
+    // Written as one concatenated BSB+AccountNumber string (no separator)
+    // by xero-push.js's findOrCreateContact — read back the same way.
+    var bsb=details?details.slice(0,6):'';
+    var accNo=details?details.slice(6):'';
+    return{name:c.Name,email:c.EmailAddress||'',bankName:c.Name,bsb:bsb,accNo:accNo};
+  });
+}
+
+var xeroSyncLastError='';
+function updateXeroSyncStatus(){
+  var el=document.getElementById('xeroSyncSt'); if(!el) return;
+  if(xeroSyncLastError){
+    el.textContent='Sync failed ('+xeroSyncLastError+') — showing last-known data'; el.style.color='#b42318';
+    return;
+  }
+  el.style.color='#aaa';
+  var lastAt=Number(localStorage.getItem(XERO_SYNC_CACHE_KEY)||0);
+  el.textContent=lastAt
+    ?ACCOUNTS.length+' accounts, '+XERO_CONTACTS.length+' contacts — synced '+new Date(lastAt).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})
+    :'Refreshes automatically whenever this tab opens';
+}
+
+async function refreshXeroAccountsAndContacts(force){
+  if(!force){
+    var lastAt=Number(localStorage.getItem(XERO_SYNC_CACHE_KEY)||0);
+    if(Date.now()-lastAt<XERO_SYNC_TTL_MS) return;
+  }
+  try{
+    var results=await Promise.all([fetchXeroAccountsLive(),fetchXeroContactsLive()]);
+    var liveAccounts=results[0], liveContacts=results[1];
+    if(liveAccounts.length){
+      ACCOUNTS=liveAccounts;
+      localStorage.setItem('wndrr_accounts',JSON.stringify(ACCOUNTS));
+      var coaCt=document.getElementById('coaCt'); if(coaCt) coaCt.textContent=ACCOUNTS.length+' accounts loaded (from Xero)';
+    }
+    if(liveContacts.length){
+      XERO_CONTACTS=liveContacts;
+    }
+    xeroSyncLastError='';
+    localStorage.setItem(XERO_SYNC_CACHE_KEY,String(Date.now()));
+  }catch(e){
+    // Non-fatal — keep whatever ACCOUNTS/XERO_CONTACTS already had (cached
+    // localStorage copy or the baked-in fallback seed), same degrade-
+    // gracefully approach used everywhere else Xero/AM calls can fail.
+    xeroSyncLastError=e.message;
+  }
+  updateXeroSyncStatus();
+}
+
 function importCOA(input){
   var file=input.files[0]; if(!file) return;
   var reader=new FileReader();
@@ -4086,6 +4227,12 @@ function resetAll(){
   contacts={}; settings={prefix:'INV-',currency:'AUD'};
   alert('All data cleared.');
 }
+
+// Runs as soon as this script block parses (page load, independent of the
+// password gate/init() in the main script above) so placeholderSeq is
+// already synced from the server well before anyone could reach the Bills
+// tab and actually generate a placeholder number.
+loadPlaceholderSeq();
 </script>
 </body>
 </html>
