@@ -84,9 +84,21 @@ async function findOrCreateContact(connection, { name, email, bsb, accNo, accNam
     ? String(bsb || '').replace(/[^0-9]/g, '') + String(accNo || '').replace(/[^0-9]/g, '')
     : undefined;
 
+  // Name is the other field that only goes out on CREATE, same reasoning as
+  // BankAccountDetails above — a live comparison (Sharp Accounting's
+  // INV-10138, which succeeded, vs INV-10137 against the same contact,
+  // which kept failing identically even after the BankAccountDetails fix)
+  // pointed at Name specifically: 10138 was very likely this contact's
+  // first-ever push (Name only ever mattered as the initial value on
+  // create), while every subsequent push is a resend of whatever this
+  // invoice's own PDF extraction produced — which won't always exactly
+  // match Xero's stored Name (there are three slightly different "Sharp
+  // Accounting" contacts in this org alone, including one with garbled
+  // text merged in from a PDF-extraction quirk) — resending a different
+  // value on update risks Xero treating it as an unintended rename.
   const contactPayload = {};
   if (found) contactPayload.ContactID = found.ContactID;
-  contactPayload.Name = name;
+  else contactPayload.Name = name;
   if (email) contactPayload.EmailAddress = email;
   if (bankAccountDetails && !found) contactPayload.BankAccountDetails = bankAccountDetails;
 
@@ -97,11 +109,20 @@ async function findOrCreateContact(connection, { name, email, bsb, accNo, accNam
 }
 
 // The actual duplicate-prevention safety net — checked explicitly rather
-// than assumed, since it's unconfirmed whether Xero's API hard-enforces
-// per-contact invoice-number uniqueness the way its UI warns about.
+// than assumed. Originally scoped per-contact (InvoiceNumber unique per
+// Contact.ContactID), on the assumption Xero's real constraint matched its
+// UI's per-contact duplicate warning. Live-confirmed wrong: InvoiceNumber
+// is unique ACCPAY-wide, not per-contact — e.g. "INV-010" already exists
+// in this org for three entirely unrelated contacts, none of them the one
+// a new push was for. The per-contact check silently missed that (each
+// individually correctly reported "no duplicate for this contact"), so
+// createBill was the thing actually rejecting the push downstream, with a
+// much less clear error than this check now surfaces up front. contactId
+// is unused now but kept in the signature — call sites already pass it,
+// and dropping it is a bigger diff than it's worth.
 async function checkBillExists(connection, { contactId, invoiceNumber }) {
-  if (!contactId || !invoiceNumber) throw new Error('contactId and invoiceNumber required');
-  const where = `Type=="ACCPAY"&&InvoiceNumber=="${escapeXeroString(invoiceNumber)}"&&Contact.ContactID==guid("${contactId}")`;
+  if (!invoiceNumber) throw new Error('invoiceNumber required');
+  const where = `Type=="ACCPAY"&&InvoiceNumber=="${escapeXeroString(invoiceNumber)}"`;
   const result = await xeroGet(connection, 'Invoices', { where });
   return { exists: !!(result.Invoices && result.Invoices.length) };
 }
