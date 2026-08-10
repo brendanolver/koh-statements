@@ -2197,7 +2197,10 @@ async function buildStatementData(customer) {
       date: xeroDate(cn.Date),
       dueDate: null, // credit notes have no due date — nets into "Current", not "Overdue" (see computeAging)
       invoiceNumber: cn.CreditNoteNumber,
-      poNumber: '',
+      // Credit notes have no AM equivalent (so no customer_po to join against)
+      // — Xero's own Reference field is the closest thing, and Brendan
+      // already uses it for this (e.g. "STOCK SEND BACK ON INV-130401").
+      poNumber: cn.Reference || '',
       matched: true, // no AM equivalent is ever expected for a credit note — not a data gap worth flagging
       printUrl: null,
       amount: -(cn.RemainingCredit || 0),
