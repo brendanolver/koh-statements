@@ -4672,10 +4672,20 @@ async function loadCashflowData(force) {
   btn.disabled = true;
   cfSetStatus('Loading live Xero data…');
   try {
+    // Xero's Reports/BankSummary hard-rejects (400) any fromDate/toDate pair
+    // more than 365 days apart — confirmed live. A calendar "12 months back"
+    // (getMonth()-12) lands on 366 days across a lot of date/leap-year
+    // combinations, so this subtracts a fixed day count instead. Built as
+    // plain strings (no Date -> toISOString() round-trip) for the same
+    // reason the Commission month-range bug was fixed that way — that
+    // round-trip shifts the date backward a day in any UTC-positive
+    // timezone (Melbourne is UTC+10/11).
     const today = new Date();
-    const fromDate = new Date(today.getFullYear(), today.getMonth() - CF_MONTHS_HISTORY, today.getDate());
-    const fromISO = fromDate.toISOString().slice(0, 10);
-    const toISO = today.toISOString().slice(0, 10);
+    const pad = (n) => String(n).padStart(2, '0');
+    const toISODate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const fromDate = new Date(today); fromDate.setDate(fromDate.getDate() - 364);
+    const fromISO = toISODate(fromDate);
+    const toISO = toISODate(today);
 
     // audAccounts has to resolve first — both the bank summary and bank
     // transaction fetches filter against its account IDs.
