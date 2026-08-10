@@ -3962,7 +3962,13 @@ async function xeroPushOne(idx){
     // INV-10137, which collided with an unrelated supplier's bill) and
     // still needs a human to look at it, so only auto-bump placeholders.
     if(dupe.exists&&inv.isPlaceholderNum){
-      for(var bump=0;bump<10&&dupe.exists;bump++){
+      // 40, not 10 — "INV-" turns out to be a common real invoice-number
+      // format across this org's actual suppliers (1000+ unrelated bills
+      // start with "INV-0"), so a placeholder can land in a dense cluster
+      // of genuinely-taken numbers. Changing the placeholder prefix in
+      // Settings to something less generic (e.g. "PH-") is the real fix —
+      // this cap is just a safety margin on top of that.
+      for(var bump=0;bump<40&&dupe.exists;bump++){
         inv.invoiceNum=nextPlaceholderInvoiceNum();
         dupe=await xeroPushCall('checkBillExists',{contactId:contact.contactId,invoiceNumber:inv.invoiceNum});
       }
