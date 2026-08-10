@@ -9,7 +9,11 @@ const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 // .read suffix on contacts/invoices grants write access — Bills Import
 // pushing bills and contacts directly instead of a manual CSV import.
 // accounting.settings.read added for GET TaxRates (settings, not invoices).
-const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read';
+// accounting.banktransactions.read + accounting.reports.banksummary.read
+// added for the Cashflow tab (read-only — this app never writes bank
+// transactions) — both confirmed against this app's own scope list on
+// developer.xero.com, same as every other scope here.
+const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions.read accounting.reports.banksummary.read';
 
 exports.handler = async (event) => {
   try {
