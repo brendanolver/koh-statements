@@ -3375,7 +3375,7 @@ function parseInv(text){
   var amt=parseAmt(text);
   if(!im&&amt===0) return null;
   var ac=rule?rule.account:null; var a=ACCOUNTS.find(function(x){return x.code===ac;});
-  return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),supplier:det?det.name:'Unknown',
+  return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),isPlaceholderNum:!im,supplier:det?det.name:'Unknown',
     isNew:det&&!rule,isUnmatched:!det,date:dmVal?fmtD(dmVal):today(),due:duVal?fmtD(duVal):dueDefault(),
     amount:amt,account:ac,accountName:a?a.name:'',tax:'GST on Expenses',
     currency:settings.currency||'AUD',reference:rf?rf[1]:'',feeAmount:0};
@@ -3392,7 +3392,7 @@ function parsePart(text){
   var dmVal=dmRaw?parseTextDate(dmRaw[1]):'';
   var duVal=duRaw?parseTextDate(duRaw[1]):'';
   var rf=text.match(/(?:Reference)[:\s]+(\d{5,12})/i);
-  return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),
+  return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),isPlaceholderNum:!im,
     supplier:'Unknown',isNew:false,isUnmatched:true,
     date:dmVal?fmtD(dmVal):today(),due:duVal?fmtD(duVal):dueDefault(),
     amount:parseAmt(text),account:null,accountName:'',tax:'GST on Expenses',
@@ -3550,6 +3550,7 @@ async function extImage(arr,row,mimeType){
 
   row.invoice={
     invoiceNum:(ai&&ai.invoice_number)?normInvNum(ai.invoice_number):nextPlaceholderInvoiceNum(),
+    isPlaceholderNum:!(ai&&ai.invoice_number),
     supplier:'Unknown', isNew:false, isUnmatched:true,
     date:(ai&&isoToDMY(ai.invoice_date))||today(),
     due:(ai&&isoToDMY(ai.due_date))||dueDefault(),
@@ -3719,7 +3720,11 @@ function renderTbl(){
     if(r.xeroStatus==='pushing') xc='<span style="font-size:11px;color:#888">Pushing…</span>';
     else if(r.xeroStatus==='pushed') xc='<span style="font-size:11px;color:#2e7d32" title="Xero invoice '+(r.xeroMessage||'')+'">Pushed ✓</span>';
     else if(r.xeroStatus==='skipped') xc='<span style="font-size:11px;color:#f57f17" title="'+(r.xeroMessage||'')+'">Skipped</span>';
-    else if(r.xeroStatus==='failed') xc='<span style="font-size:11px;color:#e53935" title="'+(r.xeroMessage||'')+'">Failed</span> <button class="al" onclick="xeroPushOne('+idx+')">Retry</button>';
+    else if(r.xeroStatus==='failed'){
+      var xm=r.xeroMessage||'';
+      var xmShort=xm.length>70?xm.slice(0,70)+'…':xm;
+      xc='<div style="font-size:11px;color:#e53935" title="'+xm.replace(/"/g,'&quot;')+'">Failed'+(xmShort?': '+xmShort:'')+'</div><button class="al" onclick="xeroPushOne('+idx+')">Retry</button>';
+    }
     else if(r.status==='ok'&&r.confirmed) xc='<button class="al" onclick="xeroPushOne('+idx+')">Push</button>';
     else if(r.status==='ok') xc='<span style="font-size:11px;color:#aaa" title="Tick the checkmark on the right to approve this bill before it can be pushed">Tick to approve</span>';
     else xc='<span style="font-size:11px;color:#ccc">—</span>';
@@ -3781,7 +3786,7 @@ function viewSource(){
 function saveReview(){
   var r=invoices[rvIdx]; if(!r||!r.invoice){closeReview();return;}
   var inv=r.invoice;
-  var num=document.getElementById('rvNum').value.trim(); if(num) inv.invoiceNum=num;
+  var num=document.getElementById('rvNum').value.trim(); if(num){inv.invoiceNum=num;inv.isPlaceholderNum=false;}
   var amt=parseFloat(document.getElementById('rvAmt').value); if(amt>0) inv.amount=amt;
   var dv=document.getElementById('rvDate').value.trim(); if(dv) inv.date=fmtD(dv);
   var du=document.getElementById('rvDue').value.trim(); if(du) inv.due=fmtD(du);
@@ -3943,6 +3948,21 @@ async function xeroPushOne(idx){
     var contact=await xeroPushCall('findOrCreateContact',contactParams);
 
     var dupe=await xeroPushCall('checkBillExists',{contactId:contact.contactId,invoiceNumber:inv.invoiceNum});
+    // A placeholder number colliding is always safe to resolve by trying
+    // the next one — it's not a real duplicate, just an auto-generated
+    // number that happens to already be used for this contact (e.g. an
+    // older bill entered before this app's unified generator existed, or
+    // one entered manually). A REAL extracted invoice number colliding is
+    // different — that's a genuine data question (see Sharp Accounting's
+    // INV-10137, which collided with an unrelated supplier's bill) and
+    // still needs a human to look at it, so only auto-bump placeholders.
+    if(dupe.exists&&inv.isPlaceholderNum){
+      for(var bump=0;bump<10&&dupe.exists;bump++){
+        inv.invoiceNum=nextPlaceholderInvoiceNum();
+        dupe=await xeroPushCall('checkBillExists',{contactId:contact.contactId,invoiceNumber:inv.invoiceNum});
+      }
+      renderTbl();
+    }
     if(dupe.exists){
       row.xeroStatus='skipped'; row.xeroMessage='Already in Xero';
       renderTbl(); return;
