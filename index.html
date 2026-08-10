@@ -3483,7 +3483,8 @@ function renderTbl(){
     else if(r.xeroStatus==='pushed') xc='<span style="font-size:11px;color:#2e7d32" title="Xero invoice '+(r.xeroMessage||'')+'">Pushed ✓</span>';
     else if(r.xeroStatus==='skipped') xc='<span style="font-size:11px;color:#f57f17" title="'+(r.xeroMessage||'')+'">Skipped</span>';
     else if(r.xeroStatus==='failed') xc='<span style="font-size:11px;color:#e53935" title="'+(r.xeroMessage||'')+'">Failed</span> <button class="al" onclick="xeroPushOne('+idx+')">Retry</button>';
-    else if(r.status==='ok') xc='<button class="al" onclick="xeroPushOne('+idx+')">Push</button>';
+    else if(r.status==='ok'&&r.confirmed) xc='<button class="al" onclick="xeroPushOne('+idx+')">Push</button>';
+    else if(r.status==='ok') xc='<span style="font-size:11px;color:#aaa" title="Tick the checkmark on the right to approve this bill before it can be pushed">Tick to approve</span>';
     else xc='<span style="font-size:11px;color:#ccc">—</span>';
     return '<tr'+(isDupe?' style="background:#fff8e1"':'')+'>'
       +'<td class="inum" onclick="openReview('+idx+')" title="Click to check &amp; amend" style="font-family:monospace;font-size:11px'+(isDupe?';color:#f57f17':'')+'">'+inv.invoiceNum
@@ -3687,6 +3688,13 @@ function dmyToIso(dmy){
 // tax rate from the assigned account itself rather than trust inv.tax.
 async function xeroPushOne(idx){
   var row=invoices[idx]; if(!row||!row.invoice||row.status!=='ok') return;
+  // Hard gate, not just a UI hint — Push/Retry buttons are already hidden
+  // for unconfirmed rows, but this guard covers any other call path (e.g.
+  // pushAllToXero) so nothing reaches Xero without being ticked first.
+  if(!row.confirmed){
+    row.xeroStatus='failed'; row.xeroMessage='Tick "checked" to approve before pushing to Xero';
+    renderTbl(); return;
+  }
   var inv=row.invoice; var ec=row.ec||{};
   row.xeroStatus='pushing'; renderTbl();
   try{
@@ -3730,9 +3738,9 @@ async function pushAllToXero(){
   if(btn.disabled) return;
   var eligible=invoices.map(function(r,i){return i;}).filter(function(i){
     var r=invoices[i];
-    return r.invoice&&r.status==='ok'&&r.xeroStatus!=='pushed'&&r.xeroStatus!=='skipped';
+    return r.invoice&&r.status==='ok'&&r.confirmed&&r.xeroStatus!=='pushed'&&r.xeroStatus!=='skipped';
   });
-  if(!eligible.length){ alert('No matched, un-pushed invoices to push.'); return; }
+  if(!eligible.length){ alert('No approved (ticked) invoices to push — tick the checkmark on each bill you want to send before pushing.'); return; }
   btn.disabled=true; btn.textContent='Pushing…';
   for(var i=0;i<eligible.length;i++){
     await xeroPushOne(eligible[i]);
