@@ -4628,21 +4628,53 @@ async function cfFetchBankSummary(fromISO, toISO, audAccountIds) {
   return { opening, closing };
 }
 
-async function cfFetchBankTransactionsSince(fromISO, audAccountIds) {
+// Xero's `page` param is a stateless offset, not a cursor (confirmed live —
+// jumping straight to page 51 or 60 returns the correct slice without
+// having walked through 1-50 first), so pages can be fetched out of order
+// and in parallel. That matters here: a live pull of this org's last 364
+// days came back to ~5,100 transactions across 52 pages — fetched one at a
+// time (the original approach) that took ~95 seconds and, worse, silently
+// dropped the last page under the old 50-page cap. Fetches in small
+// concurrent batches instead (5 in flight, not more — this codebase has a
+// documented case of tripping Xero's rate limit at ~76 concurrent-ish
+// calls; see fetchOutstandingCreditNotesOrgWide's comment above), stopping
+// once a batch comes back with any page short of 100 rows. A 200-page
+// (20,000 row) safety cap replaces the old hard 50-page one so a bigger
+// future data set degrades to "slow" rather than silently truncating again.
+async function cfFetchBankTransactionsPage(whereClause, page) {
+  const params = new URLSearchParams({ path: 'BankTransactions', where: whereClause, page: String(page) });
+  const res = await fetch(`${XERO_PROXY}?${params}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.Detail || `Xero bank transactions fetch failed (${res.status})`);
+  return data.BankTransactions || [];
+}
+
+async function cfFetchBankTransactionsSince(fromISO, audAccountIds, onProgress) {
   const [y, m, d] = fromISO.split('-').map(Number);
+  const whereClause = `Status=="AUTHORISED" && Date>=DateTime(${y},${m},${d})`;
+  const BATCH = 5;
   const all = [];
-  for (let page = 1; page <= 50; page++) {
-    const params = new URLSearchParams({
-      path: 'BankTransactions',
-      where: `Status=="AUTHORISED" && Date>=DateTime(${y},${m},${d})`,
-      page: String(page),
-    });
-    const res = await fetch(`${XERO_PROXY}?${params}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || data.Detail || `Xero bank transactions fetch failed (${res.status})`);
-    const rows = data.BankTransactions || [];
-    all.push(...rows);
-    if (rows.length < 100) break;
+  let page = 1;
+  while (page <= 200) {
+    const pageNums = Array.from({ length: BATCH }, (_, i) => page + i);
+    const results = await Promise.all(pageNums.map(async (p) => {
+      try {
+        return await cfFetchBankTransactionsPage(whereClause, p);
+      } catch (err) {
+        // One retry after a pause — same transient-rate-limit tolerance
+        // already used for statement prep (prepareQueueItem above).
+        await new Promise((r) => setTimeout(r, 3000));
+        return cfFetchBankTransactionsPage(whereClause, p);
+      }
+    }));
+    let done = false;
+    for (const rows of results) {
+      all.push(...rows);
+      if (rows.length < 100) done = true;
+    }
+    if (onProgress) onProgress(all.length);
+    if (done) break;
+    page += BATCH;
   }
   // AUD-only, filtered client-side — the where clause above can't easily
   // reach into the nested BankAccount object.
@@ -4697,7 +4729,7 @@ async function loadCashflowData(force) {
       cfFetchAllOpenPayablesOrgWide(),
       cfFetchBankSummary(fromISO, toISO, audAccountIds),
       cfFetchWholesaleNames(),
-      cfFetchBankTransactionsSince(fromISO, audAccountIds),
+      cfFetchBankTransactionsSince(fromISO, audAccountIds, (n) => cfSetStatus(`Loading bank transactions… ${n.toLocaleString()} so far`)),
     ]);
 
     cfAllTxns = bankTxns.map((t) => {
