@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root {
     --ink: #1a1a1a;
@@ -532,6 +533,83 @@
 #billsView .cbtn{background:none;border:.5px solid #e0e0e0;cursor:pointer;font-size:11px;color:#bbb;width:22px;height:22px;border-radius:50%;line-height:1;flex-shrink:0;transition:.15s;font-family:inherit;padding:0}
 #billsView .cbtn:hover{border-color:#2e7d32;color:#2e7d32;background:#f0faf0}
 #billsView .cbtn.done{background:#2e7d32;border-color:#2e7d32;color:#fff}
+
+/* ---------- Cashflow tab ---------- */
+#cashflowView .cf-status{color:var(--muted);font-size:13px;margin-bottom:1rem}
+#cashflowView .cf-card{background:#fff;border:.5px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px}
+#cashflowView .cf-card-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px}
+#cashflowView .cf-grid-main{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+#cashflowView .cf-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#cashflowView .cf-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media (max-width:900px){#cashflowView .cf-grid-main,#cashflowView .cf-grid-3{grid-template-columns:1fr}}
+@media (max-width:640px){#cashflowView .cf-grid-2{grid-template-columns:1fr}}
+#cashflowView .cf-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+#cashflowView .cf-kpi{background:#fafafa;border-radius:8px;padding:14px 16px}
+#cashflowView .cf-kpi-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+#cashflowView .cf-kpi-value{font-size:22px;font-weight:600;line-height:1;letter-spacing:-.02em}
+#cashflowView .cf-kpi-sub{font-size:11px;color:var(--muted);margin-top:4px}
+#cashflowView .cf-pos{color:#2e7d32}
+#cashflowView .cf-neg{color:#c0392b}
+#cashflowView .cf-warn{color:#b8860b}
+#cashflowView .cf-chart-wrap{position:relative;width:100%}
+#cashflowView .cf-leg{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;font-size:11px;color:var(--muted)}
+#cashflowView .cf-li{display:flex;align-items:center;gap:4px}
+#cashflowView .cf-lc{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+#cashflowView .cf-scen-panel{background:#fff;border:.5px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;flex-direction:column;gap:14px;margin-bottom:16px}
+#cashflowView .cf-scen-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+#cashflowView .cf-stab{font-size:12px;font-weight:500;padding:5px 16px;border-radius:8px;border:.5px solid var(--border);cursor:pointer;background:transparent;color:var(--muted);font-family:inherit}
+#cashflowView .cf-stab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+#cashflowView .cf-channel-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:540px){#cashflowView .cf-channel-grid{grid-template-columns:1fr}}
+#cashflowView .cf-ch-block{background:#fafafa;border-radius:8px;padding:14px 16px;border:.5px solid var(--border)}
+#cashflowView .cf-ch-title{font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:7px}
+#cashflowView .cf-ch-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+#cashflowView .cf-sl-item{margin-bottom:10px}
+#cashflowView .cf-sl-label{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+#cashflowView .cf-sl-name{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+#cashflowView .cf-sl-val{font-size:13px;font-weight:600;min-width:46px;text-align:right}
+#cashflowView .cf-scen-note{font-size:11px;color:#999;padding-top:8px;border-top:.5px solid var(--border)}
+#cashflowView input[type=range]{width:100%;accent-color:var(--accent);height:4px;border-radius:2px;cursor:pointer}
+#cashflowView select{font-family:inherit;font-size:13px;padding:6px 10px;border-radius:8px;border:.5px solid var(--border);background:#fff;color:var(--ink);cursor:pointer}
+#cashflowView .cf-recon-banner{padding:12px 16px;border-radius:8px;font-size:13px;display:flex;align-items:flex-start;gap:10px;border-left:3px solid;margin-bottom:16px}
+#cashflowView .cf-recon-ok{background:#eaf5ee;color:#185030;border-color:#2e7d32}
+#cashflowView .cf-recon-warn{background:#faeeda;color:#5a3800;border-color:#b8860b}
+#cashflowView .cf-table-scroll{overflow-x:auto;max-height:320px;overflow-y:auto}
+#cashflowView .cf-pt{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+#cashflowView .cf-pt th{font-size:10px;font-weight:600;color:var(--muted);text-align:right;padding:6px 8px;border-bottom:.5px solid var(--border);text-transform:uppercase;letter-spacing:.05em;position:sticky;top:0;background:#fff}
+#cashflowView .cf-pt th:first-child{text-align:left}
+#cashflowView .cf-pt td{padding:7px 8px;text-align:right;border-bottom:.5px solid #f5f5f5;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#cashflowView .cf-pt td:first-child{text-align:left}
+#cashflowView .cf-pt tr:last-child td{border-bottom:none}
+#cashflowView .cf-proj-r td{color:var(--muted);font-style:italic}
+#cashflowView .cf-flags{display:flex;flex-direction:column;gap:8px}
+#cashflowView .cf-flag{font-size:12px;padding:9px 12px;border-radius:8px;display:flex;align-items:flex-start;gap:8px;border-left:3px solid}
+#cashflowView .cf-fd{background:#fcebeb;color:#6b0c0f;border-color:#c0392b}
+#cashflowView .cf-fw{background:#faeeda;color:#5a3800;border-color:#b8860b}
+#cashflowView .cf-fs{background:#eaf5ee;color:#0a3818;border-color:#2e7d32}
+#cashflowView .cf-dot{width:6px;height:6px;border-radius:50%;margin-top:4px;flex-shrink:0}
+#cashflowView .cf-aged-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;gap:1px;margin:10px 0}
+#cashflowView .cf-aged-leg{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:10px}
+#cashflowView .cf-aged-li{display:flex;align-items:center;gap:4px;color:var(--muted)}
+#cashflowView .cf-stat-row{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:.5px solid #f5f5f5}
+#cashflowView .cf-stat-row:last-child{border-bottom:none}
+#cashflowView .cf-stat-label{color:var(--muted)}
+#cashflowView .cf-stat-val{font-weight:600}
+#cashflowView .cf-d-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:.5px solid #f5f5f5;font-size:13px}
+#cashflowView .cf-d-row:last-child{border-bottom:none}
+#cashflowView .cf-d-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#cashflowView .cf-d-bw{width:80px;height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;flex-shrink:0}
+#cashflowView .cf-d-b{height:100%;border-radius:3px}
+#cashflowView .cf-d-amt{min-width:80px;text-align:right;font-variant-numeric:tabular-nums;font-weight:500}
+#cashflowView .cf-d-bdg,#cashflowView .cf-cr-bdg{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;flex-shrink:0;white-space:nowrap}
+#cashflowView .cf-bov{background:#fcebeb;color:#c01010}
+#cashflowView .cf-bwrn{background:#faeeda;color:#8a5000}
+#cashflowView .cf-bok{background:#eaf5ee;color:#1a6030}
+#cashflowView .cf-sup-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px}
+#cashflowView .cf-sup-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#cashflowView .cf-sup-bar-w{width:64px;height:5px;background:#f0f0f0;border-radius:3px;overflow:hidden;flex-shrink:0}
+#cashflowView .cf-sup-bar{height:100%;border-radius:3px;background:#c0392b}
+#cashflowView .cf-sup-amt{min-width:70px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -986,8 +1064,161 @@
 </div>
 
 <div id="cashflowView" style="display:none;">
-  <div class="sec-title">Cashflow</div>
-  <p style="color:var(--muted); font-size:14px; max-width:520px;">Not built yet — placeholder tab for a future feature. Come back to this when ready.</p>
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+    <div>
+      <div class="sec-title" style="margin-bottom:2px">Cashflow</div>
+      <div class="cf-status" id="cfStatus">Loading…</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="cfGranSel">
+        <option value="weekly">Weekly</option>
+        <option value="monthly" selected>Monthly</option>
+        <option value="quarterly">Quarterly</option>
+      </select>
+      <button class="btn" id="cfRefreshBtn" onclick="loadCashflowData(true)" style="font-size:13px;padding:9px 16px">Refresh now</button>
+    </div>
+  </div>
+
+  <div id="cfReconBanner" style="display:none"></div>
+
+  <div id="cfDashboard" style="display:none">
+    <div class="cf-scen-panel">
+      <div class="cf-scen-header">
+        <div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:3px">Channel growth scenarios</div>
+          <div style="font-size:12px;color:var(--muted)">Set independent growth assumptions per channel and scenario. Sliders update the dashboard live.</div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;gap:6px" id="cfScenTabs">
+            <button class="cf-stab active" data-s="worst">Worst</button>
+            <button class="cf-stab" data-s="base">Base</button>
+            <button class="cf-stab" data-s="best">Best</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:12px;color:var(--muted)">Periods ahead:</span>
+            <select id="cfProjPeriods"><option value="4">4</option><option value="8" selected>8</option><option value="12">12</option><option value="26">26</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="cf-channel-grid">
+        <div class="cf-ch-block">
+          <div class="cf-ch-title"><span class="cf-ch-dot" style="background:#3584e4"></span>Sales — Online</div>
+          <div id="cfOnlineSliders"></div>
+        </div>
+        <div class="cf-ch-block">
+          <div class="cf-ch-title"><span class="cf-ch-dot" style="background:#e5a50a"></span>Sales — Wholesale</div>
+          <div id="cfWholesaleSliders"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:var(--muted)">DSO override — 0 = auto from aged receivables</span>
+            <span style="font-size:13px;font-weight:600" id="cfDsoDispVal">auto</span>
+          </div>
+          <input type="range" id="cfDsoSlider" min="0" max="90" step="1" value="0">
+        </div>
+      </div>
+      <div class="cf-scen-note" id="cfScenSummary"></div>
+    </div>
+
+    <div class="cf-kpi-row" id="cfKpiRow"></div>
+
+    <div class="cf-grid-main">
+      <div class="cf-card">
+        <div class="cf-card-title">Cash flow by period</div>
+        <div class="cf-leg">
+          <span class="cf-li"><span class="cf-lc" style="background:#2ec27e"></span>Cash in</span>
+          <span class="cf-li"><span class="cf-lc" style="background:#e01b24"></span>Cash out</span>
+          <span class="cf-li"><span class="cf-lc" style="background:#3584e4"></span>Net movement</span>
+          <span class="cf-li"><span class="cf-lc" style="background:#e5a50a;opacity:.6"></span>Base projection</span>
+        </div>
+        <div class="cf-chart-wrap" style="height:240px"><canvas id="cfCashChart"></canvas></div>
+      </div>
+      <div class="cf-card">
+        <div class="cf-card-title">Balance trajectory</div>
+        <div class="cf-leg">
+          <span class="cf-li"><span class="cf-lc" style="background:#3584e4"></span>Historical</span>
+          <span class="cf-li"><span class="cf-lc" style="background:#2ec27e"></span>Best</span>
+          <span class="cf-li"><span class="cf-lc" style="background:#e5a50a"></span>Base</span>
+          <span class="cf-li"><span class="cf-lc" style="background:#e01b24"></span>Worst</span>
+        </div>
+        <div class="cf-chart-wrap" style="height:254px"><canvas id="cfBalChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="cf-card">
+      <div class="cf-card-title">Projected inflow by channel — all scenarios compared</div>
+      <div class="cf-leg">
+        <span class="cf-li"><span class="cf-lc" style="background:#2ec27e"></span>Best online</span>
+        <span class="cf-li"><span class="cf-lc" style="background:#85b7eb"></span>Best wholesale</span>
+        <span class="cf-li"><span class="cf-lc" style="background:#e5a50a"></span>Base online</span>
+        <span class="cf-li"><span class="cf-lc" style="background:#fac775"></span>Base wholesale</span>
+        <span class="cf-li"><span class="cf-lc" style="background:#e01b24"></span>Worst online</span>
+        <span class="cf-li"><span class="cf-lc" style="background:#f09595"></span>Worst wholesale</span>
+      </div>
+      <div class="cf-chart-wrap" style="height:200px"><canvas id="cfScenChart"></canvas></div>
+    </div>
+
+    <div id="cfCredSection" style="display:none">
+      <div class="sec-title" style="margin-top:1.5rem">Creditors &amp; payables</div>
+      <div class="cf-grid-3">
+        <div class="cf-card">
+          <div class="cf-card-title">Outstanding payables</div>
+          <div id="cfCredAgedBar" class="cf-aged-bar"></div>
+          <div id="cfCredAgedLeg" class="cf-aged-leg"></div>
+          <div id="cfCredStats"></div>
+        </div>
+        <div class="cf-card">
+          <div class="cf-card-title">Cash out by period (historical)</div>
+          <div class="cf-chart-wrap" style="height:160px"><canvas id="cfPayChart"></canvas></div>
+        </div>
+        <div class="cf-card">
+          <div class="cf-card-title">Top suppliers by cash spent</div>
+          <div id="cfSupplierSpend" style="margin-top:4px"></div>
+        </div>
+      </div>
+      <div class="cf-card">
+        <div class="cf-card-title">Outstanding creditor invoices</div>
+        <div class="cf-table-scroll"><table class="cf-pt" id="cfCredTable"></table></div>
+      </div>
+    </div>
+
+    <div id="cfDebtorSection" style="display:none">
+      <div class="sec-title" style="margin-top:1.5rem">Debtors &amp; receivables</div>
+      <div class="cf-grid-3">
+        <div class="cf-card">
+          <div class="cf-card-title">Outstanding debtors</div>
+          <div id="cfAgedBar" class="cf-aged-bar"></div>
+          <div id="cfAgedLeg" class="cf-aged-leg"></div>
+          <div id="cfAgedStats"></div>
+        </div>
+        <div class="cf-card">
+          <div class="cf-card-title">Expected collections by month</div>
+          <div class="cf-chart-wrap" style="height:160px"><canvas id="cfCollChart"></canvas></div>
+        </div>
+        <div class="cf-card">
+          <div class="cf-card-title">Payment terms &amp; DSO</div>
+          <div id="cfDsoStats" style="margin-top:4px"></div>
+        </div>
+      </div>
+      <div class="cf-card">
+        <div class="cf-card-title">Top debtors by outstanding balance</div>
+        <div id="cfDebtorList"></div>
+      </div>
+    </div>
+
+    <div class="cf-grid-2">
+      <div class="cf-card">
+        <div class="cf-card-title">Period breakdown</div>
+        <div class="cf-table-scroll"><table class="cf-pt" id="cfPeriodTable"></table></div>
+      </div>
+      <div class="cf-card">
+        <div class="cf-card-title">Flags &amp; alerts</div>
+        <div class="cf-flags" id="cfFlagsBox"></div>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 const AM_PROXY = '/.netlify/functions/am-proxy';
@@ -1735,6 +1966,9 @@ function switchTab(tab) {
   }
   if (tab === 'bills' && typeof refreshXeroAccountsAndContacts === 'function') {
     refreshXeroAccountsAndContacts(); // TTL-cached — cheap to call on every tab switch
+  }
+  if (tab === 'cashflow' && typeof loadCashflowData === 'function') {
+    loadCashflowData(); // TTL-cached — same pattern as the Bills COA/Contacts sync
   }
 }
 
@@ -4244,6 +4478,471 @@ function resetAll(){
 // already synced from the server well before anyone could reach the Bills
 // tab and actually generate a placeholder number.
 loadPlaceholderSeq();
+</script>
+
+<script>
+// ============================================================================
+// CASHFLOW TAB
+//
+// Ported from Brendan's standalone cashflow_dashboard_wndrr.html, re-pointed
+// at live Xero data instead of manual XLSX report uploads. The period/
+// projection math (cfBuildPeriods, cfBuildProj, cfCalcAvgTerms) is kept
+// near-verbatim from that file — it's pure and doesn't care where the data
+// came from. What changed is entirely upstream of that math:
+//
+// - Aged receivables -> live GET Invoices (Type==ACCREC), same data the
+//   Debtors tab already uses.
+// - Aged payables -> the same query mirrored onto Type==ACCPAY (new, but
+//   the original file *derived* this by matching AP invoice/payment pairs
+//   by ref or amount — a heuristic. Reading Xero's own AmountDue directly
+//   is strictly more accurate, not just simpler).
+// - Bank balances -> Xero's Reports/BankSummary (the Accounts endpoint has
+//   no balance field at all — confirmed live before building this).
+// - Historical cash in/out + the Online-vs-Wholesale split -> Xero's
+//   BankTransactions API. The original file parsed Xero's *exported report
+//   text*, keyword-matching a description column for ONLINE_KW terms
+//   (ONLINE SALES/AFTERPAY/PAYPAL/KLARNA/ICONIC/SHOPIFY) and a "PAYMENT:"
+//   prefix for wholesale. Confirmed live that the raw API instead carries
+//   this on BankTransaction.Contact.Name directly — e.g. a real online
+//   sale settlement has Contact.Name "ONLINE SALES" with Reference
+//   "SHOPIFY-...", and a real wholesale payment has Contact.Name equal to
+//   the actual customer's name (e.g. "Label A Clothing - Young") rather
+//   than any "PAYMENT:" prefix. So: online is still the same keyword match
+//   (now against Contact.Name), but wholesale is now "received from a
+//   contact Xero has flagged IsCustomer" rather than a string prefix that
+//   doesn't actually appear in the live data.
+// ============================================================================
+const cfCharts = {};
+let cfAllTxns = [], cfOpeningBalance = 0, cfClosingBalanceLive = null;
+let cfAgedInvoices = [], cfOutstandingPayables = [];
+let cfGran = 'monthly', cfActiveScen = 'worst';
+const CF_SCENARIOS = { online: { worst: -5, base: 5, best: 15 }, wholesale: { worst: -10, base: 3, best: 20 } };
+const CF_ONLINE_KW = ['ONLINE SALES', 'AFTERPAY', 'PAYPAL', 'KLARNA', 'ICONIC', 'SHOPIFY'];
+const CF_SYNC_CACHE_KEY = 'wndrr_cf_sync_at';
+const CF_SYNC_TTL_MS = 30 * 60 * 1000; // 30 min, same as the Bills COA/Contacts sync
+const CF_MONTHS_HISTORY = 12;
+
+function cfClassify(contactName, wholesaleNames) {
+  const u = (contactName || '').toUpperCase();
+  if (CF_ONLINE_KW.some((k) => u.includes(k))) return 'online';
+  if (wholesaleNames.has(contactName)) return 'wholesale';
+  return 'other';
+}
+
+// ── Period helpers (ported verbatim) ────────────────────────────────────────
+function cfWeekKey(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const dn = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - dn); const yr = t.getUTCFullYear(), wk = Math.ceil(((t - Date.UTC(yr, 0, 1)) / 86400000 + 1) / 7); return `${yr}-W${String(wk).padStart(2, '0')}`; }
+function cfWeekStart(k) { const [y, w] = k.split('-W').map(Number); const j = new Date(Date.UTC(y, 0, 4)), off = (j.getUTCDay() || 7) - 1; return new Date(j.getTime() + (w - 1) * 7 * 86400000 - off * 86400000); }
+function cfWeekLabel(k) { return cfWeekStart(k).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); }
+function cfPKey(d, g) { if (g === 'weekly') return cfWeekKey(d); if (g === 'quarterly') { const q = Math.floor(d.getMonth() / 3) + 1; return `${d.getFullYear()}-Q${q}`; } return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+function cfPLabel(k, g) { if (g === 'weekly') return cfWeekLabel(k); if (g === 'quarterly') return k; const [y, m] = k.split('-'); return new Date(+y, +m - 1, 1).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' }); }
+function cfNextKey(k, g) { if (g === 'weekly') { const d = cfWeekStart(k); d.setUTCDate(d.getUTCDate() + 7); return cfWeekKey(d); } if (g === 'quarterly') { const [y, q] = k.split('-Q').map(Number); return q === 4 ? `${y + 1}-Q1` : `${y}-Q${q + 1}`; } const [y, m] = k.split('-').map(Number); return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; }
+function cfAddDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+
+function cfBuildPeriods(txns, ob, g) {
+  const b = {};
+  for (const t of txns) { const k = cfPKey(t.date, g); if (!b[k]) b[k] = { online: 0, wholesale: 0, other: 0, out: 0 }; if (t.channel === 'online') b[k].online += t.amount; else if (t.channel === 'wholesale') b[k].wholesale += t.amount; else if (t.channel === 'other' && t.amount > 0) b[k].other += t.amount; else if (t.amount < 0) b[k].out += t.amount; }
+  const keys = Object.keys(b).sort(); let run = ob;
+  return keys.map((k) => { const p = b[k]; const inflow = p.online + p.wholesale + p.other; const net = inflow + p.out; run += net; return { key: k, label: cfPLabel(k, g), online: p.online, wholesale: p.wholesale, other: p.other, inflow, outflow: p.out, net, open: run - net, close: run }; });
+}
+
+function cfCalcAvgTerms(invs) { const t = invs.filter((i) => i.invDate && i.dueDate).map((i) => (i.dueDate - i.invDate) / 86400000); return t.length ? Math.round(t.reduce((s, v) => s + v, 0) / t.length) : 30; }
+
+function cfBuildProj(periods, g, n, dsoOvr, invs) {
+  if (!periods.length) return { worst: [], base: [], best: [] };
+  const lb = Math.min(periods.length, g === 'weekly' ? 8 : 3);
+  const rec = periods.slice(-lb);
+  const avgOnline = rec.reduce((s, p) => s + p.online, 0) / rec.length;
+  const avgWholesale = rec.reduce((s, p) => s + p.wholesale, 0) / rec.length;
+  const avgOther = rec.reduce((s, p) => s + p.other, 0) / rec.length;
+  const avgOut = rec.reduce((s, p) => s + p.outflow, 0) / rec.length;
+  const lastClose = periods[periods.length - 1].close, lastKey = periods[periods.length - 1].key;
+  const avgTerms = cfCalcAvgTerms(invs), dso = dsoOvr > 0 ? dsoOvr : avgTerms;
+  function proj(sn) {
+    const oPct = CF_SCENARIOS.online[sn] / 100, wPct = CF_SCENARIOS.wholesale[sn] / 100;
+    const rows = []; let run = lastClose, cur = lastKey;
+    for (let i = 0; i < n; i++) {
+      cur = cfNextKey(cur, g);
+      const ks = g === 'weekly' ? cfWeekStart(cur) : new Date(cur.split('-')[0], (parseInt(cur.split('-')[1] || 1)) - 1, 1);
+      const ke = g === 'weekly' ? new Date(ks.getTime() + 6 * 86400000) : g === 'quarterly' ? new Date(ks.getFullYear(), ks.getMonth() + 3, 0) : new Date(ks.getFullYear(), ks.getMonth() + 1, 0);
+      let dc = 0; for (const inv of invs) { if (!inv.dueDate || inv.total <= 0) continue; const ep = cfAddDays(inv.dueDate, Math.max(0, dso - avgTerms)); if (ep >= ks && ep <= ke) dc += inv.total; }
+      const pO = avgOnline * (1 + oPct), pW = avgWholesale * (1 + wPct) + dc, inf = pO + pW + avgOther, net = inf + avgOut, open = run; run += net;
+      rows.push({ key: cur, label: cfPLabel(cur, g), online: pO, wholesale: pW, debtorCash: dc, other: avgOther, inflow: inf, outflow: avgOut, net, open, close: run, isProj: true });
+    }
+    return rows;
+  }
+  return { worst: proj('worst'), base: proj('base'), best: proj('best') };
+}
+
+function cfFmt(n) { const a = Math.abs(n); const s = a >= 1e6 ? (a / 1e6).toFixed(2) + 'M' : a >= 1000 ? (a / 1000).toFixed(0) + 'k' : Math.round(a).toLocaleString(); return (n < 0 ? '-$' : '$') + s; }
+function cfFmtFull(n) { return (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-AU'); }
+function cfDChart(id) { if (cfCharts[id]) { cfCharts[id].destroy(); delete cfCharts[id]; } }
+
+// ── Live Xero fetches ────────────────────────────────────────────────────────
+async function cfFetchAllOpenPayablesOrgWide() {
+  const all = [];
+  for (let page = 1; page <= 30; page++) {
+    const params = new URLSearchParams({ path: 'Invoices', where: 'Type=="ACCPAY" && AmountDue>0', page: String(page) });
+    const res = await fetch(`${XERO_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.Detail || `Xero payables fetch failed (${res.status})`);
+    const rows = data.Invoices || [];
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  return all;
+}
+
+async function cfFetchBankAccountsAUD() {
+  const params = new URLSearchParams({ path: 'Accounts', where: 'Type=="BANK" && Status=="ACTIVE" && CurrencyCode=="AUD"' });
+  const res = await fetch(`${XERO_PROXY}?${params}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.Detail || `Xero accounts fetch failed (${res.status})`);
+  return data.Accounts || [];
+}
+
+// Xero's Accounts endpoint has no balance field at all (confirmed live) —
+// Reports/BankSummary is the only source for opening/closing bank balances.
+// Filtered to AUD accounts only (via each row's embedded accountID
+// attribute) — the report has no currency filter param of its own, and
+// summing a NZD/USD balance straight into an AUD total without conversion
+// would silently corrupt the figure the moment one of those accounts
+// carries a real balance.
+async function cfFetchBankSummary(fromISO, toISO, audAccountIds) {
+  const params = new URLSearchParams({ path: 'Reports/BankSummary', fromDate: fromISO, toDate: toISO });
+  const res = await fetch(`${XERO_PROXY}?${params}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.Detail || `Xero bank summary fetch failed (${res.status})`);
+  const rows = (data.Reports && data.Reports[0] && data.Reports[0].Rows) || [];
+  let opening = 0, closing = 0;
+  for (const section of rows) {
+    if (section.RowType !== 'Section') continue;
+    for (const row of section.Rows || []) {
+      if (row.RowType !== 'Row') continue;
+      const cells = row.Cells || [];
+      const acctId = cells[0] && cells[0].Attributes && cells[0].Attributes.find((a) => a.Id === 'accountID');
+      if (!acctId || !audAccountIds.has(acctId.Value)) continue;
+      opening += parseFloat(cells[1] && cells[1].Value) || 0;
+      closing += parseFloat(cells[4] && cells[4].Value) || 0;
+    }
+  }
+  return { opening, closing };
+}
+
+async function cfFetchBankTransactionsSince(fromISO, audAccountIds) {
+  const [y, m, d] = fromISO.split('-').map(Number);
+  const all = [];
+  for (let page = 1; page <= 50; page++) {
+    const params = new URLSearchParams({
+      path: 'BankTransactions',
+      where: `Status=="AUTHORISED" && Date>=DateTime(${y},${m},${d})`,
+      page: String(page),
+    });
+    const res = await fetch(`${XERO_PROXY}?${params}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.Detail || `Xero bank transactions fetch failed (${res.status})`);
+    const rows = data.BankTransactions || [];
+    all.push(...rows);
+    if (rows.length < 100) break;
+  }
+  // AUD-only, filtered client-side — the where clause above can't easily
+  // reach into the nested BankAccount object.
+  return all.filter((t) => t.BankAccount && audAccountIds.has(t.BankAccount.AccountID));
+}
+
+async function cfFetchWholesaleNames() {
+  const params = new URLSearchParams({ path: 'Contacts', where: 'IsCustomer==true' });
+  const res = await fetch(`${XERO_PROXY}?${params}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.Detail || `Xero contacts fetch failed (${res.status})`);
+  return new Set((data.Contacts || []).map((c) => c.Name));
+}
+
+function cfSetStatus(msg, isError) {
+  const el = document.getElementById('cfStatus');
+  el.textContent = msg || '';
+  el.style.color = isError ? '#b42318' : 'var(--muted)';
+}
+
+async function loadCashflowData(force) {
+  if (!force) {
+    const lastAt = Number(localStorage.getItem(CF_SYNC_CACHE_KEY) || 0);
+    if (Date.now() - lastAt < CF_SYNC_TTL_MS && cfAllTxns.length) return;
+  }
+  const btn = document.getElementById('cfRefreshBtn');
+  btn.disabled = true;
+  cfSetStatus('Loading live Xero data…');
+  try {
+    const today = new Date();
+    const fromDate = new Date(today.getFullYear(), today.getMonth() - CF_MONTHS_HISTORY, today.getDate());
+    const fromISO = fromDate.toISOString().slice(0, 10);
+    const toISO = today.toISOString().slice(0, 10);
+
+    // audAccounts has to resolve first — both the bank summary and bank
+    // transaction fetches filter against its account IDs.
+    const audAccounts = await cfFetchBankAccountsAUD();
+    const audAccountIds = new Set(audAccounts.map((a) => a.AccountID));
+
+    const [openInvoices, openPayables, bankSummary, wholesaleNames, bankTxns] = await Promise.all([
+      fetchAllOpenInvoicesOrgWide(),
+      cfFetchAllOpenPayablesOrgWide(),
+      cfFetchBankSummary(fromISO, toISO, audAccountIds),
+      cfFetchWholesaleNames(),
+      cfFetchBankTransactionsSince(fromISO, audAccountIds),
+    ]);
+
+    cfAllTxns = bankTxns.map((t) => {
+      const contactName = t.Contact && t.Contact.Name || '';
+      const total = t.Total || 0;
+      const signed = t.Type === 'SPEND' ? -Math.abs(total) : Math.abs(total);
+      return { date: xeroDate(t.Date), amount: signed, contact: contactName, channel: signed > 0 ? cfClassify(contactName, wholesaleNames) : 'out' };
+    }).filter((t) => t.date);
+
+    const asOfToday = new Date(); asOfToday.setHours(0, 0, 0, 0);
+    cfAgedInvoices = openInvoices.map((xi) => ({
+      customer: xi.Contact && xi.Contact.Name || 'Unknown',
+      invDate: xeroDate(xi.Date),
+      dueDate: xeroDate(xi.DueDate),
+      invNum: xi.InvoiceNumber,
+      total: xi.AmountDue || 0,
+      bucketIdx: invoiceBucketIndex(xeroDate(xi.Date), asOfToday),
+    }));
+    cfOutstandingPayables = openPayables.map((xi) => ({
+      supplier: xi.Contact && xi.Contact.Name || 'Unknown',
+      date: xeroDate(xi.Date),
+      ref: xi.Reference || xi.InvoiceNumber || '',
+      amount: xi.Total || 0,
+      owed: xi.AmountDue || 0,
+    }));
+
+    cfOpeningBalance = bankSummary.opening;
+    cfClosingBalanceLive = bankSummary.closing;
+
+    cfGran = document.getElementById('cfGranSel').value;
+    document.getElementById('cfDashboard').style.display = 'block';
+    cfBuildSliderUI();
+    cfRenderDashboard();
+    localStorage.setItem(CF_SYNC_CACHE_KEY, String(Date.now()));
+    cfSetStatus(`${cfAllTxns.length.toLocaleString()} bank transactions · ${cfAgedInvoices.length} debtor invoices · ${cfOutstandingPayables.length} creditor invoices · synced ${new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`);
+  } catch (err) {
+    cfSetStatus(`Failed to load: ${err.message}`, true);
+  }
+  btn.disabled = false;
+}
+
+// ── Render (ported, re-pointed at live data) ────────────────────────────────
+function cfRenderDashboard() {
+  const periods = cfBuildPeriods(cfAllTxns, cfOpeningBalance, cfGran);
+  if (!periods.length) { cfSetStatus('No bank transactions found in the last ' + CF_MONTHS_HISTORY + ' months.', true); return; }
+  const nP = +document.getElementById('cfProjPeriods').value;
+  const dsoOvr = +document.getElementById('cfDsoSlider').value;
+  const proj = cfBuildProj(periods, cfGran, nP, dsoOvr, cfAgedInvoices);
+
+  const totalIn = periods.reduce((s, p) => s + p.inflow, 0);
+  const totalOut = periods.reduce((s, p) => s + p.outflow, 0);
+  const totalOnline = periods.reduce((s, p) => s + p.online, 0);
+  const totalWholesale = periods.reduce((s, p) => s + p.wholesale, 0);
+  const net = totalIn + totalOut;
+  const lastClose = periods[periods.length - 1].close;
+  const projFinal = proj.base.length ? proj.base[proj.base.length - 1].close : lastClose;
+  const avgTerms = cfAgedInvoices.length ? cfCalcAvgTerms(cfAgedInvoices) : null;
+  const effDso = dsoOvr > 0 ? dsoOvr : avgTerms;
+  const totalDebtors = cfAgedInvoices.reduce((s, i) => s + i.total, 0);
+  const totalCreditors = cfOutstandingPayables.reduce((s, i) => s + i.owed, 0);
+
+  // Recon banner — cross-checks the running balance derived from bank
+  // transaction history against Xero's own authoritative Reports/BankSummary
+  // closing balance (same idea as the original file's Account Transactions
+  // vs Cash Summary check, just both sides now come live from Xero).
+  const rb = document.getElementById('cfReconBanner');
+  if (cfClosingBalanceLive !== null) {
+    const diff = Math.abs(lastClose - cfClosingBalanceLive);
+    const pct = diff / Math.max(Math.abs(cfClosingBalanceLive), 1) * 100;
+    rb.style.display = 'block';
+    if (pct < 2) {
+      rb.innerHTML = `<div class="cf-recon-banner cf-recon-ok"><strong>✓ Balance reconciled</strong> — bank transaction history ${cfFmtFull(lastClose)} matches Xero's Bank Summary ${cfFmtFull(cfClosingBalanceLive)} (${pct.toFixed(1)}% variance).</div>`;
+    } else {
+      rb.innerHTML = `<div class="cf-recon-banner cf-recon-warn"><strong>⚠ Reconciliation gap</strong> — bank transaction history gives ${cfFmtFull(lastClose)}, Xero's Bank Summary gives ${cfFmtFull(cfClosingBalanceLive)} (${cfFmtFull(diff)}, ${pct.toFixed(1)}%). Likely a transaction outside the ${CF_MONTHS_HISTORY}-month window this dashboard looks at, or a non-AUD account.</div>`;
+    }
+  } else { rb.style.display = 'none'; }
+
+  document.getElementById('cfScenSummary').textContent = `Online ${(totalOnline / totalIn * 100).toFixed(0)}% · Wholesale ${(totalWholesale / totalIn * 100).toFixed(0)}% of inflows` + (effDso ? ` · DSO ${effDso}d (${dsoOvr > 0 ? 'manual override' : 'auto from aged receivables'})` : '');
+
+  document.getElementById('cfKpiRow').innerHTML = `
+    <div class="cf-kpi"><div class="cf-kpi-label">Cash in</div><div class="cf-kpi-value cf-pos">${cfFmt(totalIn)}</div><div class="cf-kpi-sub">${periods.length} periods</div></div>
+    <div class="cf-kpi"><div class="cf-kpi-label">Online sales</div><div class="cf-kpi-value" style="color:#3584e4">${cfFmt(totalOnline)}</div><div class="cf-kpi-sub">${(totalOnline / totalIn * 100).toFixed(0)}% of inflows</div></div>
+    <div class="cf-kpi"><div class="cf-kpi-label">Wholesale sales</div><div class="cf-kpi-value" style="color:#e5a50a">${cfFmt(totalWholesale)}</div><div class="cf-kpi-sub">${(totalWholesale / totalIn * 100).toFixed(0)}% of inflows</div></div>
+    <div class="cf-kpi"><div class="cf-kpi-label">Cash out</div><div class="cf-kpi-value cf-neg">${cfFmt(totalOut)}</div><div class="cf-kpi-sub">${periods.length} periods</div></div>
+    <div class="cf-kpi"><div class="cf-kpi-label">Net movement</div><div class="cf-kpi-value ${net >= 0 ? 'cf-pos' : 'cf-neg'}">${cfFmt(net)}</div><div class="cf-kpi-sub">avg ${cfFmt(net / periods.length)}/${cfGran === 'weekly' ? 'wk' : 'period'}</div></div>
+    <div class="cf-kpi"><div class="cf-kpi-label">Closing balance</div><div class="cf-kpi-value ${lastClose >= 0 ? 'cf-pos' : 'cf-neg'}">${cfFmt(lastClose)}</div><div class="cf-kpi-sub">bank, live</div></div>
+    ${totalCreditors > 0 ? `<div class="cf-kpi"><div class="cf-kpi-label">Payables due</div><div class="cf-kpi-value cf-neg">${cfFmt(totalCreditors)}</div><div class="cf-kpi-sub">${cfOutstandingPayables.length} invoices</div></div>` : ''}
+    ${totalDebtors > 0 ? `<div class="cf-kpi"><div class="cf-kpi-label">Debtors o/s</div><div class="cf-kpi-value cf-warn">${cfFmt(totalDebtors)}</div><div class="cf-kpi-sub">${cfAgedInvoices.length} invoices</div></div>` : ''}
+    <div class="cf-kpi"><div class="cf-kpi-label">Projected balance</div><div class="cf-kpi-value ${projFinal >= 0 ? 'cf-pos' : 'cf-neg'}">${cfFmt(projFinal)}</div><div class="cf-kpi-sub">base case, ${nP} ${cfGran === 'weekly' ? 'wks' : 'periods'}</div></div>
+  `;
+
+  const MAX = cfGran === 'weekly' ? 24 : 20;
+  const hSlice = periods.slice(-MAX);
+  const allLabels = [...periods.map((p) => p.label), ...proj.base.map((p) => p.label)];
+
+  cfDChart('cfCashChart');
+  cfCharts.cfCashChart = new Chart(document.getElementById('cfCashChart'), { type: 'bar', data: { labels: allLabels.slice(-MAX), datasets: [
+    { data: [...hSlice.map((p) => Math.round(p.inflow)), ...proj.base.map((p) => Math.round(p.inflow))].slice(-MAX), backgroundColor: hSlice.map(() => 'rgba(46,194,126,.75)').concat(proj.base.map(() => 'rgba(46,194,126,.28)')).slice(-MAX), borderRadius: 3, order: 2 },
+    { data: [...hSlice.map((p) => Math.round(p.outflow)), ...proj.base.map((p) => Math.round(p.outflow))].slice(-MAX), backgroundColor: hSlice.map(() => 'rgba(224,27,36,.65)').concat(proj.base.map(() => 'rgba(224,27,36,.22)')).slice(-MAX), borderRadius: 3, order: 2 },
+    { data: [...hSlice.map((p) => Math.round(p.net)), ...proj.base.map((p) => Math.round(p.net))].slice(-MAX), type: 'line', borderColor: '#3584e4', backgroundColor: 'rgba(53,132,228,.08)', borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#3584e4', fill: true, order: 1 },
+  ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { stacked: true, ticks: { font: { size: 11 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 }, grid: { display: false } }, y: { ticks: { callback: (v) => cfFmt(v), font: { size: 11 } }, grid: { color: 'rgba(128,128,128,.08)' } } } } });
+
+  const lc = Math.round(lastClose), pad = periods.length;
+  cfDChart('cfBalChart');
+  cfCharts.cfBalChart = new Chart(document.getElementById('cfBalChart'), { type: 'line', data: { labels: allLabels.slice(-MAX), datasets: [
+    { data: [...periods.map((p) => Math.round(p.close)), ...Array(proj.base.length).fill(null)].slice(-MAX), borderColor: '#3584e4', backgroundColor: 'rgba(53,132,228,.10)', borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: '#3584e4', fill: true },
+    { data: [...Array(pad - 1).fill(null), lc, ...proj.best.map((p) => Math.round(p.close))].slice(-MAX), borderColor: '#2ec27e', borderWidth: 2, borderDash: [5, 4], pointRadius: 3, fill: false },
+    { data: [...Array(pad - 1).fill(null), lc, ...proj.base.map((p) => Math.round(p.close))].slice(-MAX), borderColor: '#e5a50a', borderWidth: 2, borderDash: [5, 4], pointRadius: 3, fill: false },
+    { data: [...Array(pad - 1).fill(null), lc, ...proj.worst.map((p) => Math.round(p.close))].slice(-MAX), borderColor: '#e01b24', borderWidth: 2, borderDash: [5, 4], pointRadius: 3, fill: false },
+  ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { font: { size: 11 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 }, grid: { display: false } }, y: { ticks: { callback: (v) => cfFmt(v), font: { size: 11 } }, grid: { color: 'rgba(128,128,128,.08)' } } } } });
+
+  const sLabels = proj.base.map((p) => p.label);
+  cfDChart('cfScenChart');
+  cfCharts.cfScenChart = new Chart(document.getElementById('cfScenChart'), { type: 'bar', data: { labels: sLabels, datasets: [
+    { data: proj.best.map((p) => Math.round(p.online)), backgroundColor: 'rgba(46,194,126,.85)', borderRadius: 3, stack: 'best' },
+    { data: proj.best.map((p) => Math.round(p.wholesale)), backgroundColor: 'rgba(133,183,235,.85)', borderRadius: 3, stack: 'best' },
+    { data: proj.base.map((p) => Math.round(p.online)), backgroundColor: 'rgba(229,165,10,.85)', borderRadius: 3, stack: 'base' },
+    { data: proj.base.map((p) => Math.round(p.wholesale)), backgroundColor: 'rgba(250,199,117,.85)', borderRadius: 3, stack: 'base' },
+    { data: proj.worst.map((p) => Math.round(p.online)), backgroundColor: 'rgba(226,75,74,.85)', borderRadius: 3, stack: 'worst' },
+    { data: proj.worst.map((p) => Math.round(p.wholesale)), backgroundColor: 'rgba(240,149,149,.85)', borderRadius: 3, stack: 'worst' },
+  ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { font: { size: 11 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 }, grid: { display: false } }, y: { ticks: { callback: (v) => cfFmt(v), font: { size: 11 } }, grid: { color: 'rgba(128,128,128,.08)' } } } } });
+
+  // Creditors
+  if (cfOutstandingPayables.length) {
+    document.getElementById('cfCredSection').style.display = 'block';
+    const today = new Date();
+    const aged = { cur: 0, d30: 0, d60: 0, d90: 0, d120: 0, old: 0 };
+    for (const inv of cfOutstandingPayables) { const age = (today - inv.date) / 86400000; if (age < 0) aged.cur += inv.owed; else if (age < 30) aged.d30 += inv.owed; else if (age < 60) aged.d60 += inv.owed; else if (age < 90) aged.d90 += inv.owed; else if (age < 120) aged.d120 += inv.owed; else aged.old += inv.owed; }
+    const aT = Object.values(aged).reduce((s, v) => s + v, 0) || 1;
+    const aSegs = [{ v: aged.cur, c: '#2ec27e', l: 'Not due' }, { v: aged.d30, c: '#e5a50a', l: '<30d' }, { v: aged.d60, c: '#e08020', l: '30-60d' }, { v: aged.d90, c: '#e05010', l: '60-90d' }, { v: aged.d120, c: '#c01818', l: '90-120d' }, { v: aged.old, c: '#800808', l: '>120d' }];
+    document.getElementById('cfCredAgedBar').innerHTML = aSegs.map((s) => `<div style="background:${s.c};width:${(s.v / aT * 100).toFixed(1)}%;height:100%"></div>`).join('');
+    document.getElementById('cfCredAgedLeg').innerHTML = aSegs.filter((s) => s.v > 0).map((s) => `<span class="cf-aged-li"><span style="width:9px;height:9px;border-radius:2px;background:${s.c};display:inline-block"></span>${s.l}: ${cfFmtFull(s.v)}</span>`).join('');
+    document.getElementById('cfCredStats').innerHTML = `
+      <div class="cf-stat-row"><span class="cf-stat-label">Total outstanding</span><span class="cf-stat-val cf-neg">${cfFmtFull(totalCreditors)}</span></div>
+      <div class="cf-stat-row"><span class="cf-stat-label">Overdue (&gt;30d)</span><span class="cf-stat-val cf-neg">${cfFmtFull(aged.d60 + aged.d90 + aged.d120 + aged.old)}</span></div>
+      <div class="cf-stat-row"><span class="cf-stat-label">Outstanding invoices</span><span class="cf-stat-val">${cfOutstandingPayables.length}</span></div>
+    `;
+    // "Cash out by period" — every period's total outflow (all bank spend,
+    // not just bill payments; the original file derived a payables-only
+    // series by matching AP invoice/payment pairs, a heuristic prone to
+    // drift — this is the honest, authoritative figure instead).
+    const mOut = {}; for (const p of periods) mOut[p.key] = -p.outflow;
+    const payKeys = Object.keys(mOut).sort();
+    cfDChart('cfPayChart');
+    cfCharts.cfPayChart = new Chart(document.getElementById('cfPayChart'), { type: 'bar', data: { labels: payKeys.map((k) => cfPLabel(k, cfGran)), datasets: [{ data: payKeys.map((k) => Math.round(mOut[k])), backgroundColor: 'rgba(224,27,36,.65)', borderRadius: 3 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { font: { size: 11 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 }, grid: { display: false } }, y: { ticks: { callback: (v) => cfFmt(v), font: { size: 11 } }, grid: { color: 'rgba(128,128,128,.08)' } } } } });
+    const sspend = {}; for (const t of cfAllTxns) { if (t.channel !== 'out' || !t.contact) continue; sspend[t.contact] = (sspend[t.contact] || 0) + Math.abs(t.amount); }
+    const topS = Object.entries(sspend).sort((a, b) => b[1] - a[1]).slice(0, 8); const maxS = topS[0] ? topS[0][1] : 1;
+    document.getElementById('cfSupplierSpend').innerHTML = topS.map(([n, v]) => `<div class="cf-sup-row"><span class="cf-sup-name">${n}</span><div class="cf-sup-bar-w"><div class="cf-sup-bar" style="width:${(v / maxS * 100).toFixed(0)}%"></div></div><span class="cf-sup-amt">${cfFmtFull(v)}</span></div>`).join('');
+    const tBody = [...cfOutstandingPayables].sort((a, b) => b.owed - a.owed).map((inv) => { const age = Math.round((today - inv.date) / 86400000); const cls = age > 90 ? 'cf-bov' : age > 30 ? 'cf-bwrn' : 'cf-bok'; return `<tr><td>${inv.supplier}</td><td style="text-align:left;color:var(--muted)">${inv.ref || '—'}</td><td>${inv.date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: '2-digit' })}</td><td class="cf-neg" style="font-weight:600">${cfFmtFull(inv.owed)}</td><td><span class="cf-cr-bdg ${cls}">${age}d old</span></td></tr>`; }).join('');
+    document.getElementById('cfCredTable').innerHTML = `<thead><tr><th style="text-align:left">Supplier</th><th style="text-align:left">Reference</th><th>Invoice date</th><th>Amount owed</th><th>Age</th></tr></thead><tbody>${tBody}</tbody>`;
+  } else {
+    document.getElementById('cfCredSection').style.display = 'none';
+  }
+
+  // Debtors — reuses this app's existing 5-bucket aging scheme
+  // (invoiceBucketIndex/buildAgingBucketLabels, same as the Debtors tab)
+  // rather than the original file's own 6-bucket due-date scheme.
+  if (cfAgedInvoices.length) {
+    document.getElementById('cfDebtorSection').style.display = 'block';
+    const bucketTotals = [0, 0, 0, 0, 0];
+    for (const inv of cfAgedInvoices) bucketTotals[inv.bucketIdx] += inv.total;
+    const bT = bucketTotals.reduce((s, v) => s + v, 0) || 1;
+    const bucketColors = ['#2ec27e', '#e5a50a', '#e08020', '#c01818', '#800808'];
+    const segs = bucketTotals.map((v, i) => ({ v, c: bucketColors[i], l: AGING_BUCKET_LABELS[i] || '' }));
+    document.getElementById('cfAgedBar').innerHTML = segs.map((s) => `<div style="background:${s.c};width:${(s.v / bT * 100).toFixed(1)}%;height:100%"></div>`).join('');
+    document.getElementById('cfAgedLeg').innerHTML = segs.filter((s) => s.v > 0).map((s) => `<span class="cf-aged-li"><span style="width:9px;height:9px;border-radius:2px;background:${s.c};display:inline-block"></span>${s.l}: ${cfFmtFull(s.v)}</span>`).join('');
+    document.getElementById('cfAgedStats').innerHTML = `
+      <div class="cf-stat-row"><span class="cf-stat-label">Total outstanding</span><span class="cf-stat-val">${cfFmtFull(bT)}</span></div>
+      <div class="cf-stat-row"><span class="cf-stat-label">Current (not due)</span><span class="cf-stat-val cf-pos">${cfFmtFull(bucketTotals[0])}</span></div>
+      <div class="cf-stat-row"><span class="cf-stat-label">Overdue (1mo+)</span><span class="cf-stat-val cf-neg">${cfFmtFull(bT - bucketTotals[0])}</span></div>
+    `;
+    const collByMonth = {}; for (const inv of cfAgedInvoices) { if (!inv.dueDate) continue; const mk = inv.dueDate.toISOString().slice(0, 7); collByMonth[mk] = (collByMonth[mk] || 0) + inv.total; }
+    const collKeys = Object.keys(collByMonth).sort();
+    cfDChart('cfCollChart');
+    cfCharts.cfCollChart = new Chart(document.getElementById('cfCollChart'), { type: 'bar', data: { labels: collKeys.map((k) => { const [y, m] = k.split('-'); return new Date(+y, +m - 1, 1).toLocaleDateString('en-AU', { month: 'short', year: '2-digit' }); }), datasets: [{ data: collKeys.map((k) => Math.round(collByMonth[k])), backgroundColor: 'rgba(53,132,228,.75)', borderRadius: 3 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { font: { size: 11 } }, grid: { display: false } }, y: { ticks: { callback: (v) => cfFmt(v), font: { size: 11 } }, grid: { color: 'rgba(128,128,128,.08)' } } } } });
+    document.getElementById('cfDsoStats').innerHTML = `
+      <div class="cf-stat-row"><span class="cf-stat-label">Avg payment terms</span><span class="cf-stat-val">${avgTerms}d</span></div>
+      <div class="cf-stat-row"><span class="cf-stat-label">DSO in projection</span><span class="cf-stat-val">${effDso || avgTerms}d ${dsoOvr > 0 ? '(override)' : '(auto)'}</span></div>
+      <div class="cf-stat-row"><span class="cf-stat-label">Outstanding invoices</span><span class="cf-stat-val">${cfAgedInvoices.length}</span></div>
+      <div class="cf-stat-row"><span class="cf-stat-label">Unique customers</span><span class="cf-stat-val">${new Set(cfAgedInvoices.map((i) => i.customer)).size}</span></div>
+    `;
+    const custT = {}; for (const inv of cfAgedInvoices) { if (!custT[inv.customer]) custT[inv.customer] = { total: 0, overdue: 0 }; custT[inv.customer].total += inv.total; if (inv.bucketIdx > 0) custT[inv.customer].overdue += inv.total; }
+    const sorted = Object.entries(custT).sort((a, b) => b[1].total - a[1].total).slice(0, 14); const maxV = sorted[0] ? sorted[0][1].total : 1;
+    document.getElementById('cfDebtorList').innerHTML = sorted.map(([n, d]) => `<div class="cf-d-row"><span class="cf-d-name">${n}</span><div class="cf-d-bw"><div class="cf-d-b" style="width:${(d.total / maxV * 100).toFixed(0)}%;background:${d.overdue > 0 ? '#e01b24' : '#3584e4'}"></div></div><span class="cf-d-amt">${cfFmtFull(d.total)}</span><span class="cf-d-bdg ${d.overdue > 0 ? 'cf-bov' : 'cf-bok'}">${d.overdue > 0 ? 'overdue' : 'current'}</span></div>`).join('');
+  } else {
+    document.getElementById('cfDebtorSection').style.display = 'none';
+  }
+
+  // Period table
+  let tHTML = `<thead><tr><th>Period</th><th>Online</th><th>Wholesale</th><th>Cash out</th><th>Net</th><th>Closing</th></tr></thead><tbody>`;
+  for (const p of periods) tHTML += `<tr><td>${p.label}</td><td style="color:#3584e4;font-weight:500">${cfFmtFull(p.online)}</td><td style="color:#e5a50a;font-weight:500">${cfFmtFull(p.wholesale)}</td><td class="cf-neg">${cfFmtFull(p.outflow)}</td><td class="${p.net >= 0 ? 'cf-pos' : 'cf-neg'}" style="font-weight:500">${cfFmtFull(p.net)}</td><td style="font-weight:600">${cfFmtFull(p.close)}</td></tr>`;
+  for (const p of proj.base) tHTML += `<tr class="cf-proj-r"><td>${p.label} ✦</td><td>${cfFmtFull(p.online)}</td><td>${cfFmtFull(p.wholesale)}</td><td>${cfFmtFull(p.outflow)}</td><td class="${p.net >= 0 ? 'cf-pos' : 'cf-neg'}">${cfFmtFull(p.net)}</td><td>${cfFmtFull(p.close)}</td></tr>`;
+  tHTML += '</tbody>';
+  document.getElementById('cfPeriodTable').innerHTML = tHTML;
+
+  // Flags
+  const avgNetAbs = periods.reduce((s, p) => s + Math.abs(p.net), 0) / periods.length;
+  const flags = [];
+  for (const p of periods) {
+    if (p.close < 5000 && p.close > -1e9) flags.push({ t: 'w', msg: `${p.label}: closing balance ${cfFmtFull(p.close)} is below $5k` });
+    if (p.net < -100000) flags.push({ t: 'w', msg: `${p.label}: high cash burn of ${cfFmtFull(p.net)}` });
+    if (periods.length > 3 && Math.abs(p.net) > avgNetAbs * 2.5) flags.push({ t: 'w', msg: `${p.label}: unusual movement ${cfFmtFull(p.net)} vs avg ${cfFmtFull(avgNetAbs)}` });
+  }
+  for (const p of proj.worst) if (p.close < 5000) flags.push({ t: 'w', msg: `${p.label} (worst case): projected closing ${cfFmtFull(p.close)}` });
+  if (cfOutstandingPayables.length) {
+    const old90 = cfOutstandingPayables.filter((i) => (new Date() - i.date) / 86400000 > 90);
+    if (old90.length) flags.push({ t: 'd', msg: `${old90.length} payable invoice${old90.length > 1 ? 's' : ''} over 90 days old — ${cfFmtFull(old90.reduce((s, i) => s + i.owed, 0))}` });
+    const top = [...cfOutstandingPayables].sort((a, b) => b.owed - a.owed)[0];
+    if (top) flags.push({ t: 'w', msg: `Largest creditor: ${top.supplier} — ${cfFmtFull(top.owed)}` });
+  }
+  if (cfAgedInvoices.length) { const overdue = cfAgedInvoices.filter((i) => i.bucketIdx >= 2).reduce((s, i) => s + i.total, 0); if (overdue > 0) flags.push({ t: 'd', msg: `${cfFmtFull(overdue)} in receivables overdue more than a month` }); }
+  if (!flags.length) flags.push({ t: 's', msg: 'No anomalies detected across all periods' });
+  const dc2 = { d: '#c01010', w: '#8a5000', s: '#0a5020' };
+  const cls2 = { d: 'cf-fd', w: 'cf-fw', s: 'cf-fs' };
+  document.getElementById('cfFlagsBox').innerHTML = flags.slice(0, 10).map((f) => `<div class="cf-flag ${cls2[f.t]}"><span class="cf-dot" style="background:${dc2[f.t]}"></span><span>${f.msg}</span></div>`).join('');
+}
+
+// ── Scenario sliders (ported) ───────────────────────────────────────────────
+function cfBuildSliderUI() {
+  const SC = { worst: '#e01b24', base: '#e5a50a', best: '#2ec27e' };
+  const SCENS = ['worst', 'base', 'best'];
+  ['online', 'wholesale'].forEach((ch) => {
+    const elId = ch === 'online' ? 'cfOnlineSliders' : 'cfWholesaleSliders';
+    document.getElementById(elId).innerHTML = `
+      <div class="cf-sl-item">
+        <div class="cf-sl-label">
+          <span class="cf-sl-name"><span style="width:8px;height:8px;border-radius:50%;background:${SC[cfActiveScen]};display:inline-block;margin-right:6px"></span>${cfActiveScen.charAt(0).toUpperCase() + cfActiveScen.slice(1)} case growth</span>
+          <span class="cf-sl-val" style="color:${CF_SCENARIOS[ch][cfActiveScen] >= 0 ? '#2e7d32' : '#c0392b'}" id="cf_${ch}_${cfActiveScen}_val">${CF_SCENARIOS[ch][cfActiveScen] >= 0 ? '+' : ''}${CF_SCENARIOS[ch][cfActiveScen]}%</span>
+        </div>
+        <input type="range" id="cf_${ch}_${cfActiveScen}" min="${cfActiveScen === 'worst' ? -50 : cfActiveScen === 'base' ? -20 : 0}" max="${cfActiveScen === 'worst' ? 0 : cfActiveScen === 'base' ? 40 : 80}" step="1" value="${CF_SCENARIOS[ch][cfActiveScen]}">
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:2px">${SCENS.filter((s) => s !== cfActiveScen).map((s) => `<span style="margin-right:10px;color:${SC[s]}">${s.charAt(0).toUpperCase() + s.slice(1)}: <b>${CF_SCENARIOS[ch][s] >= 0 ? '+' : ''}${CF_SCENARIOS[ch][s]}%</b></span>`).join('')}</div>
+    `;
+    document.getElementById(`cf_${ch}_${cfActiveScen}`).addEventListener('input', (e) => {
+      CF_SCENARIOS[ch][cfActiveScen] = +e.target.value;
+      document.getElementById(`cf_${ch}_${cfActiveScen}_val`).textContent = (+e.target.value >= 0 ? '+' : '') + e.target.value + '%';
+      document.getElementById(`cf_${ch}_${cfActiveScen}_val`).style.color = +e.target.value >= 0 ? '#2e7d32' : '#c0392b';
+      if (cfAllTxns.length) { cfRenderDashboard(); cfBuildSliderUI(); }
+    });
+  });
+}
+
+document.querySelectorAll('.cf-stab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.cf-stab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    cfActiveScen = btn.dataset.s;
+    cfBuildSliderUI();
+  });
+});
+document.getElementById('cfProjPeriods').addEventListener('change', () => { if (cfAllTxns.length) cfRenderDashboard(); });
+document.getElementById('cfDsoSlider').addEventListener('input', (e) => { const v = +e.target.value; document.getElementById('cfDsoDispVal').textContent = v > 0 ? v + 'd' : 'auto'; if (cfAllTxns.length) cfRenderDashboard(); });
+document.getElementById('cfGranSel').addEventListener('change', (e) => { cfGran = e.target.value; if (cfAllTxns.length) cfRenderDashboard(); });
+
+cfBuildSliderUI();
 </script>
 </body>
 </html>
