@@ -17,6 +17,24 @@
     --bg: #f4f5f7;
   }
   * { box-sizing: border-box; }
+
+  /* ---------- Password gate ---------- */
+  #password-screen { position: fixed; inset: 0; z-index: 9999; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+  .pw-card { background: #fff; border-radius: 16px; padding: 48px 44px; width: 100%; max-width: 420px; box-shadow: 0 12px 32px rgba(0,0,0,0.12); text-align: center; }
+  .pw-logo { display: flex; align-items: center; justify-content: center; margin-bottom: 24px; }
+  .pw-logo img { width: 160px; height: auto; object-fit: contain; }
+  .pw-title { font-size: 20px; font-weight: 700; color: var(--ink); margin-bottom: 6px; letter-spacing: -0.3px; }
+  .pw-sub { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+  .pw-input-wrap { position: relative; margin-bottom: 12px; }
+  .pw-input { width: 100%; padding: 12px 44px 12px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-family: inherit; font-size: 14px; color: var(--ink); background: var(--bg); outline: none; transition: all .15s; }
+  .pw-input:focus { border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px rgba(15,92,74,0.12); }
+  .pw-toggle { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--muted); font-size: 15px; padding: 4px; line-height: 1; }
+  .pw-toggle:hover { color: var(--ink); }
+  .pw-submit { width: 100%; background: var(--accent); color: #fff; border: none; padding: 13px; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .2s; box-shadow: 0 4px 12px rgba(15,92,74,0.3); margin-bottom: 12px; }
+  .pw-submit:hover { background: #0c4a3b; transform: translateY(-1px); }
+  .pw-submit:active { transform: translateY(0); }
+  .pw-error { font-size: 12.5px; color: #b42318; background: #fef2f1; padding: 8px 12px; border-radius: 6px; display: none; }
+  .pw-error.show { display: block; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -517,6 +535,24 @@
 </style>
 </head>
 <body>
+
+<div id="password-screen">
+  <div class="pw-card">
+    <div class="pw-logo"><img src="https://koh-statements.netlify.app/logo.png" alt="KOH Industries"></div>
+    <div class="pw-title">KOH Industries — Statement Builder</div>
+    <div class="pw-sub">Enter your password to access the dashboard</div>
+    <div class="pw-input-wrap">
+      <input class="pw-input" type="password" id="pw-input" placeholder="Password" onkeydown="if(event.key==='Enter')checkPassword()">
+      <button type="button" class="pw-toggle" id="pw-toggle-btn" onclick="togglePwVisibility(event)">👁</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer;font-size:13px;color:var(--muted);">
+      <input type="checkbox" id="pw-remember" style="width:15px;height:15px;accent-color:var(--accent);">
+      Remember me on this device
+    </label>
+    <button class="pw-submit" onclick="checkPassword()">Access Dashboard →</button>
+    <div class="pw-error" id="pw-error">Incorrect password. Please try again.</div>
+  </div>
+</div>
 
   <div class="toolbar no-print">
     <div class="toolbar-brand">
@@ -2833,7 +2869,49 @@ async function init() {
   }
   loadDebtors(); // needs the AM customer cache above for account-number matching
 }
-init();
+
+// Client-side password gate, not real security (this is a single static
+// HTML file — anyone can read the check straight out of the page source),
+// just a lightweight lock so the app isn't sitting wide open at a guessable
+// URL. Same pattern/password as the demandplanning app (wndrr_auth flag).
+function checkPassword() {
+  const input = document.getElementById('pw-input').value.trim();
+  const error = document.getElementById('pw-error');
+  const remember = document.getElementById('pw-remember')?.checked;
+  if (input === 'Magpies90!') {
+    if (remember) { try { localStorage.setItem('wndrr_auth', '1'); } catch (e) {} }
+    else { try { localStorage.removeItem('wndrr_auth'); } catch (e) {} }
+    document.getElementById('password-screen').style.display = 'none';
+    error.classList.remove('show');
+    init();
+  } else {
+    error.classList.add('show');
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+  }
+}
+
+function togglePwVisibility(e) {
+  if (e) e.preventDefault();
+  const input = document.getElementById('pw-input');
+  const btn = document.getElementById('pw-toggle-btn');
+  if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
+  else { input.type = 'password'; btn.textContent = '👁'; }
+  input.focus();
+}
+
+// Auto-unlock if remembered — otherwise init() only runs once checkPassword()
+// succeeds, so no Xero/AM calls fire before the gate is passed.
+(function () {
+  try {
+    if (localStorage.getItem('wndrr_auth') === '1') {
+      document.getElementById('password-screen').style.display = 'none';
+      init();
+      return;
+    }
+  } catch (e) {}
+  document.getElementById('pw-input').focus();
+})();
 </script>
 <script>
 var ACCOUNTS = [{"code": "310", "name": "Cost of Goods Sold", "type": "Direct Costs", "tax": "GST on Expenses"}, {"code": "400", "name": "Advertising", "type": "Expense", "tax": "GST on Expenses"}, {"code": "401", "name": "Advertising - Social Media", "type": "Expense", "tax": "GST on Expenses"}, {"code": "404", "name": "Bank Fees", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "408", "name": "Cleaning", "type": "Expense", "tax": "GST on Expenses"}, {"code": "412", "name": "Consulting & Accounting", "type": "Expense", "tax": "GST on Expenses"}, {"code": "413", "name": "Filing Fees", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "415", "name": "Professional Fees", "type": "Expense", "tax": "GST on Expenses"}, {"code": "420", "name": "Entertainment", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "425", "name": "Freight & Courier", "type": "Direct Costs", "tax": "GST on Expenses"}, {"code": "429", "name": "General Expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "433", "name": "Insurance", "type": "Expense", "tax": "GST on Expenses"}, {"code": "437", "name": "Interest Expense", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "441", "name": "Legal expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "443", "name": "Licenses, Permits & Fees", "type": "Expense", "tax": "GST on Expenses"}, {"code": "445", "name": "Light, Power, Heating", "type": "Expense", "tax": "GST on Expenses"}, {"code": "447", "name": "Marketing", "type": "Expense", "tax": "GST on Expenses"}, {"code": "449", "name": "Motor Vehicle Expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "453", "name": "Office Expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "461", "name": "Printing & Stationery", "type": "Expense", "tax": "GST on Expenses"}, {"code": "469", "name": "Rent", "type": "Expense", "tax": "GST on Expenses"}, {"code": "472", "name": "Rates and Taxes", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "473", "name": "Repairs and Maintenance", "type": "Expense", "tax": "GST on Expenses"}, {"code": "477", "name": "Wages and Salaries", "type": "Expense", "tax": "BAS Excluded"}, {"code": "478", "name": "Superannuation", "type": "Expense", "tax": "BAS Excluded"}, {"code": "480", "name": "Staff Amenities", "type": "Expense", "tax": "GST on Expenses"}, {"code": "485", "name": "Subscriptions", "type": "Expense", "tax": "GST on Expenses"}, {"code": "489", "name": "Telephone & Internet", "type": "Expense", "tax": "GST on Expenses"}, {"code": "493", "name": "Travel - National", "type": "Expense", "tax": "GST on Expenses"}, {"code": "494", "name": "Travel - International", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "495", "name": "WorkCover", "type": "Expense", "tax": "GST on Expenses"}];
