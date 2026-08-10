@@ -3928,6 +3928,11 @@ function dmyToIso(dmy){
 // the bill. inv.tax is unreliable (some extraction paths hardcode "GST on
 // Expenses" regardless of the account actually picked) — re-derive the real
 // tax rate from the assigned account itself rather than trust inv.tax.
+// Mirrors xero-push.js's TAX_TYPE_MAP keys — checked client-side purely to
+// fail fast with a clear cause rather than sending an unmapped tax label
+// through to Xero and getting back an unreliable-to-parse error.
+var TAX_TYPE_MAP_CLIENT={'GST on Expenses':1,'GST Free Expenses':1,'BAS Excluded':1};
+
 async function xeroPushOne(idx){
   var row=invoices[idx]; if(!row||!row.invoice||row.status!=='ok') return;
   // Hard gate, not just a UI hint — Push/Retry buttons are already hidden
@@ -3968,8 +3973,18 @@ async function xeroPushOne(idx){
       renderTbl(); return;
     }
 
+    // Validated client-side, before ever calling Xero, rather than relying
+    // on Xero's response text to explain a malformed request — its error
+    // messages for this kind of thing have turned out to be unreliable to
+    // parse (see xero-push.js's xeroPost comment), so a bad date or an
+    // unmapped tax label should fail with an obvious cause here instead.
+    var isoDate=dmyToIso(inv.date), isoDue=dmyToIso(inv.due);
+    if(!isoDate) throw new Error('Invalid invoice date "'+inv.date+'" — expected DD/MM/YYYY. Fix it in Review before pushing.');
+    if(!isoDue) throw new Error('Invalid due date "'+inv.due+'" — expected DD/MM/YYYY. Fix it in Review before pushing.');
+
     var acctInfo=ACCOUNTS.find(function(a){return a.code===inv.account;});
     var taxLabel=acctInfo?acctInfo.tax:inv.tax;
+    if(!TAX_TYPE_MAP_CLIENT[taxLabel]) throw new Error('Unrecognised tax label "'+taxLabel+'" for account '+inv.account+' — pick a different account in Review before pushing.');
     var lineItems=[{description:'Invoice '+inv.invoiceNum, amount:inv.amount, accountCode:inv.account, taxType:taxLabel}];
     // Matches buildCSV()'s existing convention for the bank-fee row — same
     // account/tax treatment, just via the live API instead of a CSV line.
@@ -3978,7 +3993,7 @@ async function xeroPushOne(idx){
     }
     var bill=await xeroPushCall('createBill',{
       contactId:contact.contactId, invoiceNum:inv.invoiceNum,
-      date:dmyToIso(inv.date), due:dmyToIso(inv.due), reference:inv.reference,
+      date:isoDate, due:isoDue, reference:inv.reference,
       lineItems:lineItems
     });
     row.xeroStatus='pushed'; row.xeroMessage=bill.invoiceNumber;
