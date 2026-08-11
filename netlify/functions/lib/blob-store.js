@@ -33,4 +33,8 @@ function billsCounterStore() {
   return namedStore('bills-counter');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore };
+function debtorsReportRecipientsStore() {
+  return namedStore('debtors-report-recipients');
+}
+
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore };

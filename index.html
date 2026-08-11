@@ -669,13 +669,15 @@
 
     <div class="debtors-header no-print">
       <h2>Outstanding Balances <span class="debtors-subtitle">— Debtors / Stop Supply</span></h2>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <button onclick="loadDebtors()">Refresh</button>
         <button onclick="markAllEligibleStop()">Mark All Stop</button>
         <button onclick="clearAllEligible()">Clear All</button>
         <button class="primary" onclick="window.print()">Print / Export PDF</button>
-        <button onclick="emailDebtorsList()">✉ Email</button>
+        <input type="text" id="debtorsReportEmails" placeholder="staff@kohindustries.com, staff2@..." style="width:260px;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px" oninput="saveDebtorsReportEmailsDebounced(this.value)">
+        <button id="debtorsEmailBtn" onclick="sendDebtorsReport()">✉ Email Report</button>
       </div>
+      <div id="debtorsEmailStatus" class="status-line no-print" style="margin-top:6px"></div>
     </div>
 
     <div id="debtorsStats" class="stats"></div>
@@ -2367,14 +2369,73 @@ function setDebtorsStatus(msg, isError) {
   els.debtorsStatus.classList.toggle('error', !!isError);
 }
 
-// Matches the original debtors-stop-supply tool's Email button exactly —
-// a plain mailto: link, no attachment. Brendan prints/exports the PDF
-// separately (via the button next to this one) and attaches it by hand.
-function emailDebtorsList() {
-  const dateStr = fmtDate(new Date());
-  const subject = `Debtors Overdue List ${dateStr}`;
-  const body = `Please find attached the Debtors Overdue List as at ${dateStr}.\n\nCustomers highlighted in red are on stop supply.`;
-  window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_self');
+// In-app send, replacing the old mailto: link (which needed Brendan to
+// export the PDF separately and attach it by hand). One shared staff
+// recipient list, persisted server-side (Blobs) so it's remembered across
+// sessions/devices — same pattern as commission-emails.js, just a single
+// string instead of a per-agent map since there's only one "who gets this"
+// list here, not one per row.
+async function loadDebtorsReportEmails() {
+  try {
+    const res = await fetch('/.netlify/functions/debtors-report-recipients');
+    const d = await res.json();
+    document.getElementById('debtorsReportEmails').value = d.emails || '';
+  } catch {} // non-fatal — field just starts empty
+}
+const _saveDebtorsEmailsTimer = { id: null };
+function saveDebtorsReportEmailsDebounced(value) {
+  clearTimeout(_saveDebtorsEmailsTimer.id);
+  _saveDebtorsEmailsTimer.id = setTimeout(() => {
+    fetch('/.netlify/functions/debtors-report-recipients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: value }),
+    }).catch(() => {});
+  }, 600);
+}
+
+// Captures the same #debtorsView content window.print() already renders
+// correctly (the existing @media print rules key off .no-print / .debtors-panel
+// / .print-hdr) as standalone HTML for PDFShift — same capture pattern as
+// captureSheetHtml() for statements, just a different container.
+function captureDebtorsHtml() {
+  const styleHtml = document.querySelector('style').outerHTML;
+  const panelHtml = document.getElementById('debtorsView').outerHTML;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">${styleHtml}</head><body data-active-tab="debtors">${panelHtml}</body></html>`;
+}
+
+async function sendDebtorsReport() {
+  const input = document.getElementById('debtorsReportEmails');
+  const btn = document.getElementById('debtorsEmailBtn');
+  const statusEl = document.getElementById('debtorsEmailStatus');
+  const recipientEmails = (input.value || '').split(',').map((e) => e.trim()).filter(Boolean);
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!recipientEmails.length || !recipientEmails.every((e) => emailRe.test(e))) {
+    statusEl.textContent = 'Enter a valid staff email address (or a comma-separated list) before sending.';
+    statusEl.classList.add('error');
+    return;
+  }
+  statusEl.classList.remove('error');
+  statusEl.textContent = 'Sending…';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/.netlify/functions/send-debtors-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        html: captureDebtorsHtml(),
+        recipientEmails,
+        dateStr: fmtDate(new Date()),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
+    statusEl.textContent = 'Sent ✓';
+  } catch (err) {
+    statusEl.textContent = `Failed to send: ${err.message}`;
+    statusEl.classList.add('error');
+  }
+  btn.disabled = false;
 }
 
 // Builds the full data object a statement needs (join of AM invoices to
@@ -3135,6 +3196,7 @@ async function init() {
     setStatus(`Failed to load customers: ${err.message}`, true);
   }
   loadDebtors(); // needs the AM customer cache above for account-number matching
+  loadDebtorsReportEmails();
 }
 
 // Client-side password gate, not real security (this is a single static
