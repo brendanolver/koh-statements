@@ -2998,7 +2998,7 @@ function renderCommissionTable() {
     ` : '';
     return `
       <tr>
-        <td><span style="cursor:pointer" onclick="toggleCommissionExpand('${safeName}')">${expanded ? '▾' : '▸'} ${agent.agentName}</span></td>
+        <td style="white-space:normal;word-break:break-word"><span style="cursor:pointer" onclick="toggleCommissionExpand('${safeName}')">${expanded ? '▾' : '▸'} ${agent.agentName}</span></td>
         <td>${agent.customers.length}</td>
         <td>${invoiceCount}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(agent.total)} ${agent.currency}</td>
