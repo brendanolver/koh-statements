@@ -867,8 +867,8 @@
       <div style="border:.5px solid #f0f0f0;border-radius:12px;overflow:hidden;overflow-x:auto;margin-bottom:1.25rem">
         <table class="tbl">
           <colgroup>
-            <col style="width:14%"><col style="width:12%"><col style="width:9%"><col style="width:9%">
-            <col style="width:13%"><col style="width:10%"><col style="width:11%"><col style="width:13%"><col style="width:9%">
+            <col style="width:14%"><col style="width:10%"><col style="width:9%"><col style="width:9%">
+            <col style="width:11%"><col style="width:10%"><col style="width:8%"><col style="width:22%"><col style="width:7%">
           </colgroup>
           <thead><tr>
             <th>Invoice</th><th>Supplier</th><th>Date</th><th>Due</th>
@@ -3017,6 +3017,25 @@ function renderCommissionTable() {
       ${detailRows}
     `;
   }).join('');
+
+  // Grand total, grouped by currency (Volume 1 Brands NZ is paid in NZD —
+  // summing across currencies into one figure would be misleading), so
+  // there's a single at-a-glance answer to "how much commission is owing
+  // this month" without adding up every agent row by hand.
+  const totalsByCurrency = {};
+  for (const agent of commissionAgents) {
+    totalsByCurrency[agent.currency] = (totalsByCurrency[agent.currency] || 0) + agent.total;
+  }
+  const totalLabel = Object.entries(totalsByCurrency)
+    .map(([cur, amt]) => `${fmtMoney(amt)} ${cur}`)
+    .join(' + ');
+  body.innerHTML += `
+    <tr>
+      <td colspan="3" style="padding:10px 8px;font-size:12px;font-weight:700;text-align:right;border-top:2px solid var(--ink)">Total owing</td>
+      <td style="padding:10px 8px;font-size:13px;font-weight:700;text-align:right;border-top:2px solid var(--ink)">${totalLabel}</td>
+      <td colspan="3" style="border-top:2px solid var(--ink)"></td>
+    </tr>
+  `;
 }
 
 async function sendCommissionReport(idx) {
