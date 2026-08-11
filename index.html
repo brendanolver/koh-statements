@@ -1004,9 +1004,10 @@
   <div class="modal">
     <div class="mt">Check invoice</div>
     <div class="ms" id="rvSub"></div>
-    <div class="f2">
+    <div class="f3">
       <div class="fg"><label>INVOICE NUMBER</label><input type="text" id="rvNum"></div>
-      <div class="fg"><label>AMOUNT (AUD)</label><input type="number" id="rvAmt" min="0" step="0.01"></div>
+      <div class="fg"><label>CURRENCY</label><select id="rvCur"><option value="AUD">AUD</option><option value="NZD">NZD</option></select></div>
+      <div class="fg"><label>AMOUNT</label><input type="number" id="rvAmt" min="0" step="0.01"></div>
     </div>
     <div class="f3">
       <div class="fg"><label>INVOICE DATE</label><input type="text" id="rvDate" placeholder="dd/mm/yyyy"></div>
@@ -3515,6 +3516,10 @@ function overlayAiFields(ai,row){
     var duy=isoToDMY(ai.due_date); if(duy) row.invoice.due=duy;
     if(typeof ai.total_amount_inc_gst==='number'&&ai.total_amount_inc_gst>0) row.invoice.amount=ai.total_amount_inc_gst;
     if(ai.reference_or_po) row.invoice.reference=ai.reference_or_po;
+    // Only ever moves AUD->NZD on a confident AI signal — never the other
+    // way, so a manual NZD toggle in Review can't get silently clobbered
+    // by a later re-run of this same overlay.
+    if(ai.currency==='NZD') row.invoice.currency='NZD';
   }
   return true;
 }
@@ -3754,6 +3759,7 @@ function renderTbl(){
     return '<tr'+(isDupe?' style="background:#fff8e1"':'')+'>'
       +'<td class="inum" onclick="openReview('+idx+')" title="Click to check &amp; amend" style="font-family:monospace;font-size:11px'+(isDupe?';color:#f57f17':'')+'">'+inv.invoiceNum
       +(isDupe?' <span title="Duplicate invoice number" style="color:#f57f17">&#9888;</span>':'')
+      +(inv.currency==='NZD'?' <span title="NZD — tax forced to GST Free Expenses" style="font-size:9px;font-weight:700;color:#1565c0;background:#e3f0fd;padding:1px 5px;border-radius:8px;vertical-align:middle">NZD</span>':'')
       +'</td>'
       +'<td>'+sc+'</td>'
       +'<td style="font-size:12px">'+inv.date+'</td>'
@@ -3789,6 +3795,7 @@ function openReview(idx){
   rvIdx=idx; var inv=r.invoice;
   document.getElementById('rvSub').textContent=r.name+' — '+inv.supplier;
   document.getElementById('rvNum').value=inv.invoiceNum||'';
+  document.getElementById('rvCur').value=inv.currency||'AUD';
   document.getElementById('rvAmt').value=inv.amount||'';
   document.getElementById('rvDate').value=inv.date||'';
   document.getElementById('rvDue').value=inv.due||'';
@@ -3810,6 +3817,7 @@ function saveReview(){
   var r=invoices[rvIdx]; if(!r||!r.invoice){closeReview();return;}
   var inv=r.invoice;
   var num=document.getElementById('rvNum').value.trim(); if(num){inv.invoiceNum=num;inv.isPlaceholderNum=false;}
+  inv.currency=document.getElementById('rvCur').value;
   var amt=parseFloat(document.getElementById('rvAmt').value); if(amt>0) inv.amount=amt;
   var dv=document.getElementById('rvDate').value.trim(); if(dv) inv.date=fmtD(dv);
   var du=document.getElementById('rvDue').value.trim(); if(du) inv.due=fmtD(du);
@@ -3817,6 +3825,9 @@ function saveReview(){
   inv.reference=document.getElementById('rvRef').value.trim();
   var code=document.getElementById('rvAcct').value;
   if(code){var a=ACCOUNTS.find(function(x){return x.code===code;});if(a){inv.account=code;inv.accountName=a.name;inv.tax=a.tax||inv.tax;}}
+  // NZD wins regardless of the account's own default tax rate — set last,
+  // after the account-derived tax above, so it's never silently overridden.
+  if(inv.currency==='NZD') inv.tax='GST Free Expenses';
   r.confirmed=true;
   closeReview(); renderTbl();
 }
@@ -3864,9 +3875,12 @@ function buildCSV(matched){
   var rows=[h];
   matched.forEach(function(r){
     var inv=r.invoice; var c=contacts[inv.supplier]||{};
+    // NZD always wins over the account's own default tax — matches the
+    // same rule applied at push time in xeroPushOne.
+    var mainTax=inv.currency==='NZD'?'GST Free Expenses':'GST on Expenses';
     rows.push([inv.supplier,c.email||'','','','','','','','','',
       inv.invoiceNum,inv.reference,inv.date,inv.due,'',inv.invoiceNum,'1',inv.amount,'',
-      inv.account,'GST on Expenses','','','','',inv.currency]);
+      inv.account,mainTax,'','','','',inv.currency]);
     if(inv.feeAmount>0){
       rows.push([inv.supplier,c.email||'','','','','','','','','',
         inv.invoiceNum,inv.reference,inv.date,inv.due,'','Bank Fee - '+inv.invoiceNum,
@@ -4024,7 +4038,9 @@ async function xeroPushOne(idx){
     if(!isoDue) throw new Error('Invalid due date "'+inv.due+'" — expected DD/MM/YYYY. Fix it in Review before pushing.');
 
     var acctInfo=ACCOUNTS.find(function(a){return a.code===inv.account;});
-    var taxLabel=acctInfo?acctInfo.tax:inv.tax;
+    // NZD always wins over whatever tax the assigned account defaults to —
+    // this org doesn't charge/pay AU GST on NZD supplier invoices.
+    var taxLabel=inv.currency==='NZD'?'GST Free Expenses':(acctInfo?acctInfo.tax:inv.tax);
     if(!TAX_TYPE_MAP_CLIENT[taxLabel]) throw new Error('Unrecognised tax label "'+taxLabel+'" for account '+inv.account+' — pick a different account in Review before pushing.');
     var lineItems=[{description:'Invoice '+inv.invoiceNum, amount:inv.amount, accountCode:inv.account, taxType:taxLabel}];
     // Matches buildCSV()'s existing convention for the bank-fee row — same
