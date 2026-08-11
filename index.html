@@ -3198,15 +3198,24 @@ function dueDefault(){
 }
 // Some suppliers just don't print an invoice number. Rather than a random
 // hash (the old behaviour — technically unique, but unreadable), give these
-// a clean sequential placeholder. Safe to collide with another supplier's
-// real or placeholder number — Xero only requires uniqueness per-contact,
-// not globally (see the per-supplier duplicate check in renderTbl below).
+// a clean sequential placeholder. NOT safe to assume this collides with
+// nothing — live-confirmed Xero enforces InvoiceNumber uniqueness org-wide,
+// not per-contact (see xero-push.js's checkBillExists), and this org alone
+// has 1000+ real, unrelated bills already numbered "INV-0xx" from actual
+// suppliers. A plain sequential counter (even one that keeps climbing
+// across sessions) kept landing back in already-taken territory — one push
+// bumped 40 numbers in a row (INV-045 through INV-085ish) and still hadn't
+// escaped it. Baking today's date in fixes that at the root: no real
+// supplier's own invoice number is going to coincidentally match
+// "<prefix><YYMMDD>-<seq>", so this needs actual bad luck to collide,
+// not just a saturated low-number range. checkBillExists + xeroPushOne's
+// bump loop stay in place regardless, as a safety net either way.
 // Persisted server-side (bills-counter.js, same Blobs pattern as debtor
 // status / commission emails) so the sequence keeps counting up across
-// sessions and devices instead of restarting at INV-001 every time the
-// page reloads. loadPlaceholderSeq() fetches the real value on startup;
-// until that resolves, placeholderSeq stays 0 (matches prior behaviour on
-// a fresh install / before the first ever save).
+// sessions and devices instead of restarting at 001 every time the page
+// reloads. loadPlaceholderSeq() fetches the real value on startup; until
+// that resolves, placeholderSeq stays 0 (matches prior behaviour on a
+// fresh install / before the first ever save).
 var placeholderSeq=0;
 async function loadPlaceholderSeq(){
   try{
@@ -3224,7 +3233,9 @@ function savePlaceholderSeq(){
 function nextPlaceholderInvoiceNum(){
   placeholderSeq++;
   savePlaceholderSeq();
-  return (settings.prefix||'INV-')+String(placeholderSeq).padStart(3,'0');
+  var d=new Date();
+  var ymd=String(d.getFullYear()).slice(2)+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  return (settings.prefix||'INV-')+ymd+'-'+String(placeholderSeq).padStart(3,'0');
 }
 function fmtD(s){
   if(!s) return today();
