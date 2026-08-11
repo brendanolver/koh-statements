@@ -4803,12 +4803,32 @@ function cfFmtFull(n) { return (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).to
 function cfDChart(id) { if (cfCharts[id]) { cfCharts[id].destroy(); delete cfCharts[id]; } }
 
 // ── Live Xero fetches ────────────────────────────────────────────────────────
+// Same "Unexpected end of JSON input" tolerance cfFetchBankTransactionsPage
+// already needed (a transient Xero rate-limit hit can return a truncated/
+// empty response body) — this tab makes enough sequential/parallel Xero
+// calls across its various fetch functions that every one of them needs
+// the same one-retry-after-a-pause protection, not just bank transactions.
+// Live-confirmed: Cashflow failed to load with exactly this error before
+// this existed, on one of the other (unprotected) fetches.
+async function cfFetchJson(url) {
+  async function attempt() {
+    const res = await fetch(url);
+    const data = await res.json();
+    return { res, data };
+  }
+  try {
+    return await attempt();
+  } catch (err) {
+    await new Promise((r) => setTimeout(r, 3000));
+    return attempt();
+  }
+}
+
 async function cfFetchAllOpenPayablesOrgWide() {
   const all = [];
   for (let page = 1; page <= 30; page++) {
     const params = new URLSearchParams({ path: 'Invoices', where: 'Type=="ACCPAY" && AmountDue>0', page: String(page) });
-    const res = await fetch(`${XERO_PROXY}?${params}`);
-    const data = await res.json();
+    const { res, data } = await cfFetchJson(`${XERO_PROXY}?${params}`);
     if (!res.ok) throw new Error(data.error || data.Detail || `Xero payables fetch failed (${res.status})`);
     const rows = data.Invoices || [];
     all.push(...rows);
@@ -4819,8 +4839,7 @@ async function cfFetchAllOpenPayablesOrgWide() {
 
 async function cfFetchBankAccountsAUD() {
   const params = new URLSearchParams({ path: 'Accounts', where: 'Type=="BANK" && Status=="ACTIVE" && CurrencyCode=="AUD"' });
-  const res = await fetch(`${XERO_PROXY}?${params}`);
-  const data = await res.json();
+  const { res, data } = await cfFetchJson(`${XERO_PROXY}?${params}`);
   if (!res.ok) throw new Error(data.error || data.Detail || `Xero accounts fetch failed (${res.status})`);
   return data.Accounts || [];
 }
@@ -4834,8 +4853,7 @@ async function cfFetchBankAccountsAUD() {
 // carries a real balance.
 async function cfFetchBankSummary(fromISO, toISO, audAccountIds) {
   const params = new URLSearchParams({ path: 'Reports/BankSummary', fromDate: fromISO, toDate: toISO });
-  const res = await fetch(`${XERO_PROXY}?${params}`);
-  const data = await res.json();
+  const { res, data } = await cfFetchJson(`${XERO_PROXY}?${params}`);
   if (!res.ok) throw new Error(data.error || data.Detail || `Xero bank summary fetch failed (${res.status})`);
   const rows = (data.Reports && data.Reports[0] && data.Reports[0].Rows) || [];
   let opening = 0, closing = 0;
@@ -4868,8 +4886,7 @@ async function cfFetchBankSummary(fromISO, toISO, audAccountIds) {
 // future data set degrades to "slow" rather than silently truncating again.
 async function cfFetchBankTransactionsPage(whereClause, page) {
   const params = new URLSearchParams({ path: 'BankTransactions', where: whereClause, page: String(page) });
-  const res = await fetch(`${XERO_PROXY}?${params}`);
-  const data = await res.json();
+  const { res, data } = await cfFetchJson(`${XERO_PROXY}?${params}`);
   if (!res.ok) throw new Error(data.error || data.Detail || `Xero bank transactions fetch failed (${res.status})`);
   return data.BankTransactions || [];
 }
@@ -4882,16 +4899,9 @@ async function cfFetchBankTransactionsSince(fromISO, audAccountIds, onProgress) 
   let page = 1;
   while (page <= 200) {
     const pageNums = Array.from({ length: BATCH }, (_, i) => page + i);
-    const results = await Promise.all(pageNums.map(async (p) => {
-      try {
-        return await cfFetchBankTransactionsPage(whereClause, p);
-      } catch (err) {
-        // One retry after a pause — same transient-rate-limit tolerance
-        // already used for statement prep (prepareQueueItem above).
-        await new Promise((r) => setTimeout(r, 3000));
-        return cfFetchBankTransactionsPage(whereClause, p);
-      }
-    }));
+    // cfFetchJson already retries once on a transient failure — no need
+    // for a second retry layer here on top of it.
+    const results = await Promise.all(pageNums.map((p) => cfFetchBankTransactionsPage(whereClause, p)));
     let done = false;
     for (const rows of results) {
       all.push(...rows);
@@ -4908,8 +4918,7 @@ async function cfFetchBankTransactionsSince(fromISO, audAccountIds, onProgress) 
 
 async function cfFetchWholesaleNames() {
   const params = new URLSearchParams({ path: 'Contacts', where: 'IsCustomer==true' });
-  const res = await fetch(`${XERO_PROXY}?${params}`);
-  const data = await res.json();
+  const { res, data } = await cfFetchJson(`${XERO_PROXY}?${params}`);
   if (!res.ok) throw new Error(data.error || data.Detail || `Xero contacts fetch failed (${res.status})`);
   return new Set((data.Contacts || []).map((c) => c.Name));
 }
