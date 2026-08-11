@@ -3718,7 +3718,16 @@ function renderTbl(){
     var isDupe=dupeNums[dupeKey(inv)];
     var xc;
     if(r.xeroStatus==='pushing') xc='<span style="font-size:11px;color:#888">Pushing…</span>';
-    else if(r.xeroStatus==='pushed') xc='<span style="font-size:11px;color:#2e7d32" title="Xero invoice '+(r.xeroMessage||'')+'">Pushed ✓</span>';
+    else if(r.xeroStatus==='pushed'){
+      xc='<span style="font-size:11px;color:#2e7d32" title="Xero invoice '+(r.xeroMessage||'')+'">Pushed ✓</span>';
+      // Visible, not just a hover tooltip — the number pushed to Xero no
+      // longer matches what's on the actual PDF once auto-suffixed, so
+      // that needs to stay in plain sight, not something you only find by
+      // hovering.
+      if(r.xeroOriginalNum&&r.xeroOriginalNum!==inv.invoiceNum){
+        xc+='<div style="font-size:10px;color:#f57f17">was '+r.xeroOriginalNum+'</div>';
+      }
+    }
     else if(r.xeroStatus==='skipped') xc='<span style="font-size:11px;color:#f57f17" title="'+(r.xeroMessage||'')+'">Skipped</span>';
     else if(r.xeroStatus==='failed'){
       var xm=r.xeroMessage||'';
@@ -3943,6 +3952,8 @@ async function xeroPushOne(idx){
     renderTbl(); return;
   }
   var inv=row.invoice; var ec=row.ec||{};
+  var originalInvoiceNum=inv.invoiceNum;
+  row.xeroOriginalNum=originalInvoiceNum;
   row.xeroStatus='pushing'; renderTbl();
   try{
     var contactParams={name:inv.supplier};
@@ -3957,10 +3968,7 @@ async function xeroPushOne(idx){
     // the next one — it's not a real duplicate, just an auto-generated
     // number that happens to already be used for this contact (e.g. an
     // older bill entered before this app's unified generator existed, or
-    // one entered manually). A REAL extracted invoice number colliding is
-    // different — that's a genuine data question (see Sharp Accounting's
-    // INV-10137, which collided with an unrelated supplier's bill) and
-    // still needs a human to look at it, so only auto-bump placeholders.
+    // one entered manually).
     if(dupe.exists&&inv.isPlaceholderNum){
       // 40, not 10 — "INV-" turns out to be a common real invoice-number
       // format across this org's actual suppliers (1000+ unrelated bills
@@ -3970,6 +3978,19 @@ async function xeroPushOne(idx){
       // this cap is just a safety margin on top of that.
       for(var bump=0;bump<40&&dupe.exists;bump++){
         inv.invoiceNum=nextPlaceholderInvoiceNum();
+        dupe=await xeroPushCall('checkBillExists',{contactId:contact.contactId,invoiceNumber:inv.invoiceNum});
+      }
+      renderTbl();
+    }
+    // A REAL extracted invoice number colliding (e.g. Sharp Accounting's
+    // INV-10137, which collided with an unrelated supplier's own bill) is
+    // a genuine data coincidence, not a dupe of anything WNDRR sent — auto-
+    // suffix and retry rather than blocking on it, but always keep the
+    // original number visible afterward (in the Xero column, not buried in
+    // a tooltip) since it no longer matches what's on the actual PDF.
+    else if(dupe.exists&&!inv.isPlaceholderNum){
+      for(var suf=2;suf<=20&&dupe.exists;suf++){
+        inv.invoiceNum=originalInvoiceNum+'-'+suf;
         dupe=await xeroPushCall('checkBillExists',{contactId:contact.contactId,invoiceNumber:inv.invoiceNum});
       }
       renderTbl();
@@ -4002,7 +4023,10 @@ async function xeroPushOne(idx){
       date:isoDate, due:isoDue, reference:inv.reference,
       lineItems:lineItems
     });
-    row.xeroStatus='pushed'; row.xeroMessage=bill.invoiceNumber;
+    row.xeroStatus='pushed';
+    row.xeroMessage=originalInvoiceNum!==inv.invoiceNum
+      ? bill.invoiceNumber+' — original number "'+originalInvoiceNum+'" was already taken by another supplier'
+      : bill.invoiceNumber;
   }catch(e){
     row.xeroStatus='failed'; row.xeroMessage=e.message;
   }
