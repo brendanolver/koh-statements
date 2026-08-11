@@ -1229,6 +1229,31 @@
 <script>
 const AM_PROXY = '/.netlify/functions/am-proxy';
 const XERO_PROXY = '/.netlify/functions/xero-proxy';
+
+// A transient Xero rate-limit hit can come back as a truncated/empty
+// response body ("Unexpected end of JSON input" from res.json()) — first
+// documented on a 38-customer batch send, then hit again on the Cashflow
+// tab's heavier call volume, and live-confirmed to bleed into completely
+// unrelated tabs' next request too (Debtors failed with the identical
+// error moments after a heavy Cashflow load, despite Xero itself
+// responding fine to a plain test call seconds later — a transient
+// window, not an outage). Every org-wide paginated Xero fetch across the
+// app is a real candidate for this, not just whichever one happened to
+// get unlucky first, so this is the shared, generic version — one retry
+// after a pause, same tolerance already proven for bank transactions.
+async function fetchXeroJson(url) {
+  async function attempt() {
+    const res = await fetch(url);
+    const data = await res.json();
+    return { res, data };
+  }
+  try {
+    return await attempt();
+  } catch (err) {
+    await new Promise((r) => setTimeout(r, 3000));
+    return attempt();
+  }
+}
 const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV2'; // v2: added country field
 const CUSTOMER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h, mirrors demandplanning's amCatalogV1 pattern
 
@@ -1693,8 +1718,7 @@ async function fetchOpenXeroInvoices(contactId) {
       where: 'Type=="ACCREC" && AmountDue>0',
       page: String(page),
     });
-    const res = await fetch(`${XERO_PROXY}?${params}`);
-    const data = await res.json();
+    const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${params}`);
     if (!res.ok) throw new Error(data.error || data.Detail || `Xero invoices fetch failed (${res.status})`);
     const rows = data.Invoices || [];
     all.push(...rows);
@@ -1712,8 +1736,7 @@ async function fetchAllOpenInvoicesOrgWide() {
   const all = [];
   for (let page = 1; page <= 30; page++) {
     const params = new URLSearchParams({ path: 'Invoices', where: 'Type=="ACCREC" && AmountDue>0', page: String(page) });
-    const res = await fetch(`${XERO_PROXY}?${params}`);
-    const data = await res.json();
+    const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${params}`);
     if (!res.ok) throw new Error(data.error || data.Detail || `Xero invoices fetch failed (${res.status})`);
     const rows = data.Invoices || [];
     all.push(...rows);
@@ -1754,8 +1777,7 @@ async function fetchOutstandingCreditNotesOrgWide() {
       where: 'Type=="ACCRECCREDIT" && Status=="AUTHORISED" && RemainingCredit>0',
       page: String(page),
     });
-    const res = await fetch(`${XERO_PROXY}?${params}`);
-    const data = await res.json();
+    const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${params}`);
     if (!res.ok) throw new Error(data.error || data.Detail || `Xero credit notes fetch failed (${res.status})`);
     const rows = data.CreditNotes || [];
     all.push(...rows);
@@ -1773,8 +1795,7 @@ async function fetchSubmittedInvoicesOrgWide() {
   const all = [];
   for (let page = 1; page <= 30; page++) {
     const params = new URLSearchParams({ path: 'Invoices', where: 'Type=="ACCREC" && Status=="SUBMITTED"', page: String(page) });
-    const res = await fetch(`${XERO_PROXY}?${params}`);
-    const data = await res.json();
+    const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${params}`);
     if (!res.ok) throw new Error(data.error || data.Detail || `Xero invoices fetch failed (${res.status})`);
     const rows = data.Invoices || [];
     all.push(...rows);
@@ -1792,8 +1813,7 @@ async function fetchContactsByIds(ids) {
   for (let i = 0; i < ids.length; i += CHUNK) {
     const chunk = ids.slice(i, i + CHUNK);
     const params = new URLSearchParams({ path: 'Contacts', IDs: chunk.join(',') });
-    const res = await fetch(`${XERO_PROXY}?${params}`);
-    const data = await res.json();
+    const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${params}`);
     if (!res.ok) throw new Error(data.error || data.Detail || `Xero contacts fetch failed (${res.status})`);
     all.push(...(data.Contacts || []));
   }
@@ -4803,26 +4823,11 @@ function cfFmtFull(n) { return (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).to
 function cfDChart(id) { if (cfCharts[id]) { cfCharts[id].destroy(); delete cfCharts[id]; } }
 
 // ── Live Xero fetches ────────────────────────────────────────────────────────
-// Same "Unexpected end of JSON input" tolerance cfFetchBankTransactionsPage
-// already needed (a transient Xero rate-limit hit can return a truncated/
-// empty response body) — this tab makes enough sequential/parallel Xero
-// calls across its various fetch functions that every one of them needs
-// the same one-retry-after-a-pause protection, not just bank transactions.
-// Live-confirmed: Cashflow failed to load with exactly this error before
-// this existed, on one of the other (unprotected) fetches.
-async function cfFetchJson(url) {
-  async function attempt() {
-    const res = await fetch(url);
-    const data = await res.json();
-    return { res, data };
-  }
-  try {
-    return await attempt();
-  } catch (err) {
-    await new Promise((r) => setTimeout(r, 3000));
-    return attempt();
-  }
-}
+// Alias — this tab's fetches were written against cfFetchJson before the
+// retry logic moved to the shared, app-wide fetchXeroJson (see its comment
+// near XERO_PROXY above); kept as a thin wrapper rather than renaming every
+// call site here.
+const cfFetchJson = fetchXeroJson;
 
 async function cfFetchAllOpenPayablesOrgWide() {
   const all = [];
