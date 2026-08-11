@@ -3730,9 +3730,12 @@ function renderTbl(){
     }
     else if(r.xeroStatus==='skipped') xc='<span style="font-size:11px;color:#f57f17" title="'+(r.xeroMessage||'')+'">Skipped</span>';
     else if(r.xeroStatus==='failed'){
+      // No truncation — this exact column has repeatedly been the only
+      // place a real Xero error message shows up, and cutting it short
+      // has cost real diagnostic time more than once. Wraps naturally
+      // instead; the title attribute is just a copy-pasteable backup.
       var xm=r.xeroMessage||'';
-      var xmShort=xm.length>70?xm.slice(0,70)+'…':xm;
-      xc='<div style="font-size:11px;color:#e53935" title="'+xm.replace(/"/g,'&quot;')+'">Failed'+(xmShort?': '+xmShort:'')+'</div><button class="al" onclick="xeroPushOne('+idx+')">Retry</button>';
+      xc='<div style="font-size:11px;color:#e53935;white-space:normal;word-break:break-word" title="'+xm.replace(/"/g,'&quot;')+'">Failed'+(xm?': '+xm:'')+'</div><button class="al" onclick="xeroPushOne('+idx+')">Retry</button>';
     }
     else if(r.status==='ok'&&r.confirmed) xc='<button class="al" onclick="xeroPushOne('+idx+')">Push</button>';
     else if(r.status==='ok') xc='<span style="font-size:11px;color:#aaa" title="Tick the checkmark on the right to approve this bill before it can be pushed">Tick to approve</span>';
