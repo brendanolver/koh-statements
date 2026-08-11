@@ -3838,7 +3838,14 @@ function renderTbl(){
     else if(r.status==='ok') xc='<span style="font-size:11px;color:#aaa" title="Tick the checkmark on the right to approve this bill before it can be pushed">Tick to approve</span>';
     else xc='<span style="font-size:11px;color:#ccc">—</span>';
     return '<tr'+(isDupe?' style="background:#fff8e1"':'')+'>'
-      +'<td class="inum" onclick="openReview('+idx+')" title="Click to check &amp; amend" style="font-family:monospace;font-size:11px'+(isDupe?';color:#f57f17':'')+'">'+inv.invoiceNum
+      // overflow:visible + normal wrapping overrides #billsView .tbl td's
+      // default overflow:hidden/ellipsis/nowrap — fine for a short plain
+      // number, but the NZD/duplicate-warning badges are nested elements
+      // that don't ellipsis cleanly, and the newer date-based placeholder
+      // format (e.g. "INV-260812-094") is long enough on its own to
+      // overflow this column's fixed width, so the badge was rendering
+      // clipped/overlapping rather than visibly dropping to its own line.
+      +'<td class="inum" onclick="openReview('+idx+')" title="Click to check &amp; amend" style="font-family:monospace;font-size:11px;overflow:visible;white-space:normal;word-break:break-word'+(isDupe?';color:#f57f17':'')+'">'+inv.invoiceNum
       +(isDupe?' <span title="Duplicate invoice number" style="color:#f57f17">&#9888;</span>':'')
       +(inv.currency==='NZD'?' <span title="NZD — tax forced to GST Free Expenses" style="font-size:9px;font-weight:700;color:#1565c0;background:#e3f0fd;padding:1px 5px;border-radius:8px;vertical-align:middle">NZD</span>':'')
       +'</td>'
