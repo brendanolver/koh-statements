@@ -979,6 +979,9 @@
       </div>
       <div class="fg"><label>KEYWORD (auto-detect)</label><input type="text" id="supKw" placeholder="e.g. Australia Post"></div>
     </div>
+    <div class="f2">
+      <div class="fg"><label>DEFAULT CURRENCY</label><select id="supCur"><option value="AUD">AUD</option><option value="NZD">NZD</option></select></div>
+    </div>
     <div class="msl">BANK DETAILS</div>
     <div class="f3">
       <div class="fg">
@@ -3468,10 +3471,15 @@ function parseInv(text){
   var amt=parseAmt(text);
   if(!im&&amt===0) return null;
   var ac=rule?rule.account:null; var a=ACCOUNTS.find(function(x){return x.code===ac;});
+  // A supplier's saved currency default (set once via the Edit Supplier
+  // modal) applies to every future invoice from them automatically — same
+  // as the account default just above — rather than re-toggling NZD by
+  // hand on each new upload.
+  var cur=(rule&&rule.currency)||settings.currency||'AUD';
   return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),isPlaceholderNum:!im,supplier:det?det.name:'Unknown',
     isNew:det&&!rule,isUnmatched:!det,date:dmVal?fmtD(dmVal):today(),due:duVal?fmtD(duVal):dueDefault(),
-    amount:amt,account:ac,accountName:a?a.name:'',tax:'GST on Expenses',
-    currency:settings.currency||'AUD',reference:rf?rf[1]:'',feeAmount:0};
+    amount:amt,account:ac,accountName:a?a.name:'',tax:cur==='NZD'?'GST Free Expenses':'GST on Expenses',
+    currency:cur,reference:rf?rf[1]:'',feeAmount:0};
 }
 
 function parsePart(text){
@@ -4247,6 +4255,7 @@ function openModal(type,rowIdx){
   document.getElementById('selAcct').style.display='none';
   ['amtBadge','numBadge','emBadge','bsbBadge','accBadge'].forEach(function(id){document.getElementById(id).style.display='none';});
   ['invAmt','invNum','supEmail','supKw','supBSB','supAcc','supAccNm'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('supCur').value='AUD';
   var row=invoices[rowIdx]; var inv=row&&row.invoice?row.invoice:{};
   var ec=row&&row.ec?row.ec:{};
   if(type==='unmatched'){
@@ -4279,6 +4288,7 @@ function openModal(type,rowIdx){
     document.getElementById('supBSB').value=c.bsb||'';
     document.getElementById('supAcc').value=c.accNo||'';
     document.getElementById('supAccNm').value=c.accName||'';
+    document.getElementById('supCur').value=c.currency||'AUD';
     var ca=ACCOUNTS.find(function(a){return a.code===c.account;});
     if(ca){selCode=c.account;filterAccounts();document.getElementById('selAcct').textContent='Selected: '+ca.code+' \xb7 '+ca.name;document.getElementById('selAcct').style.display='block';}
     document.getElementById('mConfirm').textContent='Update & save';
@@ -4382,6 +4392,7 @@ function selectExistingSupplier(name){
   if(c.accNo){document.getElementById('supAcc').value=c.accNo;document.getElementById('accBadge').style.display='inline';}
   if(c.accName) document.getElementById('supAccNm').value=c.accName;
   if(c.keyword) document.getElementById('supKw').value=c.keyword;
+  document.getElementById('supCur').value=c.currency||'AUD';
   // Pre-select their account in the P&L list
   if(c.account){selCode=c.account;filterAccounts();var a=ACCOUNTS.find(function(x){return x.code===c.account;});if(a){document.getElementById('selAcct').textContent='Selected: '+a.code+' · '+a.name;document.getElementById('selAcct').style.display='block';}}
 }
@@ -4431,7 +4442,8 @@ function confirmAccount(){
   if(type==='unmatched'){supName=document.getElementById('snInput').value.trim();if(!supName){alert('Please enter a supplier name.');return;}}
   else if(type==='new'){supName=invoices[rowIdx].invoice.supplier;}
   else{supName=editCtx.contactName;}
-  contacts[supName]={account:selCode,tax:'GST on Expenses',
+  var supCur=document.getElementById('supCur').value;
+  contacts[supName]={account:selCode,tax:'GST on Expenses',currency:supCur,
     keyword:document.getElementById('supKw').value||supName,
     email:document.getElementById('supEmail').value.trim(),
     bsb:document.getElementById('supBSB').value.trim(),
@@ -4449,7 +4461,10 @@ function confirmAccount(){
     else match=r.invoice.supplier===supName; // edit — update all rows for this supplier
     if(match){
       r.invoice.supplier=supName; r.invoice.account=selCode;
-      r.invoice.accountName=a.name; r.invoice.tax='GST on Expenses';
+      r.invoice.accountName=a.name; r.invoice.currency=supCur;
+      // Supplier's saved currency wins over the account's own default tax —
+      // same rule as the per-invoice NZD toggle in Review (saveReview above).
+      r.invoice.tax=supCur==='NZD'?'GST Free Expenses':'GST on Expenses';
       r.invoice.isNew=false; r.invoice.isUnmatched=false; r.status='ok';
       // Amount & invoice number are per-invoice — only apply to the row the modal was opened from
       if(r===invoices[rowIdx]){
