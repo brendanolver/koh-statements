@@ -671,8 +671,8 @@
       <h2>Outstanding Balances <span class="debtors-subtitle">— Debtors / Stop Supply</span></h2>
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <button onclick="loadDebtors()">Refresh</button>
-        <button onclick="markAllEligibleStop()">Mark All Stop</button>
-        <button onclick="clearAllEligible()">Clear All</button>
+        <button onclick="markAllEligibleStop()" title="Only affects customers 2+ months overdue (the eligible cards above)">Mark All Eligible Stop</button>
+        <button onclick="clearAllEligible()" title="Only affects customers 2+ months overdue (the eligible cards above)">Clear All Eligible</button>
         <button class="primary" onclick="window.print()">Print / Export PDF</button>
         <input type="text" id="debtorsReportEmails" placeholder="staff@kohindustries.com, staff2@..." style="width:260px;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px" oninput="saveDebtorsReportEmailsDebounced(this.value)">
         <button id="debtorsEmailBtn" onclick="sendDebtorsReport()">✉ Email Report</button>
