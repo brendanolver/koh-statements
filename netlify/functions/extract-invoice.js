@@ -20,7 +20,7 @@ const SCHEMA = {
     bank_bsb: { type: ['string', 'null'], description: "The SUPPLIER's own BSB number for receiving payment, if shown." },
     bank_account_number: { type: ['string', 'null'], description: "The SUPPLIER's own bank account number for receiving payment, if shown." },
     email: { type: ['string', 'null'], description: "The SUPPLIER's own contact email address — never an email belonging to KOH Industries or WNDRR (e.g. one appearing under a \"To:\"/recipient/billing section), even if it's the only email on the page." },
-    currency: { type: ['string', 'null'], enum: ['AUD', 'NZD', null], description: 'The invoice\'s currency. Only return "NZD" if there is a clear signal on the page — an "NZ$"/"$NZD"/"NZD" symbol or code, or a supplier bank account explicitly described as a New Zealand account. Otherwise return null (the app defaults to AUD) rather than guessing.' },
+    currency: { type: ['string', 'null'], enum: ['AUD', 'NZD', 'USD', null], description: 'The invoice\'s currency. Only return "NZD" or "USD" if there is a clear signal on the page — an explicit "NZ$"/"$NZD"/"NZD" or "US$"/"$USD"/"USD" symbol or code, or a supplier bank account explicitly described as a New Zealand or United States account. Otherwise return null (the app defaults to AUD) rather than guessing.' },
   },
   required: [
     'supplier_name', 'invoice_number', 'invoice_date', 'due_date',

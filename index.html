@@ -870,7 +870,7 @@
         <table class="tbl">
           <colgroup>
             <col style="width:14%"><col style="width:10%"><col style="width:9%"><col style="width:9%">
-            <col style="width:11%"><col style="width:10%"><col style="width:8%"><col style="width:22%"><col style="width:7%">
+            <col style="width:11%"><col style="width:10%"><col style="width:8%"><col style="width:18%"><col style="width:11%">
           </colgroup>
           <thead><tr>
             <th>Invoice</th><th>Supplier</th><th>Date</th><th>Due</th>
@@ -980,7 +980,7 @@
       <div class="fg"><label>KEYWORD (auto-detect)</label><input type="text" id="supKw" placeholder="e.g. Australia Post"></div>
     </div>
     <div class="f2">
-      <div class="fg"><label>DEFAULT CURRENCY</label><select id="supCur"><option value="AUD">AUD</option><option value="NZD">NZD</option></select></div>
+      <div class="fg"><label>DEFAULT CURRENCY</label><select id="supCur"><option value="AUD">AUD</option><option value="NZD">NZD</option><option value="USD">USD</option></select></div>
     </div>
     <div class="msl">BANK DETAILS</div>
     <div class="f3">
@@ -1011,8 +1011,14 @@
     <div class="ms" id="rvSub"></div>
     <div class="f3">
       <div class="fg"><label>INVOICE NUMBER</label><input type="text" id="rvNum"></div>
-      <div class="fg"><label>CURRENCY</label><select id="rvCur"><option value="AUD">AUD</option><option value="NZD">NZD</option></select></div>
-      <div class="fg"><label>AMOUNT</label><input type="number" id="rvAmt" min="0" step="0.01"></div>
+      <div class="fg"><label>CURRENCY</label><select id="rvCur" onchange="toggleRvAudAmt()"><option value="AUD">AUD</option><option value="NZD">NZD</option><option value="USD">USD</option></select></div>
+      <div class="fg"><label id="rvAmtLbl">AMOUNT</label><input type="number" id="rvAmt" min="0" step="0.01"></div>
+    </div>
+    <div class="f3" id="rvAudAmtRow" style="display:none">
+      <div class="fg" style="grid-column:span 3">
+        <label>AUD CONVERTED AMOUNT <span style="font-weight:400;text-transform:none;color:var(--muted)">— the figure actually pushed to Xero; work this out yourself from the USD total above</span></label>
+        <input type="number" id="rvAudAmt" min="0" step="0.01" placeholder="e.g. 1530.00">
+      </div>
     </div>
     <div class="f3">
       <div class="fg"><label>INVOICE DATE</label><input type="text" id="rvDate" placeholder="dd/mm/yyyy"></div>
@@ -3508,7 +3514,7 @@ function parseInv(text){
   var cur=(rule&&rule.currency)||settings.currency||'AUD';
   return{invoiceNum:im?normInvNum(im):nextPlaceholderInvoiceNum(),isPlaceholderNum:!im,supplier:det?det.name:'Unknown',
     isNew:det&&!rule,isUnmatched:!det,date:dmVal?fmtD(dmVal):today(),due:duVal?fmtD(duVal):dueDefault(),
-    amount:amt,account:ac,accountName:a?a.name:'',tax:cur==='NZD'?'GST Free Expenses':'GST on Expenses',
+    amount:amt,account:ac,accountName:a?a.name:'',tax:(cur==='NZD'||cur==='USD')?'GST Free Expenses':'GST on Expenses',
     currency:cur,reference:rf?rf[1]:'',feeAmount:0};
 }
 
@@ -3635,10 +3641,12 @@ function overlayAiFields(ai,row){
     var duy=isoToDMY(ai.due_date); if(duy) row.invoice.due=duy;
     if(typeof ai.total_amount_inc_gst==='number'&&ai.total_amount_inc_gst>0) row.invoice.amount=ai.total_amount_inc_gst;
     if(ai.reference_or_po) row.invoice.reference=ai.reference_or_po;
-    // Only ever moves AUD->NZD on a confident AI signal — never the other
-    // way, so a manual NZD toggle in Review can't get silently clobbered
-    // by a later re-run of this same overlay.
-    if(ai.currency==='NZD') row.invoice.currency='NZD';
+    // Only ever moves AUD->NZD/USD on a confident AI signal — never the
+    // other way, so a manual currency toggle in Review can't get silently
+    // clobbered by a later re-run of this same overlay. A USD signal still
+    // needs Brendan's own AUD conversion entered by hand in Review — the
+    // AI has no way to know his actual conversion rate/figure.
+    if(ai.currency==='NZD'||ai.currency==='USD') row.invoice.currency=ai.currency;
   }
   return true;
 }
@@ -3806,6 +3814,16 @@ function renderFL(){
 // conflict. Key on supplier+number together, not the number alone.
 function dupeKey(inv){ return (inv.supplier||'')+'|'+inv.invoiceNum; }
 
+// The figure that actually goes to Xero/CSV/the bank fee calc — inv.amount
+// stays whatever's printed on the source PDF (USD for a foreign invoice,
+// kept for traceability), audAmount is Brendan's own manually-worked-out
+// AUD conversion. Falls back to inv.amount whenever audAmount hasn't been
+// set yet (AUD invoices, or a USD one not yet converted), so nothing
+// breaks before he's had a chance to fill it in.
+function pushAmount(inv){
+  return (inv.currency==='USD'&&inv.audAmount>0)?inv.audAmount:(inv.amount||0);
+}
+
 function renderTbl(){
   var matched=invoices.filter(function(r){return r.invoice&&['ok','new','unmatched'].indexOf(r.status)>=0;});
   document.getElementById('invSec').style.display=matched.length?'block':'none';
@@ -3824,7 +3842,7 @@ function renderTbl(){
     dupeWarning.style.display='none';
   }
   document.getElementById('mCount').textContent=matched.length;
-  var tot=matched.reduce(function(s,r){return s+(r.invoice.amount||0)+(r.invoice.feeAmount||0);},0);
+  var tot=matched.reduce(function(s,r){return s+pushAmount(r.invoice)+(r.invoice.feeAmount||0);},0);
   document.getElementById('mTotal').textContent='$'+tot.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   var confN=matched.filter(function(r){return r.confirmed;}).length;
   document.getElementById('appSub').textContent=matched.length+' invoice'+(matched.length===1?'':'s')+' loaded'
@@ -3886,12 +3904,19 @@ function renderTbl(){
       +'<td class="inum" onclick="openReview('+idx+')" title="Click to check &amp; amend" style="font-family:monospace;font-size:11px;overflow:visible;white-space:normal;word-break:break-word'+(isDupe?';color:#f57f17':'')+'">'+inv.invoiceNum
       +(isDupe?' <span title="Duplicate invoice number" style="color:#f57f17">&#9888;</span>':'')
       +(inv.currency==='NZD'?' <span title="NZD — tax forced to GST Free Expenses" style="font-size:9px;font-weight:700;color:#1565c0;background:#e3f0fd;padding:1px 5px;border-radius:8px;vertical-align:middle">NZD</span>':'')
+      +(inv.currency==='USD'?' <span title="USD — tax forced to GST Free Expenses" style="font-size:9px;font-weight:700;color:#1565c0;background:#e3f0fd;padding:1px 5px;border-radius:8px;vertical-align:middle">USD</span>':'')
       +'</td>'
       +'<td>'+sc+'</td>'
       +'<td style="font-size:12px">'+inv.date+'</td>'
       +'<td style="font-size:12px">'+inv.due+'</td>'
       +'<td>'+ac+'</td>'
-      +'<td style="text-align:right;font-weight:500">$'+(inv.amount||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'
+      // For USD, the primary figure is always the AUD conversion (what
+      // actually gets pushed), with the original USD total kept visible
+      // underneath — never show a bare "$" number that's silently still
+      // in USD, since every other $ figure in this table means AUD.
+      +'<td style="text-align:right;font-weight:500">$'+pushAmount(inv).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})
+      +(inv.currency==='USD'?'<div style="font-size:10px;font-weight:400;color:'+(inv.audAmount>0?'#888':'#e53935')+'">'+(inv.audAmount>0?'US$'+(inv.amount||0).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}):'⚠ needs AUD conversion')+'</div>':'')
+      +'</td>'
       +'<td style="text-align:right">'+fc+'</td>'
       +'<td>'+xc+'</td>'
       +'<td><div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">'
@@ -3905,7 +3930,9 @@ function renderTbl(){
 // ── Fee ───────────────────────────────────────────────────────────────
 function addFee(idx){
   if(!invoices[idx]||!invoices[idx].invoice) return;
-  invoices[idx].invoice.feeAmount=Math.round(invoices[idx].invoice.amount*0.011*100)/100||0.01;
+  // pushAmount(), not .amount directly — the fee is a local AUD bank
+  // charge, so it needs to be a % of the AUD figure, not a raw USD total.
+  invoices[idx].invoice.feeAmount=Math.round(pushAmount(invoices[idx].invoice)*0.011*100)/100||0.01;
   renderTbl();
 }
 function updFee(idx,v){
@@ -3916,6 +3943,16 @@ function updFee(idx,v){
 
 // ── Per-invoice check & amend ─────────────────────────────────────────
 var rvIdx=null;
+// Shown only for USD (China factory invoices, per Brendan) — the extracted
+// AMOUNT stays whatever's on the invoice (USD, for traceability back to the
+// source PDF), while this is the figure he's worked out himself and the
+// one actually pushed to Xero. Not needed for NZD: those get pushed at
+// face value with no manual conversion step.
+function toggleRvAudAmt(){
+  var isUsd=document.getElementById('rvCur').value==='USD';
+  document.getElementById('rvAudAmtRow').style.display=isUsd?'flex':'none';
+  document.getElementById('rvAmtLbl').textContent=isUsd?'AMOUNT (USD, as printed)':'AMOUNT';
+}
 function openReview(idx){
   var r=invoices[idx]; if(!r||!r.invoice) return;
   rvIdx=idx; var inv=r.invoice;
@@ -3923,6 +3960,8 @@ function openReview(idx){
   document.getElementById('rvNum').value=inv.invoiceNum||'';
   document.getElementById('rvCur').value=inv.currency||'AUD';
   document.getElementById('rvAmt').value=inv.amount||'';
+  document.getElementById('rvAudAmt').value=inv.audAmount||'';
+  toggleRvAudAmt();
   document.getElementById('rvDate').value=inv.date||'';
   document.getElementById('rvDue').value=inv.due||'';
   document.getElementById('rvFee').value=inv.feeAmount||'';
@@ -3945,15 +3984,17 @@ function saveReview(){
   var num=document.getElementById('rvNum').value.trim(); if(num){inv.invoiceNum=num;inv.isPlaceholderNum=false;}
   inv.currency=document.getElementById('rvCur').value;
   var amt=parseFloat(document.getElementById('rvAmt').value); if(amt>0) inv.amount=amt;
+  inv.audAmount=parseFloat(document.getElementById('rvAudAmt').value)||0;
   var dv=document.getElementById('rvDate').value.trim(); if(dv) inv.date=fmtD(dv);
   var du=document.getElementById('rvDue').value.trim(); if(du) inv.due=fmtD(du);
   inv.feeAmount=parseFloat(document.getElementById('rvFee').value)||0;
   inv.reference=document.getElementById('rvRef').value.trim();
   var code=document.getElementById('rvAcct').value;
   if(code){var a=ACCOUNTS.find(function(x){return x.code===code;});if(a){inv.account=code;inv.accountName=a.name;inv.tax=a.tax||inv.tax;}}
-  // NZD wins regardless of the account's own default tax rate — set last,
-  // after the account-derived tax above, so it's never silently overridden.
-  if(inv.currency==='NZD') inv.tax='GST Free Expenses';
+  // NZD/USD both win regardless of the account's own default tax rate —
+  // set last, after the account-derived tax above, so it's never silently
+  // overridden. Neither currency carries AU GST on the supplier's invoice.
+  if(inv.currency==='NZD'||inv.currency==='USD') inv.tax='GST Free Expenses';
   r.confirmed=true;
   closeReview(); renderTbl();
 }
@@ -4001,12 +4042,18 @@ function buildCSV(matched){
   var rows=[h];
   matched.forEach(function(r){
     var inv=r.invoice; var c=contacts[inv.supplier]||{};
-    // NZD always wins over the account's own default tax — matches the
+    // NZD/USD both win over the account's own default tax — matches the
     // same rule applied at push time in xeroPushOne.
-    var mainTax=inv.currency==='NZD'?'GST Free Expenses':'GST on Expenses';
+    var mainTax=(inv.currency==='NZD'||inv.currency==='USD')?'GST Free Expenses':'GST on Expenses';
+    // USD rows use pushAmount() (Brendan's manual AUD conversion), so the
+    // Currency column has to say AUD for them too — tagging an already-
+    // converted AUD figure as "USD" would have Xero's CSV import try to
+    // FX-convert it a second time. NZD is unaffected: pushAmount() returns
+    // the raw NZD figure unchanged, same as it always has.
+    var csvCurrency=inv.currency==='USD'?'AUD':inv.currency;
     rows.push([inv.supplier,c.email||'','','','','','','','','',
-      inv.invoiceNum,inv.reference,inv.date,inv.due,'',inv.invoiceNum,'1',inv.amount,'',
-      inv.account,mainTax,'','','','',inv.currency]);
+      inv.invoiceNum,inv.reference,inv.date,inv.due,'',inv.invoiceNum,'1',pushAmount(inv),'',
+      inv.account,mainTax,'','','','',csvCurrency]);
     if(inv.feeAmount>0){
       rows.push([inv.supplier,c.email||'','','','','','','','','',
         inv.invoiceNum,inv.reference,inv.date,inv.due,'','Bank Fee - '+inv.invoiceNum,
@@ -4162,13 +4209,17 @@ async function xeroPushOne(idx){
     var isoDate=dmyToIso(inv.date), isoDue=dmyToIso(inv.due);
     if(!isoDate) throw new Error('Invalid invoice date "'+inv.date+'" — expected DD/MM/YYYY. Fix it in Review before pushing.');
     if(!isoDue) throw new Error('Invalid due date "'+inv.due+'" — expected DD/MM/YYYY. Fix it in Review before pushing.');
+    // Without this, pushAmount() would silently fall back to the raw USD
+    // total and push it to Xero AS an AUD figure — a real dollar-amount
+    // error, not just a display quirk, so this blocks rather than warns.
+    if(inv.currency==='USD'&&!(inv.audAmount>0)) throw new Error('No AUD converted amount set for this USD invoice — add one in Review before pushing.');
 
     var acctInfo=ACCOUNTS.find(function(a){return a.code===inv.account;});
-    // NZD always wins over whatever tax the assigned account defaults to —
-    // this org doesn't charge/pay AU GST on NZD supplier invoices.
-    var taxLabel=inv.currency==='NZD'?'GST Free Expenses':(acctInfo?acctInfo.tax:inv.tax);
+    // NZD/USD both win over whatever tax the assigned account defaults to —
+    // this org doesn't charge/pay AU GST on either supplier invoice type.
+    var taxLabel=(inv.currency==='NZD'||inv.currency==='USD')?'GST Free Expenses':(acctInfo?acctInfo.tax:inv.tax);
     if(!TAX_TYPE_MAP_CLIENT[taxLabel]) throw new Error('Unrecognised tax label "'+taxLabel+'" for account '+inv.account+' — pick a different account in Review before pushing.');
-    var lineItems=[{description:'Invoice '+inv.invoiceNum, amount:inv.amount, accountCode:inv.account, taxType:taxLabel}];
+    var lineItems=[{description:'Invoice '+inv.invoiceNum, amount:pushAmount(inv), accountCode:inv.account, taxType:taxLabel}];
     // Matches buildCSV()'s existing convention for the bank-fee row — same
     // account/tax treatment, just via the live API instead of a CSV line.
     if(inv.feeAmount>0){
@@ -4238,6 +4289,16 @@ async function tryExportAll(){
 
   var unconf=matched.filter(function(r){return !r.confirmed;}).length;
   if(unconf&&!window.confirm(unconf+' of '+matched.length+' invoice'+(matched.length===1?'':'s')+' ha'+(unconf===1?'sn’t':'ven’t')+' been checked — export anyway?')) return;
+
+  // Hard block, not a confirm-to-override — buildCSV() falls back to the
+  // raw USD figure via pushAmount() if this is missing, which would export
+  // a USD total straight into the AUD column with no warning once it's in
+  // a downloaded file nobody's reviewing row-by-row.
+  var noAud=matched.filter(function(r){return r.invoice.currency==='USD'&&!(r.invoice.audAmount>0);});
+  if(noAud.length){
+    alert(noAud.length+' USD invoice'+(noAud.length===1?' has':'s have')+' no AUD converted amount set: '+noAud.map(function(r){return r.invoice.invoiceNum;}).join(', ')+'. Add one in Review before exporting.');
+    return;
+  }
 
   var btn=document.getElementById('exportAllBtn');
   btn.textContent='Exporting…'; btn.disabled=true;
@@ -4520,8 +4581,8 @@ function confirmAccount(){
       r.invoice.supplier=supName; r.invoice.account=selCode;
       r.invoice.accountName=a.name; r.invoice.currency=supCur;
       // Supplier's saved currency wins over the account's own default tax —
-      // same rule as the per-invoice NZD toggle in Review (saveReview above).
-      r.invoice.tax=supCur==='NZD'?'GST Free Expenses':'GST on Expenses';
+      // same rule as the per-invoice NZD/USD toggle in Review (saveReview above).
+      r.invoice.tax=(supCur==='NZD'||supCur==='USD')?'GST Free Expenses':'GST on Expenses';
       r.invoice.isNew=false; r.invoice.isUnmatched=false; r.status='ok';
       // Amount & invoice number are per-invoice — only apply to the row the modal was opened from
       if(r===invoices[rowIdx]){
