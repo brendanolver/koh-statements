@@ -672,7 +672,7 @@
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <button onclick="loadDebtors()">Refresh</button>
         <button onclick="markAllEligibleStop()" title="Only affects customers 2+ months overdue (the eligible cards above)">Mark All Eligible Stop</button>
-        <button onclick="clearAllEligible()" title="Only affects customers 2+ months overdue (the eligible cards above)">Clear All Eligible</button>
+        <button onclick="clearAllMarks()" title="Clears every Stop/Cleared mark, including ones on customers who've since paid down and aged out of the eligible list above">Clear All Marks</button>
         <button class="primary" onclick="window.print()">Print / Export PDF</button>
         <input type="text" id="debtorsReportEmails" placeholder="staff@kohindustries.com, staff2@..." style="width:260px;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px" oninput="saveDebtorsReportEmailsDebounced(this.value)">
         <button id="debtorsEmailBtn" onclick="sendDebtorsReport()">✉ Email Report</button>
@@ -1975,9 +1975,19 @@ async function markAllEligibleStop() {
   }
 }
 
-async function clearAllEligible() {
-  for (const d of eligibleDebtors()) {
-    await applyDebtorStatus(d.contactId, null);
+// Deliberately NOT scoped to eligibleDebtors() like markAllEligibleStop —
+// a customer marked while overdue can pay down and age back out of the
+// eligible (2+ months) bucket while the mark itself just sits there
+// forever, since nothing else ever clears it. Clearing needs to reach
+// every marked customer regardless of their current aging, or those
+// stale marks can never be cleaned up at all. Only touches ones that
+// actually have a status set — no point calling the endpoint for
+// everyone else.
+async function clearAllMarks() {
+  for (const d of debtors) {
+    if (debtorStatusMap[d.contactId]) {
+      await applyDebtorStatus(d.contactId, null);
+    }
   }
 }
 
