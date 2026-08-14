@@ -3658,6 +3658,15 @@ function overlayAiFields(ai,row){
 // PDFSHIFT/Anthropic outage degrades to prior behaviour rather than breaking.
 async function applyAiExtraction(pdfB64,text,row){
   var ai=await callExtractInvoice(pdfB64,'application/pdf');
+  // Cleared before either branch below — a row whose supplier already
+  // matches a known contact (e.g. a repeat supplier from earlier in the
+  // same batch) gets row.status='ok' synchronously from the regex pass,
+  // well before this network call resolves. Confirm-ticking/pushing stays
+  // blocked (see renderTbl/xeroPushOne) until this flips false, so a fast
+  // tick+push can't grab the pre-overlay currency/amount defaults — this
+  // is exactly what let 3 real USD invoices push as AUD/GST-on-Expenses
+  // using stale data before the AI's USD detection had landed.
+  row.extracting=false;
   if(overlayAiFields(ai,row)){
     renderFL(); renderTbl();
   } else {
@@ -3669,6 +3678,7 @@ async function applyAiExtraction(pdfB64,text,row){
 // row.invoice/row.ec by the time this is called, this just improves on it.
 async function applyAiExtractionFromText(text,row){
   var ai=await callExtractInvoiceText(text);
+  row.extracting=false;
   if(overlayAiFields(ai,row)){
     renderFL(); renderTbl();
   } else {
@@ -3738,7 +3748,7 @@ async function extPDF(arr,row){
       }
     } else { row.status='unmatched'; row.invoice=parsePart(text); }
     renderFL(); renderTbl(); chkPend();
-    if(pdfB64) applyAiExtraction(pdfB64,text,row);
+    if(pdfB64){ row.extracting=true; applyAiExtraction(pdfB64,text,row); }
     else guessSup(text).then(function(n){if(n&&row.ec){row.ec.sugName=resolveSupplierAlias(n);renderFL();renderTbl();}});
   } catch(e){ row.status='error'; renderFL(); }
 }
@@ -3749,6 +3759,7 @@ function extCSV(text,row){
   if(inv){ row.invoice=inv; row.status=inv.isNew?'new':inv.isUnmatched?'unmatched':'ok'; }
   else { row.status='unmatched'; row.invoice=parsePart(text); }
   renderFL(); renderTbl(); chkPend();
+  row.extracting=true;
   applyAiExtractionFromText(text,row);
 }
 
@@ -3775,7 +3786,7 @@ async function extXLS(buf,row){
     else { row.status='unmatched'; row.invoice=parsePart(text); }
   } catch(e){ row.status='error'; }
   renderFL(); renderTbl(); chkPend();
-  if(text) applyAiExtractionFromText(text,row);
+  if(text){ row.extracting=true; applyAiExtractionFromText(text,row); }
 }
 
 // ── Render ────────────────────────────────────────────────────────────
@@ -3870,7 +3881,8 @@ function renderTbl(){
       :'<button class="fbtn" onclick="addFee('+idx+')">+ Fee</button>';
     var isDupe=dupeNums[dupeKey(inv)];
     var xc;
-    if(r.xeroStatus==='pushing') xc='<span style="font-size:11px;color:#888">Pushing…</span>';
+    if(r.extracting) xc='<span style="font-size:11px;color:#888" title="Waiting on AI field extraction (currency, exact totals) before this can be approved">Extracting details…</span>';
+    else if(r.xeroStatus==='pushing') xc='<span style="font-size:11px;color:#888">Pushing…</span>';
     else if(r.xeroStatus==='pushed'){
       xc='<span style="font-size:11px;color:#2e7d32" title="Xero invoice '+(r.xeroMessage||'')+'">Pushed ✓</span>';
       // Visible, not just a hover tooltip — the number pushed to Xero no
@@ -3920,7 +3932,7 @@ function renderTbl(){
       +'<td style="text-align:right">'+fc+'</td>'
       +'<td>'+xc+'</td>'
       +'<td><div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">'
-      +'<button class="cbtn'+(r.confirmed?' done':'')+'" title="'+(r.confirmed?'Checked — click to undo':'Mark as checked')+'" onclick="toggleConfirm('+idx+')">&#10003;</button>'
+      +'<button class="cbtn'+(r.confirmed?' done':'')+'"'+(r.extracting?' disabled title="Still extracting invoice details…"':' title="'+(r.confirmed?'Checked — click to undo':'Mark as checked')+'"')+' onclick="toggleConfirm('+idx+')">&#10003;</button>'
       +'<button class="xb" onclick="removeFile('+idx+')">\xd7</button>'
       +'</div></td>'
       +'</tr>';
@@ -3999,7 +4011,7 @@ function saveReview(){
   closeReview(); renderTbl();
 }
 function toggleConfirm(idx){
-  var r=invoices[idx]; if(!r) return;
+  var r=invoices[idx]; if(!r||r.extracting) return;
   r.confirmed=!r.confirmed; renderTbl();
 }
 
@@ -4150,6 +4162,16 @@ async function xeroPushOne(idx){
   // pushAllToXero) so nothing reaches Xero without being ticked first.
   if(!row.confirmed){
     row.xeroStatus='failed'; row.xeroMessage='Tick "checked" to approve before pushing to Xero';
+    renderTbl(); return;
+  }
+  // A supplier that already matches a known contact gets row.status='ok'
+  // synchronously, before the async AI overlay (currency/AUD-conversion
+  // detection) has landed — the confirm tick is disabled while extracting
+  // (see renderTbl) so this shouldn't normally be reachable, but it's kept
+  // as a hard backstop since it's exactly the window that let 3 real USD
+  // invoices push with stale AUD/GST-on-Expenses defaults.
+  if(row.extracting){
+    row.xeroStatus='failed'; row.xeroMessage='Still extracting invoice details — wait a moment and retry.';
     renderTbl(); return;
   }
   var inv=row.invoice; var ec=row.ec||{};
