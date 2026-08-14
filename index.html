@@ -3758,7 +3758,7 @@ async function extXLS(buf,row){
     var wb=XLSX.read(new Uint8Array(buf),{type:'array',cellDates:false});
     text='';
     for(var k=0;k<wb.SheetNames.length;k++){
-      var sheet=wb[wb.SheetNames[k]];
+      var sheet=wb.Sheets[wb.SheetNames[k]];
       var range=XLSX.utils.decode_range(sheet['!ref']||'A1');
       for(var r=range.s.r;r<=range.e.r;r++){
         var rp=[];
