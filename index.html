@@ -1721,7 +1721,12 @@ async function fetchOpenXeroInvoices(contactId) {
     const params = new URLSearchParams({
       path: 'Invoices',
       ContactIDs: contactId,
-      where: 'Type=="ACCREC" && AmountDue>0',
+      // Status=="AUTHORISED" excludes SUBMITTED ("Awaiting Approval") —
+      // stock-on-hold invoices for goods not yet shipped. Statements are
+      // meant to show what's actually been invoiced/owed, not orders still
+      // sitting on hold — the Debtors tab tracks those separately via
+      // fetchSubmittedInvoicesOrgWide, which is unaffected by this filter.
+      where: 'Type=="ACCREC" && Status=="AUTHORISED" && AmountDue>0',
       page: String(page),
     });
     const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${params}`);
