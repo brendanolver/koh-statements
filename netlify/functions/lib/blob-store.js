@@ -37,4 +37,8 @@ function debtorsReportRecipientsStore() {
   return namedStore('debtors-report-recipients');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore };
+function hiddenCustomersStore() {
+  return namedStore('hidden-customers');
+}
+
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore };

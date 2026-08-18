@@ -326,6 +326,14 @@
   .status-toggle .clear-btn { border-color: #b7dfca; color: #1a7a3c; background: transparent; }
   .status-toggle .clear-btn.on { background: #1a7a3c; color: #fff; border-color: #1a7a3c; }
 
+  .hide-row-btn { background: none; border: none; cursor: pointer; font-size: 11px; color: #888; text-decoration: underline; padding: 0; font-family: inherit; }
+  .hide-row-btn:hover { color: #d0021b; }
+  .hidden-panel { margin-top: 10px; padding: 12px 14px; background: #fafafa; border: 1px solid var(--border); border-radius: 8px; max-width: 520px; }
+  .hidden-panel-title { font-size: 12px; font-weight: 700; color: #666; margin-bottom: 8px; }
+  .hidden-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .hidden-row:last-child { border-bottom: none; }
+  .hidden-reason { font-size: 11px; color: #888; margin-top: 2px; }
+
   .status-line {
     max-width: 900px;
     margin: 16px auto;
@@ -676,8 +684,13 @@
         <button class="primary" onclick="window.print()">Print / Export PDF</button>
         <input type="text" id="debtorsReportEmails" placeholder="staff@kohindustries.com, staff2@..." style="width:260px;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px" oninput="saveDebtorsReportEmailsDebounced(this.value)">
         <button id="debtorsEmailBtn" onclick="sendDebtorsReport()">✉ Email Report</button>
+        <button id="hiddenCustomersBtn" onclick="toggleHiddenPanel()" title="Customers hidden from Debtors, Statements, and their totals — e.g. gone into administration">Hidden customers (0)</button>
       </div>
       <div id="debtorsEmailStatus" class="status-line no-print" style="margin-top:6px"></div>
+      <div id="hiddenCustomersPanel" class="hidden-panel" style="display:none">
+        <div class="hidden-panel-title">Hidden customers — excluded from Debtors, Statements, and all totals</div>
+        <div id="hiddenCustomersList"></div>
+      </div>
     </div>
 
     <div id="debtorsStats" class="stats"></div>
@@ -1300,7 +1313,9 @@ const els = {
 };
 
 let customers = [];
-let debtors = [];
+let allDebtors = []; // buildDebtorsList() output, unfiltered — needed so the "manage hidden" panel can still show/unhide someone
+let debtors = []; // allDebtors minus anyone in hiddenCustomersMap — this is what every render function (cards/stats/aging table/Statements table+totals) reads
+let hiddenCustomersMap = {}; // normName(customer name) -> { reason, hiddenAt }
 let debtorStatusMap = {}; // contactId -> 'stop' | 'clear'
 let debtorsSortField = 'overdue';
 let debtorsSortDir = 'desc';
@@ -1534,6 +1549,7 @@ function renderResults(query) {
   const q = query.trim().toLowerCase();
   if (!q) { els.results.style.display = 'none'; return; }
   const matches = customers.filter((c) => {
+    if (isHiddenCustomer(c.name)) return false;
     if (c.name && c.name.toLowerCase().includes(q)) return true;
     if (!c.accountNumber) return false;
     const acctRaw = String(c.accountNumber).toLowerCase();
@@ -1952,6 +1968,91 @@ async function loadDebtorStatusMap() {
   }
 }
 
+// Keyed by name, not contactId — matches hidden-customers.js. The Statements
+// tab's search picker only has AM's raw customer list (no Xero ContactID
+// until a statement is actually built), so name is the one identifier both
+// tabs can filter on without an extra lookup.
+function normName(name) {
+  return String(name || '').trim().toUpperCase();
+}
+
+function isHiddenCustomer(name) {
+  return !!hiddenCustomersMap[normName(name)];
+}
+
+async function loadHiddenCustomersMap() {
+  try {
+    const res = await fetch('/.netlify/functions/hidden-customers');
+    hiddenCustomersMap = await res.json();
+  } catch {
+    hiddenCustomersMap = {}; // non-fatal — worst case a written-off customer briefly reappears until retried
+  }
+}
+
+// Shared by the per-row "Hide" action and the "manage hidden" panel's
+// Unhide button. Optimistic like applyDebtorStatus above, for the same
+// reason — the UI shouldn't wait on a round-trip to reflect a toggle.
+async function setCustomerHidden(name, hidden, reason) {
+  const key = normName(name);
+  if (hidden) hiddenCustomersMap[key] = { reason: reason || '', hiddenAt: new Date().toISOString() };
+  else delete hiddenCustomersMap[key];
+  debtors = allDebtors.filter((d) => !isHiddenCustomer(d.name));
+  renderAll();
+  renderHiddenPanel();
+
+  try {
+    const res = await fetch('/.netlify/functions/hidden-customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, hidden, reason }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Save failed (${res.status})`);
+  } catch (err) {
+    setDebtorsStatus(`Failed to save — try again: ${err.message}`, true);
+  }
+}
+
+function hideCustomerPrompt(name) {
+  const reason = window.prompt(`Hide "${name}" from Debtors and Statements? They'll stop counting toward totals until unhidden.\n\nOptional — why (e.g. "in administration"):`, '');
+  if (reason === null) return; // cancelled
+  setCustomerHidden(name, true, reason);
+}
+
+function renderHiddenPanel() {
+  const btn = document.getElementById('hiddenCustomersBtn');
+  const names = Object.keys(hiddenCustomersMap);
+  if (btn) btn.textContent = `Hidden customers (${names.length})`;
+
+  const list = document.getElementById('hiddenCustomersList');
+  if (!list) return;
+  if (!names.length) {
+    list.innerHTML = '<div class="err" style="margin:0">No customers hidden.</div>';
+    return;
+  }
+  // Reads name/reason straight off hiddenCustomersMap (not allDebtors) so a
+  // written-off customer with zero remaining balance — the exact case this
+  // feature exists for — still shows up here to unhide, even once nothing
+  // left in Xero would otherwise put them in allDebtors.
+  list.innerHTML = names.sort().map((key) => {
+    const info = hiddenCustomersMap[key];
+    const match = allDebtors.find((d) => normName(d.name) === key);
+    const displayName = match ? match.name : key;
+    return '<div class="hidden-row">'
+      + '<div><strong>' + displayName + '</strong>'
+      + (info.reason ? '<div class="hidden-reason">' + info.reason.replace(/</g, '&lt;') + '</div>' : '')
+      + '</div>'
+      + '<button onclick="setCustomerHidden(' + JSON.stringify(displayName) + ', false)">Unhide</button>'
+      + '</div>';
+  }).join('');
+}
+
+function toggleHiddenPanel() {
+  const panel = document.getElementById('hiddenCustomersPanel');
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if (!open) renderHiddenPanel();
+}
+
 // Unconditionally sets (or clears, if status is null) one customer's status
 // — the shared primitive both the toggle buttons and the bulk actions below
 // funnel through. Bulk actions await each call in sequence rather than
@@ -2033,9 +2134,11 @@ async function loadDebtors() {
   // ready to replace them in one go.
   setDebtorsStatus('Loading outstanding balances from Xero…');
   try {
-    const [list] = await Promise.all([buildDebtorsList(), loadDebtorStatusMap()]);
-    debtors = list;
+    const [list] = await Promise.all([buildDebtorsList(), loadDebtorStatusMap(), loadHiddenCustomersMap()]);
+    allDebtors = list;
+    debtors = allDebtors.filter((d) => !isHiddenCustomer(d.name));
     renderAll();
+    renderHiddenPanel();
     setDebtorsStatus('');
   } catch (err) {
     setDebtorsStatus(err.message, true);
@@ -2338,6 +2441,7 @@ function renderDebtorsAgingTable() {
     + AGING_BUCKET_LABELS.map((b, i) => `<th class="num sortable" onclick="setDebtorsTableSort('bucket${i}')">${b}${arrow('bucket' + i)}</th>`).join('');
   if (hasHold) headHtml += `<th class="num sortable th-hold" onclick="setDebtorsTableSort('hold')">Stock on Hold${arrow('hold')}</th>`;
   headHtml += `<th class="num sortable" onclick="setDebtorsTableSort('total')">Total${arrow('total')}</th>`;
+  headHtml += `<th class="no-print"></th>`;
   document.getElementById('debtorsTableHead').innerHTML = `<tr>${headHtml}</tr>`;
 
   els.debtorsRows.innerHTML = '';
@@ -2374,6 +2478,16 @@ function renderDebtorsAgingTable() {
     grandTotal += d.total || 0;
     tr.appendChild(totalTd);
 
+    const hideTd = document.createElement('td');
+    hideTd.className = 'no-print';
+    const hideBtn = document.createElement('button');
+    hideBtn.className = 'hide-row-btn';
+    hideBtn.title = 'Hide this customer from Debtors, Statements, and all totals';
+    hideBtn.textContent = 'Hide';
+    hideBtn.onclick = () => hideCustomerPrompt(d.name);
+    hideTd.appendChild(hideBtn);
+    tr.appendChild(hideTd);
+
     els.debtorsRows.appendChild(tr);
   }
 
@@ -2382,6 +2496,7 @@ function renderDebtorsAgingTable() {
   let totalHtml = '<td>Total</td>' + sums.map((v) => `<td class="num">${moneyOrParen(v)}</td>`).join('');
   if (hasHold) totalHtml += `<td class="num td-hold">${fmtMoney(holdSum)}</td>`;
   totalHtml += `<td class="num">${moneyOrParen(grandTotal)}</td>`;
+  totalHtml += `<td class="no-print"></td>`;
   totalTr.innerHTML = totalHtml;
   els.debtorsRows.appendChild(totalTr);
 
@@ -2391,6 +2506,7 @@ function renderDebtorsAgingTable() {
   let pctHtml = '<td>% of total</td>' + sums.map((v) => `<td class="num">${pct(v)}</td>`).join('');
   if (hasHold) pctHtml += '<td class="num">—</td>';
   pctHtml += '<td class="num">100.00%</td>';
+  pctHtml += '<td class="no-print"></td>';
   pctTr.innerHTML = pctHtml;
   els.debtorsRows.appendChild(pctTr);
 
@@ -3234,6 +3350,11 @@ async function sendAllReadyCommissionReports() {
 async function init() {
   switchTab('debtors');
   document.getElementById('commissionMonth').value = defaultCommissionMonthValue();
+  // Awaited before loadCustomers/loadDebtors — both feed customer pickers
+  // (search, cards, tables) that should never flash an about-to-be-hidden
+  // customer before this tiny GET has a chance to land.
+  await loadHiddenCustomersMap();
+  renderHiddenPanel();
   try {
     await loadCustomers();
   } catch (err) {
