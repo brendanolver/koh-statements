@@ -691,12 +691,12 @@
         <button class="primary" onclick="window.print()">Print / Export PDF</button>
         <input type="text" id="debtorsReportEmails" placeholder="staff@kohindustries.com, staff2@..." style="width:260px;padding:8px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px" oninput="saveDebtorsReportEmailsDebounced(this.value)">
         <button id="debtorsEmailBtn" onclick="sendDebtorsReport()">✉ Email Report</button>
-        <button id="hiddenCustomersBtn" onclick="toggleHiddenPanel()" title="Customers hidden from Debtors, Statements, and their totals — e.g. gone into administration">Hidden customers (0)</button>
+        <button class="hidden-customers-btn" onclick="toggleHiddenPanel('hiddenCustomersPanel')" title="Customers hidden from Debtors, Statements, and their totals — e.g. gone into administration">Hidden customers (0)</button>
       </div>
       <div id="debtorsEmailStatus" class="status-line no-print" style="margin-top:6px"></div>
       <div id="hiddenCustomersPanel" class="hidden-panel" style="display:none">
         <div class="hidden-panel-title">Hidden customers — excluded from Debtors, Statements, and all totals</div>
-        <div id="hiddenCustomersList"></div>
+        <div class="hidden-customers-list"></div>
       </div>
     </div>
 
@@ -747,9 +747,16 @@
   </div>
 
   <div class="customers-panel no-print">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
       <div class="sec-title" style="margin-bottom:0;">All Customers</div>
-      <button onclick="selectAllOverdue()">Select All Overdue</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <button onclick="selectAllOverdue()">Select All Overdue</button>
+        <button class="hidden-customers-btn" onclick="toggleHiddenPanel('hiddenCustomersPanelStatements')" title="Customers hidden from Debtors, Statements, and their totals — e.g. gone into administration">Hidden customers (0)</button>
+      </div>
+    </div>
+    <div id="hiddenCustomersPanelStatements" class="hidden-panel" style="display:none">
+      <div class="hidden-panel-title">Hidden customers — excluded from Debtors, Statements, and all totals</div>
+      <div class="hidden-customers-list"></div>
     </div>
     <div class="debtors-table-wrap">
       <table class="debtors-table">
@@ -762,6 +769,7 @@
             <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')">Stock on Hold<span class="sort-arrow"></span></th>
             <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')">Outstanding Balance<span class="sort-arrow"></span></th>
             <th class="num sortable" data-sort="overdue" onclick="setDebtorsSort('overdue')">Overdue<span class="sort-arrow"></span></th>
+            <th class="no-print"></th>
           </tr>
         </thead>
         <tbody id="customersRows"></tbody>
@@ -2045,36 +2053,42 @@ function hideCustomerPrompt(name) {
   setCustomerHidden(name, true, reason);
 }
 
+// Renders into every mount on the page, not just one — the Debtors and
+// Statements tabs each have their own button+panel (the Debtors one lives
+// inside #debtorsView, which is display:none while on the Statements tab,
+// so a single shared mount can't work across both), sharing the
+// .hidden-customers-btn/.hidden-customers-list classes rather than a
+// single hardcoded id.
 function renderHiddenPanel() {
-  const btn = document.getElementById('hiddenCustomersBtn');
   const names = Object.keys(hiddenCustomersMap);
-  if (btn) btn.textContent = `Hidden customers (${names.length})`;
-
-  const list = document.getElementById('hiddenCustomersList');
-  if (!list) return;
-  if (!names.length) {
-    list.innerHTML = '<div class="err" style="margin:0">No customers hidden.</div>';
-    return;
+  for (const btn of document.querySelectorAll('.hidden-customers-btn')) {
+    btn.textContent = `Hidden customers (${names.length})`;
   }
+
   // Reads name/reason straight off hiddenCustomersMap (not allDebtors) so a
   // written-off customer with zero remaining balance — the exact case this
   // feature exists for — still shows up here to unhide, even once nothing
   // left in Xero would otherwise put them in allDebtors.
-  list.innerHTML = names.sort().map((key) => {
-    const info = hiddenCustomersMap[key];
-    const match = allDebtors.find((d) => normName(d.name) === key);
-    const displayName = match ? match.name : key;
-    return '<div class="hidden-row">'
-      + '<div><strong>' + displayName + '</strong>'
-      + (info.reason ? '<div class="hidden-reason">' + info.reason.replace(/</g, '&lt;') + '</div>' : '')
-      + '</div>'
-      + '<button onclick="setCustomerHidden(' + JSON.stringify(displayName) + ', false)">Unhide</button>'
-      + '</div>';
-  }).join('');
+  const html = !names.length
+    ? '<div class="err" style="margin:0">No customers hidden.</div>'
+    : names.sort().map((key) => {
+        const info = hiddenCustomersMap[key];
+        const match = allDebtors.find((d) => normName(d.name) === key);
+        const displayName = match ? match.name : key;
+        return '<div class="hidden-row">'
+          + '<div><strong>' + displayName + '</strong>'
+          + (info.reason ? '<div class="hidden-reason">' + info.reason.replace(/</g, '&lt;') + '</div>' : '')
+          + '</div>'
+          + '<button onclick="setCustomerHidden(' + JSON.stringify(displayName) + ', false)">Unhide</button>'
+          + '</div>';
+      }).join('');
+  for (const list of document.querySelectorAll('.hidden-customers-list')) {
+    list.innerHTML = html;
+  }
 }
 
-function toggleHiddenPanel() {
-  const panel = document.getElementById('hiddenCustomersPanel');
+function toggleHiddenPanel(panelId) {
+  const panel = document.getElementById(panelId || 'hiddenCustomersPanel');
   const open = panel.style.display !== 'none';
   panel.style.display = open ? 'none' : 'block';
   if (!open) renderHiddenPanel();
@@ -2418,6 +2432,15 @@ function renderCustomersTable() {
     overdueTd.textContent = fmtMoneyWithCurrency(d.overdue, d.country);
     if (d.overdue > 0) overdueTd.classList.add('overdue-amount');
 
+    const hideTd = document.createElement('td');
+    hideTd.className = 'no-print';
+    const hideBtn = document.createElement('button');
+    hideBtn.className = 'hide-row-btn';
+    hideBtn.title = 'Hide this customer from Debtors, Statements, and all totals';
+    hideBtn.textContent = 'Hide';
+    hideBtn.onclick = () => hideCustomerPrompt(d.name);
+    hideTd.appendChild(hideBtn);
+
     tr.appendChild(checkboxTd);
     tr.appendChild(nameTd);
     tr.appendChild(acctTd);
@@ -2425,6 +2448,7 @@ function renderCustomersTable() {
     tr.appendChild(holdTd);
     tr.appendChild(totalTd);
     tr.appendChild(overdueTd);
+    tr.appendChild(hideTd);
     els.customersRows.appendChild(tr);
   }
 
@@ -2441,7 +2465,7 @@ function renderCustomersTable() {
   const totalLine = (key) => Array.from(sumsByCurrency.entries()).map(([cur, s]) => `${fmtMoney(s[key])} ${cur}`).join(' + ');
   const totalTr = document.createElement('tr');
   totalTr.className = 'total-row';
-  totalTr.innerHTML = `<td></td><td>Total</td><td></td><td></td><td></td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td>`;
+  totalTr.innerHTML = `<td></td><td>Total</td><td></td><td></td><td></td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td><td class="no-print"></td>`;
   els.customersRows.appendChild(totalTr);
 }
 
