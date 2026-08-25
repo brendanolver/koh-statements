@@ -171,6 +171,13 @@
     border: 1px solid var(--border);
     border-radius: 6px;
   }
+  .send-row input[type="text"] {
+    flex: 0 1 160px;
+    padding: 8px 10px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
   .send-status { font-size: 13px; color: var(--muted); }
 
   .debtors-panel {
@@ -772,7 +779,8 @@
   </div>
 
   <div id="sendActions" class="send-row no-print" style="display:none;">
-    <input id="recipientInput" type="email" placeholder="customer@email.com">
+    <input id="recipientInput" type="email" multiple placeholder="customer@email.com, ap@customer.com" oninput="onRecipientFieldChange()">
+    <input id="recipientNameInput" type="text" placeholder="Recipient name" oninput="onRecipientFieldChange()">
     <span id="ccIndicator" class="send-status"></span>
     <button class="primary" id="sendBtn" onclick="sendCurrentStatement()">Send Statement</button>
     <span id="sendStatus" class="send-status"></span>
@@ -1293,6 +1301,17 @@ function currencyFor(country) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Shared by every send path (single statement, queue rows, Commission
+// already had its own inline version of this) that accepts a comma-
+// separated multi-recipient list rather than one address.
+function parseEmailList(value) {
+  return String(value || '').split(',').map((e) => e.trim()).filter(Boolean);
+}
+function isValidEmailList(value) {
+  const emails = parseEmailList(value);
+  return emails.length > 0 && emails.every((e) => EMAIL_RE.test(e));
+}
+
 const els = {
   input: document.getElementById('customerInput'),
   results: document.getElementById('customerResults'),
@@ -1304,6 +1323,7 @@ const els = {
   printActions: document.getElementById('printActions'),
   sendActions: document.getElementById('sendActions'),
   recipientInput: document.getElementById('recipientInput'),
+  recipientNameInput: document.getElementById('recipientNameInput'),
   sendBtn: document.getElementById('sendBtn'),
   sendStatus: document.getElementById('sendStatus'),
   ccIndicator: document.getElementById('ccIndicator'),
@@ -1316,10 +1336,11 @@ let customers = [];
 let allDebtors = []; // buildDebtorsList() output, unfiltered — needed so the "manage hidden" panel can still show/unhide someone
 let debtors = []; // allDebtors minus anyone in hiddenCustomersMap — this is what every render function (cards/stats/aging table/Statements table+totals) reads
 let hiddenCustomersMap = {}; // normName(customer name) -> { reason, hiddenAt }
+let statementRecipientsMap = {}; // normName(customer name) -> { email, recipientName } — overrides Xero's single EmailAddress/FirstName once Brendan sets one
 let debtorStatusMap = {}; // contactId -> 'stop' | 'clear'
 let debtorsSortField = 'overdue';
 let debtorsSortDir = 'desc';
-let queue = []; // { id, accountNumber, name, country, status, data, recipientEmail, error }
+let queue = []; // { id, accountNumber, name, country, status, data, recipientEmail, recipientName, error }
 let activeCustomerId = null;
 let currentStatementData = null; // whatever's currently rendered in #sheet — used by the single-statement Send button
 
@@ -1340,7 +1361,7 @@ function toggleQueue(customer) {
   if (idx >= 0) {
     queue.splice(idx, 1);
   } else {
-    const item = { ...customer, status: 'loading', data: null, recipientEmail: '', error: '' };
+    const item = { ...customer, status: 'loading', data: null, recipientEmail: '', recipientName: '', error: '' };
     queue.push(item);
     prepareQueueItem(item);
   }
@@ -1362,7 +1383,7 @@ function toggleQueue(customer) {
 async function selectAllOverdue() {
   const targets = debtors.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id));
   for (const d of targets) {
-    const item = { id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country, status: 'loading', data: null, recipientEmail: '', error: '' };
+    const item = { id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country, status: 'loading', data: null, recipientEmail: '', recipientName: '', error: '' };
     queue.push(item);
     renderQueue();
     renderCustomersTable();
@@ -1398,6 +1419,7 @@ async function prepareQueueItem(item) {
     }
     item.data = data;
     item.recipientEmail = data.recipientEmail;
+    item.recipientName = data.recipientName;
     item.status = data.invoices.length ? 'ready' : 'empty';
   } catch (err) {
     item.status = 'failed';
@@ -1439,9 +1461,13 @@ function renderQueue() {
 
     const emailInput = document.createElement('input');
     emailInput.type = 'email';
-    emailInput.placeholder = 'customer@email.com';
+    emailInput.multiple = true;
+    emailInput.placeholder = 'customer@email.com, ap@customer.com';
     emailInput.value = item.recipientEmail || '';
-    emailInput.oninput = (e) => { item.recipientEmail = e.target.value; };
+    emailInput.oninput = (e) => {
+      item.recipientEmail = e.target.value;
+      saveStatementRecipientDebounced(item.name, e.target.value, item.recipientName || '');
+    };
 
     const sendBtn = document.createElement('button');
     sendBtn.textContent = 'Send';
@@ -1464,7 +1490,7 @@ function renderQueue() {
 
 async function sendQueueItem(item) {
   if (!item.data) return;
-  if (!EMAIL_RE.test(item.recipientEmail || '')) {
+  if (!isValidEmailList(item.recipientEmail)) {
     item.status = 'failed';
     item.error = 'Invalid or missing email address';
     renderQueue();
@@ -1485,6 +1511,7 @@ async function sendQueueItem(item) {
     await sendStatementEmail({
       ...statementExportPayload(item.data),
       recipientEmail: item.recipientEmail,
+      recipientName: item.recipientName,
       balanceDue: total,
       overdue,
       invoiceCount: rows.length,
@@ -2051,6 +2078,40 @@ function toggleHiddenPanel() {
   const open = panel.style.display !== 'none';
   panel.style.display = open ? 'none' : 'block';
   if (!open) renderHiddenPanel();
+}
+
+// Per-customer recipient email(s) + greeting name, saved server-side so a
+// saved multi-recipient list/name follows Brendan across browsers/devices
+// instead of resetting to Xero's single EmailAddress/FirstName every time
+// the statement reloads — same pattern as Commission's per-agent emails
+// (loadSavedAgentEmails/saveAgentEmail below).
+async function loadStatementRecipientsMap() {
+  try {
+    const res = await fetch('/.netlify/functions/statement-recipients');
+    statementRecipientsMap = await res.json();
+  } catch {
+    statementRecipientsMap = {}; // non-fatal — falls back to Xero's default email/name
+  }
+}
+async function saveStatementRecipient(customerName, email, recipientName) {
+  try {
+    const res = await fetch('/.netlify/functions/statement-recipients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerName, email, recipientName }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Save failed (${res.status})`);
+  } catch (err) {
+    setSendStatus(`Failed to save recipient — try again: ${err.message}`, true);
+  }
+}
+// Debounced so typing a multi-recipient list doesn't fire a save on every
+// keystroke — same 600ms pause used for the Commission per-agent email save.
+const _saveStatementRecipientTimers = {};
+function saveStatementRecipientDebounced(customerName, email, recipientName) {
+  const key = normName(customerName);
+  clearTimeout(_saveStatementRecipientTimers[key]);
+  _saveStatementRecipientTimers[key] = setTimeout(() => saveStatementRecipient(customerName, email, recipientName), 600);
 }
 
 // Unconditionally sets (or clears, if status is null) one customer's status
@@ -2622,6 +2683,11 @@ async function buildStatementData(customer) {
   // registered address).
   const sample = amInvoices.find((i) => i.name) || {};
 
+  // A saved multi-recipient email / greeting name always wins over Xero's
+  // single EmailAddress/FirstName — once Brendan sets one up for a customer,
+  // it sticks (same convention as Commission's per-agent email override).
+  const saved = statementRecipientsMap[normName(customer.name)];
+
   return {
     customerName: customer.name,
     accountNumber: customer.accountNumber,
@@ -2629,8 +2695,11 @@ async function buildStatementData(customer) {
     attn: sample.name || '',
     addr1: sample.address_1 || '',
     addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
-    recipientEmail: xeroContact.EmailAddress || '',
+    recipientEmail: (saved && saved.email) || xeroContact.EmailAddress || '',
     contactFirstName: xeroContact.FirstName || '',
+    // The name actually used in the email greeting — a saved override, or
+    // Xero's FirstName as a sensible default until one's set.
+    recipientName: (saved && saved.recipientName) || xeroContact.FirstName || '',
     // Xero supports multiple named "Contact Persons" per contact, each with
     // their own email, separate from the one primary EmailAddress — none of
     // KOH's customers have this populated yet, but CC them automatically
@@ -2749,6 +2818,7 @@ function renderStatement(data) {
   els.printActions.style.display = 'flex';
   els.sendActions.style.display = 'flex';
   els.recipientInput.value = data.recipientEmail || '';
+  els.recipientNameInput.value = data.recipientName || '';
   els.ccIndicator.textContent = (data.ccEmails && data.ccEmails.length) ? `+ CC: ${data.ccEmails.join(', ')}` : '';
   setSendStatus('');
 }
@@ -2837,6 +2907,7 @@ function statementExportPayload(data) {
   return {
     customerName: data.customerName,
     contactFirstName: data.contactFirstName || '',
+    recipientName: data.recipientName || '',
     html: captureSheetHtml(),
     xlsxBase64: buildStatementXlsxBase64(data),
     invoicePdfs: invoicePdfList(rows),
@@ -2911,21 +2982,31 @@ async function downloadQueueSelected() {
   }
 }
 
-async function sendStatementEmail({ html, customerName, contactFirstName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }) {
+async function sendStatementEmail({ html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }) {
   const res = await fetch('/.netlify/functions/send-statement', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ html, customerName, contactFirstName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }),
+    body: JSON.stringify({ html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
   return data;
 }
 
+// Fires on every edit to the single-statement recipient email/name fields —
+// persisted (debounced) so next time this customer's statement is opened
+// (here or in a batch queue), it's prefilled instead of resetting to Xero's
+// default.
+function onRecipientFieldChange() {
+  if (!currentStatementData) return;
+  saveStatementRecipientDebounced(currentStatementData.customerName, els.recipientInput.value, els.recipientNameInput.value);
+}
+
 async function sendCurrentStatement() {
   if (!currentStatementData) return;
   const email = els.recipientInput.value.trim();
-  if (!EMAIL_RE.test(email)) { setSendStatus('Enter a valid email address', true); return; }
+  if (!isValidEmailList(email)) { setSendStatus('Enter at least one valid email address', true); return; }
+  const recipientName = els.recipientNameInput.value.trim();
 
   els.sendBtn.disabled = true;
   setSendStatus('Sending…');
@@ -2935,6 +3016,7 @@ async function sendCurrentStatement() {
     await sendStatementEmail({
       ...statementExportPayload(currentStatementData),
       recipientEmail: email,
+      recipientName,
       balanceDue: total,
       overdue,
       invoiceCount: rows.length,
@@ -3355,6 +3437,10 @@ async function init() {
   // customer before this tiny GET has a chance to land.
   await loadHiddenCustomersMap();
   renderHiddenPanel();
+  // Also awaited before any statement can be built — buildStatementData
+  // needs this in place to apply a saved email/name override instead of
+  // Xero's default.
+  await loadStatementRecipientsMap();
   try {
     await loadCustomers();
   } catch (err) {

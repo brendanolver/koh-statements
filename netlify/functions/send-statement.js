@@ -25,8 +25,11 @@ function todayFormatted() {
 // shown on every statement email (e.g. a fully-current customer getting a
 // courtesy copy of their statement shouldn't be told they're at risk of
 // being cut off).
-function emailBodyHtml({ customerName, contactFirstName, balanceDue, overdue, attachedInvoiceCount, currency }) {
-  const greetName = contactFirstName || customerName;
+function emailBodyHtml({ customerName, contactFirstName, recipientName, balanceDue, overdue, attachedInvoiceCount, currency }) {
+  // recipientName is a saved override (or Brendan's own edit right before
+  // sending) and always wins; contactFirstName (Xero's on-file FirstName)
+  // is the older fallback, kept for a customer nothing's ever been set for.
+  const greetName = recipientName || contactFirstName || customerName;
   const invoiceCopiesLine = attachedInvoiceCount > 0
     ? `<tr><td style="padding:0 32px 16px;font-size:13px;color:#6b7280;line-height:1.6;">Copies of the ${attachedInvoiceCount} underlying invoice${attachedInvoiceCount === 1 ? '' : 's'} are included in the attached zip file.</td></tr>`
     : '';
@@ -84,7 +87,7 @@ async function buildInvoicesZipAttachment(invoicePdfs, customerName) {
   };
 }
 
-async function sendEmail({ recipientEmail, ccEmails, customerName, contactFirstName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, currency }) {
+async function sendEmail({ recipientEmails, ccEmails, customerName, contactFirstName, recipientName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, currency }) {
   const apiKey = (process.env.RESEND_API_KEY || '').trim();
   const from = (process.env.STATEMENTS_FROM_EMAIL || '').trim();
 
@@ -108,10 +111,10 @@ async function sendEmail({ recipientEmail, ccEmails, customerName, contactFirstN
 
   const payload = {
     from,
-    to: recipientEmail,
+    to: recipientEmails, // Resend accepts an array — one or many recipients, same call either way
     reply_to: 'brendan@kohindustries.com',
     subject: `Statement from KOH Industries — ${customerName}`,
-    html: emailBodyHtml({ customerName, contactFirstName, balanceDue, overdue, attachedInvoiceCount: invoicesZip ? invoicesZip.count : 0, currency }),
+    html: emailBodyHtml({ customerName, contactFirstName, recipientName, balanceDue, overdue, attachedInvoiceCount: invoicesZip ? invoicesZip.count : 0, currency }),
     attachments,
   };
   if (Array.isArray(ccEmails) && ccEmails.length > 0) {
@@ -147,11 +150,15 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { html, customerName, contactFirstName, recipientEmail, balanceDue, overdue, invoicePdfs, currency, xlsxBase64, ccEmails } = body;
+    const { html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, invoicePdfs, currency, xlsxBase64, ccEmails } = body;
     if (!html || !customerName || !recipientEmail) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing html, customerName, or recipientEmail' }) };
     }
-    if (!EMAIL_RE.test(recipientEmail)) {
+    // recipientEmail may be a single address or a comma-separated list —
+    // the client's <input multiple> and the queue's recipient field both
+    // hand this straight through as one string.
+    const recipientEmails = String(recipientEmail).split(',').map((e) => e.trim()).filter(Boolean);
+    if (!recipientEmails.length || !recipientEmails.every((e) => EMAIL_RE.test(e))) {
       return { statusCode: 400, body: JSON.stringify({ error: `"${recipientEmail}" doesn't look like a valid email address` }) };
     }
     const validCcEmails = Array.isArray(ccEmails) ? ccEmails.filter((e) => EMAIL_RE.test(e)) : [];
@@ -160,7 +167,7 @@ exports.handler = async (event) => {
       pdfFromSource(html),
       buildInvoicesZipAttachment(invoicePdfs, customerName),
     ]);
-    const result = await sendEmail({ recipientEmail, ccEmails: validCcEmails, customerName, contactFirstName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, currency });
+    const result = await sendEmail({ recipientEmails, ccEmails: validCcEmails, customerName, contactFirstName, recipientName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, currency });
 
     return {
       statusCode: 200,
