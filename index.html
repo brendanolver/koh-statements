@@ -1335,7 +1335,7 @@ body.app-ui #cashflowView select { border-radius: 8px; }
         <span class="wages-or">or</span>
         <label>+ % <input type="text" inputmode="decimal" id="wagesGlobalPct" placeholder="0.00" oninput="onWagesGlobalInput('pct')"></label>
         <button onclick="resetWagesScenario()">Reset</button>
-        <span class="wages-hint">Type either box and the other fills in. You can still override any person below.</span>
+        <span class="wages-hint">Type either box and the other fills in. You can still override any person below — including typing their new hourly rate directly.</span>
       </div>
 
       <div id="wagesStatus" class="status-line" style="margin:0 0 10px;"></div>
@@ -3930,14 +3930,17 @@ function resetWagesScenario() {
   renderWages();
 }
 
-// $ and % are two views of the same increase: whichever one is typed is the
-// source, the other is derived from the person's current hourly rate.
+// $ / hr, % and the new hourly rate are three views of the same increase:
+// whichever one is typed is the source (kept exactly as typed), and the other
+// two are derived from the person's current hourly rate.
 function setWagesAdj(e, field, str) {
   const hourly = wagesCalc({ ...e }).hourly;
   const v = wagesNum(str);
-  const adj = { src: field };
-  if (field === 'dollar') { adj.dollar = v; adj.pct = hourly > 0 ? (v / hourly) * 100 : 0; adj.dollarStr = str; adj.pctStr = null; }
-  else { adj.pct = v; adj.dollar = hourly * (v / 100); adj.pctStr = str; adj.dollarStr = null; }
+  const adj = { src: field, dollarStr: null, pctStr: null, newHourlyStr: null };
+  if (field === 'dollar') { adj.dollar = v; adj.dollarStr = str; }
+  else if (field === 'pct') { adj.dollar = hourly * (v / 100); adj.pctStr = str; }
+  else { adj.dollar = v - hourly; adj.newHourlyStr = str; }
+  adj.pct = hourly > 0 ? (adj.dollar / hourly) * 100 : 0;
   wagesAdj[e.id] = adj;
 }
 function onWagesRowInput(id, field, str) {
@@ -4014,6 +4017,7 @@ function renderWages() {
     const adj = wagesAdj[id];
     const dollarVal = adj ? (adj.src === 'dollar' ? adj.dollarStr : adj.dollar.toFixed(2)) : '';
     const pctVal = adj ? (adj.src === 'pct' ? adj.pctStr : adj.pct.toFixed(2)) : '';
+    const newHourlyVal = adj ? (adj.src === 'newHourly' ? adj.newHourlyStr : c.newHourly.toFixed(2)) : '';
     const tag = e.basis === 'salary' ? '<span class="wages-tag">salary</span>' : (e.employmentBasis === 'CASUAL' ? '<span class="wages-tag">casual</span>' : '');
     const cell = {
       name: `<td class="name-cell" style="cursor:default">${wagesEsc(e.name)}${tag}</td>`,
@@ -4023,7 +4027,7 @@ function renderWages() {
       total: `<td class="num emph-cell">${wagesMoney(c.total)}</td>`,
       dollar: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="d-${wagesEsc(id)}" value="${wagesEsc(dollarVal)}" placeholder="0.00" oninput="onWagesRowInput('${wagesEsc(id)}','dollar',this.value)"></td>`,
       pct: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="p-${wagesEsc(id)}" value="${wagesEsc(pctVal)}" placeholder="0.00" oninput="onWagesRowInput('${wagesEsc(id)}','pct',this.value)"></td>`,
-      newHourly: `<td class="num">${wagesMoney(c.newHourly)}</td>`,
+      newHourly: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="h-${wagesEsc(id)}" value="${wagesEsc(newHourlyVal)}" placeholder="${c.hourly.toFixed(2)}" oninput="onWagesRowInput('${wagesEsc(id)}','newHourly',this.value)"></td>`,
       newYearly: `<td class="num">${wagesMoney(c.newYearly)}</td>`,
       newSuper: `<td class="num">${wagesMoney(c.newSuper)}</td>`,
       newTotal: `<td class="num emph-cell">${wagesMoney(c.newTotal)}</td>`,
