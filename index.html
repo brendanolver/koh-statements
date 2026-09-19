@@ -635,6 +635,15 @@
 #cashflowView .cf-sup-bar-w{width:64px;height:5px;background:#f0f0f0;border-radius:3px;overflow:hidden;flex-shrink:0}
 #cashflowView .cf-sup-bar{height:100%;border-radius:3px;background:#c0392b}
 #cashflowView .cf-sup-amt{min-width:70px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+  /* ---------- Commission confirmation modal ---------- */
+  .confirm-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(10,10,10,.5); align-items: center; justify-content: center; padding: 16px; }
+  .confirm-modal { background: #fff; border-radius: 16px; padding: 28px; width: 100%; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0,0,0,.2), 0 8px 10px -6px rgba(0,0,0,.15); }
+  .confirm-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+  .confirm-text { font-size: 14px; line-height: 1.55; margin: 0 0 18px; }
+  .confirm-check { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; cursor: pointer; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 20px; }
+  .confirm-check input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--accent); flex: none; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
 /* =====================================================================
    Redesign layer — Tuesday tokens (warm surfaces, semantic colours, card
    language) + WMS chrome (dark top bar, Inter / DM Mono, soft shadows).
@@ -1234,7 +1243,7 @@ body.app-ui #cashflowView select { border-radius: 8px; }
     </div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <input type="month" id="commissionMonth" style="padding:8px 10px;font-size:14px;border:1px solid var(--border);border-radius:6px">
-      <button class="primary" id="commissionGenerateBtn" onclick="generateCommissionReport()">Generate</button>
+      <button class="primary" id="commissionGenerateBtn" onclick="openCommissionConfirm()">Generate</button>
       <span id="commissionStatus" class="send-status"></span>
     </div>
     <div id="commissionSummary" style="display:none;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -1255,6 +1264,21 @@ body.app-ui #cashflowView select { border-radius: 8px; }
         </thead>
         <tbody id="commissionBody"></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<div id="commissionConfirmOverlay" class="confirm-overlay no-print" style="display:none" onclick="if(event.target===this)closeCommissionConfirm()">
+  <div class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="commissionConfirmTitle">
+    <div class="confirm-title" id="commissionConfirmTitle">Before you continue</div>
+    <p class="confirm-text">Please make sure all invoices that were not sent are cancelled in Apparel Magic before proceeding.</p>
+    <label class="confirm-check">
+      <input type="checkbox" id="commissionConfirmCheck" onchange="document.getElementById('commissionConfirmGo').disabled=!this.checked">
+      <span>I've cancelled all unsent invoices in Apparel Magic</span>
+    </label>
+    <div class="confirm-actions">
+      <button onclick="closeCommissionConfirm()">Cancel</button>
+      <button class="primary" id="commissionConfirmGo" disabled onclick="proceedCommissionConfirm()">Continue</button>
     </div>
   </div>
 </div>
@@ -2258,7 +2282,7 @@ function toggleHiddenPanel(panelId) {
 // saved multi-recipient list/name follows Brendan across browsers/devices
 // instead of resetting to Xero's single EmailAddress/FirstName every time
 // the statement reloads — same pattern as Commission's per-agent emails
-// (loadSavedAgentEmails/saveAgentEmail below).
+// (loadSavedAgentEmails/saveAgentContact below).
 async function loadStatementRecipientsMap() {
   try {
     const res = await fetch('/.netlify/functions/statement-recipients');
@@ -3294,25 +3318,33 @@ async function loadSavedAgentEmails() {
     return {}; // non-fatal — falls back to AM's single default email
   }
 }
-async function saveAgentEmail(agentName, email) {
+async function saveAgentContact(agentName, email, greetingName) {
   try {
     const res = await fetch('/.netlify/functions/commission-emails', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentName, email }),
+      body: JSON.stringify({ agentName, email, greetingName }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Save failed (${res.status})`);
   } catch (err) {
-    setCommissionStatus(`Failed to save email — try again: ${err.message}`, true);
+    setCommissionStatus(`Failed to save recipient details — try again: ${err.message}`, true);
   }
 }
 
 // Debounced so typing a multi-recipient list doesn't fire a save on every
 // keystroke — waits until Brendan pauses before writing to the shared blob.
-const _saveAgentEmailTimers = {};
-function saveAgentEmailDebounced(agentName, email) {
-  clearTimeout(_saveAgentEmailTimers[agentName]);
-  _saveAgentEmailTimers[agentName] = setTimeout(() => saveAgentEmail(agentName, email), 600);
+// Reads the agent's current email + greeting at fire time, so editing either
+// field saves both. The greeting is only stored when it differs from the
+// auto-guessed default, i.e. when it's actually been changed.
+const _saveAgentContactTimers = {};
+function saveAgentContactDebounced(agentName) {
+  clearTimeout(_saveAgentContactTimers[agentName]);
+  _saveAgentContactTimers[agentName] = setTimeout(() => {
+    const agent = commissionAgents.find((a) => a.agentName === agentName);
+    if (!agent) return;
+    const greeting = (agent.greetingName || '').trim();
+    saveAgentContact(agentName, agent.email || '', greeting === defaultGreetingName(agentName) ? '' : greeting);
+  }, 600);
 }
 
 // Agent names are "Agency Name - Person Name" (e.g. "Lifestyle Agencies -
@@ -3351,7 +3383,10 @@ function buildCommissionReport(invoices, salespeople, savedEmails) {
         const sp = salespeople.find((s) => s.name === agentName);
         // A saved multi-recipient list always wins over AM's single email
         // on file — once Brendan sets it up for an agent, it sticks.
-        byAgent.set(agentName, { agentName, email: savedEmails[agentName] || sp?.email || '', greetingName: defaultGreetingName(agentName), currency, customers: new Map(), total: 0, netTotal: 0 });
+        const saved = savedEmails[agentName];
+        const savedEmail = typeof saved === 'string' ? saved : (saved && saved.email) || '';
+        const savedGreeting = (saved && typeof saved === 'object' && saved.greetingName) || '';
+        byAgent.set(agentName, { agentName, email: savedEmail || sp?.email || '', greetingName: savedGreeting || defaultGreetingName(agentName), currency, customers: new Map(), total: 0, netTotal: 0 });
       }
       const agent = byAgent.get(agentName);
       const custName = inv.customer_name || inv.name || 'Unknown';
@@ -3388,6 +3423,27 @@ function setCommissionStatus(msg, isError) {
   el.textContent = msg || '';
   el.style.color = isError ? '#b42318' : 'var(--muted)';
 }
+
+// Reports are built from whatever is on AM invoices right now, so unsent
+// invoices that should be void have to be cancelled first — every Generate
+// goes through this confirmation (tick box resets each time on purpose).
+function openCommissionConfirm() {
+  if (!document.getElementById('commissionMonth').value) return;
+  document.getElementById('commissionConfirmCheck').checked = false;
+  document.getElementById('commissionConfirmGo').disabled = true;
+  document.getElementById('commissionConfirmOverlay').style.display = 'flex';
+}
+function closeCommissionConfirm() {
+  document.getElementById('commissionConfirmOverlay').style.display = 'none';
+}
+function proceedCommissionConfirm() {
+  if (!document.getElementById('commissionConfirmCheck').checked) return;
+  closeCommissionConfirm();
+  generateCommissionReport();
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeCommissionConfirm();
+});
 
 async function generateCommissionReport() {
   const monthValue = document.getElementById('commissionMonth').value;
@@ -3498,8 +3554,8 @@ function renderCommissionTable() {
         <td style="text-align:right;font-weight:700">${fmtMoney(agent.total)} ${agent.currency}</td>
         <td>
           <div style="display:flex;flex-direction:column;gap:4px">
-            <input type="text" value="${agent.email || ''}" placeholder="agent@email.com, agent2@email.com" style="width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].email=this.value; saveAgentEmailDebounced('${safeName}', this.value)">
-            <input type="text" value="${agent.greetingName || ''}" placeholder="Greeting name(s), e.g. Stacey/Dan" style="width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].greetingName=this.value">
+            <input type="text" value="${agent.email || ''}" placeholder="agent@email.com, agent2@email.com" style="width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].email=this.value; saveAgentContactDebounced('${safeName}')">
+            <input type="text" value="${agent.greetingName || ''}" placeholder="Greeting name(s), e.g. Stacey/Dan" style="width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;border:1px solid var(--border);border-radius:5px" oninput="commissionAgents[${idx}].greetingName=this.value; saveAgentContactDebounced('${safeName}')">
           </div>
         </td>
         <td class="send-status">${commissionStatusLabel(agent)}</td>

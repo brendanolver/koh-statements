@@ -1,7 +1,8 @@
 const { commissionEmailsStore } = require('./lib/blob-store');
 
-// Mirrors debtor-status.js exactly: one shared JSON blob, GET returns the
-// whole map, POST upserts a single entry — server-side so a saved
+// Mirrors debtor-status.js: one shared JSON blob, GET returns the
+// whole map (values are { email, greetingName }, or a plain email string for
+// entries saved before greeting names were remembered), POST upserts a single entry — server-side so a saved
 // multi-recipient list follows Brendan across browsers/devices instead of
 // being stuck in whichever one he typed it into.
 exports.handler = async (event) => {
@@ -21,14 +22,22 @@ exports.handler = async (event) => {
         return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
       }
 
-      const { agentName, email } = body;
+      const { agentName, email, greetingName } = body;
       if (!agentName) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Missing agentName' }) };
       }
 
       const map = (await store.get('email-map', { type: 'json' })) || {};
-      if (email) {
-        map[agentName] = email;
+      // An entry used to be just the email string; it's now { email,
+      // greetingName } so the contact name sticks too. Older string entries
+      // are upgraded in place the first time they're touched, and only the
+      // fields present in the request are changed.
+      const prev = map[agentName];
+      const entry = typeof prev === 'string' ? { email: prev, greetingName: '' } : { email: '', greetingName: '', ...(prev || {}) };
+      if (email !== undefined) entry.email = String(email || '').trim();
+      if (greetingName !== undefined) entry.greetingName = String(greetingName || '').trim();
+      if (entry.email || entry.greetingName) {
+        map[agentName] = entry;
       } else {
         delete map[agentName];
       }
