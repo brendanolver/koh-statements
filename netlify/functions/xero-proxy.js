@@ -30,11 +30,12 @@ exports.handler = async (event) => {
       },
     });
     const text = await resp.text();
-    return {
-      statusCode: resp.status,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: text,
-    };
+    const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    // Xero's 429 rate-limit response has an empty body — the wait time is
+    // only in this header, so hand it to the client.
+    const retryAfter = resp.headers.get('retry-after');
+    if (retryAfter) headers['Retry-After'] = retryAfter;
+    return { statusCode: resp.status, headers, body: text };
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }

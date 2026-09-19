@@ -1456,16 +1456,35 @@ const XERO_PROXY = '/.netlify/functions/xero-proxy';
 // get unlucky first, so this is the shared, generic version — one retry
 // after a pause, same tolerance already proven for bank transactions.
 async function fetchXeroJson(url) {
-  async function attempt() {
-    const res = await fetch(url);
-    const data = await res.json();
-    return { res, data };
-  }
-  try {
-    return await attempt();
-  } catch (err) {
-    await new Promise((r) => setTimeout(r, 3000));
-    return attempt();
+  // Xero caps an org at 60 calls/minute (and 5 concurrent). Over that it
+  // answers 429 with an EMPTY body and a Retry-After header — which is what
+  // used to surface as "Unexpected end of JSON input". So: read the body as
+  // text (never blow up on an empty one), and on a 429 / empty / non-JSON
+  // response (Netlify timeouts come back as HTML) wait and try again, up
+  // to 4 attempts, honouring Retry-After when the proxy passes it through.
+  const MAX_ATTEMPTS = 4;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let attempt = 1; ; attempt++) {
+    let res = null;
+    let data = null;
+    let networkErr = null;
+    try {
+      res = await fetch(url);
+      const text = await res.text();
+      if (text) { try { data = JSON.parse(text); } catch { data = null; } }
+    } catch (err) {
+      networkErr = err;
+    }
+    if (data !== null && !(res && res.status === 429)) return { res, data };
+    if (attempt >= MAX_ATTEMPTS) {
+      if (res && res.status === 429) throw new Error('Xero rate limit reached (60 calls/min) — wait a minute and try again');
+      throw new Error(networkErr ? networkErr.message : `Xero returned an empty response (${res ? res.status : 'no response'})`);
+    }
+    const retryAfter = res && Number(res.headers.get('Retry-After'));
+    const waitMs = res && res.status === 429
+      ? Math.min(65, retryAfter > 0 ? retryAfter : 20) * 1000
+      : 3000 * attempt;
+    await sleep(waitMs);
   }
 }
 const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV2'; // v2: added country field
@@ -5441,8 +5460,14 @@ async function cfFetchBankSummary(fromISO, toISO, audAccountIds) {
 // once a batch comes back with any page short of 100 rows. A 200-page
 // (20,000 row) safety cap replaces the old hard 50-page one so a bigger
 // future data set degrades to "slow" rather than silently truncating again.
+// pageSize=1000 (Xero allows it; default is 100) is what keeps this under
+// Xero's 60-calls/minute cap: this org's 12 months is ~5,300 transactions =
+// 6 calls instead of 53. At 100/page the full Cashflow load plus whatever
+// else the app fetched that minute went over the cap, Xero answered 429
+// with an empty body, and the tab failed with "Unexpected end of JSON input".
+const CF_TXN_PAGE_SIZE = 1000;
 async function cfFetchBankTransactionsPage(whereClause, page) {
-  const params = new URLSearchParams({ path: 'BankTransactions', where: whereClause, page: String(page) });
+  const params = new URLSearchParams({ path: 'BankTransactions', where: whereClause, page: String(page), pageSize: String(CF_TXN_PAGE_SIZE) });
   const { res, data } = await cfFetchJson(`${XERO_PROXY}?${params}`);
   if (!res.ok) throw new Error(data.error || data.Detail || `Xero bank transactions fetch failed (${res.status})`);
   return data.BankTransactions || [];
@@ -5451,10 +5476,10 @@ async function cfFetchBankTransactionsPage(whereClause, page) {
 async function cfFetchBankTransactionsSince(fromISO, audAccountIds, onProgress) {
   const [y, m, d] = fromISO.split('-').map(Number);
   const whereClause = `Status=="AUTHORISED" && Date>=DateTime(${y},${m},${d})`;
-  const BATCH = 5;
+  const BATCH = 3; // 1000-row pages are ~1.3MB each — keep few in flight
   const all = [];
   let page = 1;
-  while (page <= 200) {
+  while (page <= 60) {
     const pageNums = Array.from({ length: BATCH }, (_, i) => page + i);
     // cfFetchJson already retries once on a transient failure — no need
     // for a second retry layer here on top of it.
@@ -5462,7 +5487,7 @@ async function cfFetchBankTransactionsSince(fromISO, audAccountIds, onProgress) 
     let done = false;
     for (const rows of results) {
       all.push(...rows);
-      if (rows.length < 100) done = true;
+      if (rows.length < CF_TXN_PAGE_SIZE) done = true;
     }
     if (onProgress) onProgress(all.length);
     if (done) break;
