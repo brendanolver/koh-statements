@@ -326,6 +326,7 @@
     color: #e65100;
     border: 1px solid #ffcc80;
   }
+  .cn-flag { color: #e65100; font-weight: 700; cursor: help; margin-left: 2px; }
   .overdue-amount { color: #d0021b; font-weight: 700; }
   .status-toggle { display: flex; gap: 4px; }
   .status-toggle button { padding: 4px 8px; font-size: 10px; font-weight: 700; border-radius: 4px; }
@@ -1963,6 +1964,11 @@ async function buildDebtorsList() {
     const bucketIdx = invoiceBucketIndex(xeroDate(cn.Date), today);
     entry.total += remaining;
     entry.buckets[bucketIdx] += remaining;
+    // Every note in this list is AUTHORISED with credit still remaining,
+    // i.e. not yet allocated to an invoice/refunded — surfaced as an
+    // asterisk on the Statements tab so it gets reconciled.
+    entry.creditCount = (entry.creditCount || 0) + 1;
+    entry.creditTotal = (entry.creditTotal || 0) + (cn.RemainingCredit || 0);
   }
 
   for (const inv of submittedInvoices) {
@@ -2401,6 +2407,13 @@ function renderCustomersTable() {
     const nameTd = document.createElement('td');
     nameTd.className = 'name-cell';
     nameTd.textContent = d.name;
+    if (d.creditCount > 0) {
+      const flag = document.createElement('span');
+      flag.className = 'cn-flag';
+      flag.textContent = '*';
+      flag.title = `${d.creditCount} unreconciled credit note${d.creditCount === 1 ? '' : 's'} (${fmtMoneyWithCurrency(d.creditTotal, d.country)} unallocated)`;
+      nameTd.appendChild(flag);
+    }
     if (d.id) {
       // Already on the Statements tab — no tab switch needed, unlike the
       // equivalent click from a Debtors-tab card.
