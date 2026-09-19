@@ -694,7 +694,7 @@ body.app-ui .sec-title { font-family: var(--font-mono); font-size: 11px; font-we
 
 /* ---- Stat tiles ---- */
 body.app-ui .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 18px; box-shadow: var(--shadow-card); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); min-width: 120px; }
-body.app-ui .stat strong { font-family: var(--font-num); font-size: 24px; font-weight: 300; letter-spacing: -.02em; text-transform: none; color: var(--ink); margin-bottom: 2px; }
+body.app-ui .stat strong { font-family: var(--font-num); font-size: 24px; font-weight: 400; letter-spacing: -.02em; text-transform: none; color: var(--ink); margin-bottom: 2px; }
 body.app-ui .stat.s-red strong { color: var(--danger); }
 body.app-ui .stat.s-green strong { color: var(--ok); }
 body.app-ui .stat.s-amber strong { color: var(--warn); }
@@ -706,7 +706,7 @@ body.app-ui .card.status-stop { background: #fff6f5; border-color: #f3c7c3; box-
 body.app-ui .card.status-clear { background: #f3faf6; border-color: #bfe3d1; box-shadow: inset 3px 0 0 var(--ok), var(--shadow-card); }
 body.app-ui .card.hold-only { background: #fffaf2; border-color: #f0d9aa; box-shadow: inset 3px 0 0 var(--warn), var(--shadow-card); }
 body.app-ui .card-name { font-size: 13px; font-weight: 600; }
-body.app-ui .card-total { font-family: var(--font-num); font-size: 15px; font-weight: 400; }
+body.app-ui .card-total { font-family: var(--font-num); font-size: 15px; font-weight: 500; }
 body.app-ui .card-badge { border-radius: 999px; padding: 2px 8px; }
 body.app-ui .card.status-stop .card-total { color: var(--danger); }
 body.app-ui .card.status-clear .card-total { color: var(--ok); }
@@ -719,6 +719,7 @@ body.app-ui table.debtors-table th { background: #fafaf8; border-bottom: 1px sol
 body.app-ui table.debtors-table th.th-hold { background: #fff3e0; }
 body.app-ui table.debtors-table td { font-size: 13px; }
 body.app-ui table.debtors-table td.num, body.app-ui table.debtors-table th.num { font-family: var(--font-num); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+body.app-ui table.debtors-table td.num { font-weight: 500; }
 body.app-ui table.debtors-table tbody tr:hover td { background: var(--inset); }
 body.app-ui table.debtors-table tr.total-row td, body.app-ui table.debtors-table tr.pct-row td { background: #fafaf8; }
 body.app-ui table.debtors-table tr.total-row:hover td, body.app-ui table.debtors-table tr.pct-row:hover td { background: #fafaf8; }
@@ -755,7 +756,7 @@ body.app-ui #billsView .dark { background: #0a0a0a; color: #fff; border-color: #
 body.app-ui #billsView .dark:hover { background: #262626; }
 body.app-ui #billsView .metric, body.app-ui #billsView .ccard, body.app-ui #billsView .sbox, body.app-ui #billsView .frow { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-card); }
 body.app-ui #billsView .mlbl { font-family: var(--font-mono); letter-spacing: .1em; }
-body.app-ui #billsView .mval { font-family: var(--font-num); font-size: 24px; font-weight: 300; letter-spacing: -.02em; }
+body.app-ui #billsView .mval { font-family: var(--font-num); font-size: 24px; font-weight: 400; letter-spacing: -.02em; }
 body.app-ui #billsView .tbl th { border-bottom-color: var(--border); font-weight: 600; color: var(--muted); }
 body.app-ui #billsView .tbl td { border-bottom-color: var(--inset); }
 body.app-ui #billsView .fg input, body.app-ui #billsView .fg select, body.app-ui #billsView .si { border-color: var(--border); border-radius: 8px; }
@@ -772,10 +773,10 @@ body.app-ui #cashflowView .btn:hover:not(:disabled) { background: var(--inset); 
 body.app-ui #cashflowView .cf-card, body.app-ui #cashflowView .cf-scen-panel { border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); background: var(--surface); }
 body.app-ui #cashflowView .cf-card-title { font-family: var(--font-mono); font-weight: 500; letter-spacing: .1em; }
 body.app-ui #cashflowView .cf-kpi { background: var(--inset); border-radius: 10px; }
-body.app-ui #cashflowView .cf-kpi-value, body.app-ui #cashflowView .cf-sl-val, body.app-ui #cashflowView .cf-d-amt, body.app-ui #cashflowView .cf-stat-val { font-family: var(--font-num); font-weight: 400; }
-body.app-ui #cashflowView .cf-kpi-value { font-weight: 300; }
+body.app-ui #cashflowView .cf-kpi-value, body.app-ui #cashflowView .cf-sl-val, body.app-ui #cashflowView .cf-d-amt, body.app-ui #cashflowView .cf-stat-val { font-family: var(--font-num); font-weight: 500; }
+body.app-ui #cashflowView .cf-kpi-value { font-weight: 400; }
 body.app-ui #cashflowView .cf-kpi-value { font-size: 22px; }
-body.app-ui #cashflowView .cf-pt td { font-family: var(--font-num); font-size: 12.5px; }
+body.app-ui #cashflowView .cf-pt td { font-family: var(--font-num); font-size: 12.5px; font-weight: 500; }
 body.app-ui #cashflowView .cf-stab { border-radius: 999px; border-color: var(--border); }
 body.app-ui #cashflowView .cf-stab.active { background: #0a0a0a; border-color: #0a0a0a; color: #fff; }
 body.app-ui #cashflowView .cf-ch-block { border-radius: 12px; background: var(--inset); border-color: var(--border); }
