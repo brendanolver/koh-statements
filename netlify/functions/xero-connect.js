@@ -13,7 +13,11 @@ const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 // added for the Cashflow tab (read-only — this app never writes bank
 // transactions) — both confirmed against this app's own scope list on
 // developer.xero.com, same as every other scope here.
-const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions.read accounting.reports.banksummary.read';
+// payroll.employees.read + payroll.settings.read added for the Wages tab
+// (Payroll AU API — read-only; employees + their pay templates, and Pay
+// Items for earnings-rate lookups). Scope names confirmed against Xero's own
+// published Payroll AU OpenAPI spec (XeroAPI/Xero-OpenAPI).
+const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions.read accounting.reports.banksummary.read payroll.employees.read payroll.settings.read';
 
 exports.handler = async (event) => {
   try {

@@ -644,6 +644,36 @@
   .confirm-check input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--accent); flex: none; }
   .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
+  /* ---------- Wages tab ---------- */
+  .wages-panel { max-width: 1500px; }
+  table.wages-table th, table.wages-table td { padding-left: 10px; padding-right: 10px; }
+  /* Name column stays visible if the scenario columns make the table scroll sideways. */
+  table.wages-table th:first-child, table.wages-table td:first-child { position: sticky; left: 0; z-index: 1; background: #fff; }
+  table.wages-table th:first-child { background: #fafaf8; }
+  table.wages-table tr.total-row td:first-child { background: #f8f8f8; }
+  .wages-gate { max-width: 460px; margin: 40px auto; padding: 28px; background: #fff; border: 1px solid var(--border); border-radius: 14px; text-align: center; }
+  .wages-gate-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .wages-gate-sub { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+  .wages-gate-sub code { font-size: 12px; }
+  .wages-gate-row { display: flex; gap: 8px; }
+  .wages-gate-row input { flex: 1; padding: 9px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; }
+  .wages-gate-msg { font-size: 13px; color: #b42318; margin-top: 12px; line-height: 1.5; }
+  .wages-gate-msg a { color: var(--accent); font-weight: 600; }
+  .wages-settings, .wages-scenario-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }
+  .wages-settings label, .wages-scenario-bar label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .wages-settings input, .wages-scenario-bar input, .wages-in { width: 84px; padding: 6px 8px; font-size: 13px; text-align: right; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  .wages-in { width: 74px; }
+  .wages-scenario-bar { padding: 12px 14px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+  .wages-scenario-title { font-weight: 600; }
+  .wages-or { color: var(--muted); }
+  .wages-hint { font-size: 12px; color: var(--muted); }
+  .wages-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; font-size: 10px; font-weight: 500; color: var(--muted); background: #f1f1ee; border-radius: 999px; }
+  .wages-avg { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
+  .wages-note { color: var(--muted); font-size: 12px; font-style: italic; white-space: normal !important; }
+  .wages-up { color: #b45309; font-weight: 600; }
+  .wages-down { color: #1a7a3c; font-weight: 600; }
+  table.wages-table td.emph-cell { font-weight: 700; }
+
 /* =====================================================================
    Redesign layer — Tuesday tokens (warm surfaces, semantic colours, card
    language) + WMS chrome (dark top bar, Inter / DM Mono, soft shadows).
@@ -824,6 +854,7 @@ body.app-ui #cashflowView select { border-radius: 8px; }
         <button class="tab-btn" data-tab="statements" onclick="switchTab('statements')">Statements</button>
         <button class="tab-btn" data-tab="bills" onclick="switchTab('bills')">Bills</button>
         <button class="tab-btn" data-tab="commission" onclick="switchTab('commission')">Commission</button>
+        <button class="tab-btn" data-tab="wages" onclick="switchTab('wages')">Wages</button>
         <button class="tab-btn" data-tab="cashflow" onclick="switchTab('cashflow')">Cashflow</button>
       </nav>
     </div>
@@ -1264,6 +1295,56 @@ body.app-ui #cashflowView select { border-radius: 8px; }
         </thead>
         <tbody id="commissionBody"></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<div id="wagesView" style="display:none;">
+  <div class="debtors-panel wages-panel">
+    <div class="debtors-header">
+      <h2>Wages <span class="debtors-subtitle">— team pay from Xero Payroll</span></h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <button id="wagesScenarioBtn" onclick="toggleWagesScenario()">Scenarios</button>
+        <button onclick="loadWages()">Refresh</button>
+      </div>
+    </div>
+
+    <div id="wagesGate" class="wages-gate" style="display:none;">
+      <div class="wages-gate-title">Wages are protected</div>
+      <div class="wages-gate-sub">Enter the wages access key (the <code>WAGES_ACCESS_KEY</code> set in Netlify).</div>
+      <div class="wages-gate-row">
+        <input type="password" id="wagesKeyInput" placeholder="Access key" onkeydown="if(event.key==='Enter')submitWagesKey()">
+        <button class="primary" onclick="submitWagesKey()">Unlock</button>
+      </div>
+      <div id="wagesGateMsg" class="wages-gate-msg"></div>
+    </div>
+
+    <div id="wagesContent" style="display:none;">
+      <div class="wages-settings">
+        <label>Hours / week <input type="text" inputmode="decimal" id="wagesHours" oninput="onWagesSettingInput()"></label>
+        <label>Weeks / year <input type="text" inputmode="decimal" id="wagesWeeks" oninput="onWagesSettingInput()"></label>
+        <label>Super % <input type="text" inputmode="decimal" id="wagesSuper" oninput="onWagesSettingInput()"></label>
+        <span class="wages-hint">Yearly wage = hourly rate × hours × weeks. Super is calculated on the yearly wage.</span>
+      </div>
+
+      <div id="wagesStats" class="stats"></div>
+
+      <div id="wagesScenarioBar" class="wages-scenario-bar" style="display:none;">
+        <span class="wages-scenario-title">Scenario — apply to everyone</span>
+        <label>+ $ / hr <input type="text" inputmode="decimal" id="wagesGlobalDollar" placeholder="0.00" oninput="onWagesGlobalInput('dollar')"></label>
+        <span class="wages-or">or</span>
+        <label>+ % <input type="text" inputmode="decimal" id="wagesGlobalPct" placeholder="0.00" oninput="onWagesGlobalInput('pct')"></label>
+        <button onclick="resetWagesScenario()">Reset</button>
+        <span class="wages-hint">Type either box and the other fills in. You can still override any person below.</span>
+      </div>
+
+      <div id="wagesStatus" class="status-line" style="margin:0 0 10px;"></div>
+      <div class="debtors-table-wrap">
+        <table class="debtors-table wages-table">
+          <thead id="wagesHead"></thead>
+          <tbody id="wagesRows"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -2386,6 +2467,7 @@ function switchTab(tab) {
   document.getElementById('statementsView').style.display = tab === 'statements' ? 'block' : 'none';
   document.getElementById('billsView').style.display = tab === 'bills' ? 'block' : 'none';
   document.getElementById('commissionView').style.display = tab === 'commission' ? 'block' : 'none';
+  document.getElementById('wagesView').style.display = tab === 'wages' ? 'block' : 'none';
   document.getElementById('cashflowView').style.display = tab === 'cashflow' ? 'block' : 'none';
   for (const btn of document.querySelectorAll('.tab-btn')) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
@@ -2393,6 +2475,7 @@ function switchTab(tab) {
   if (tab === 'bills' && typeof refreshXeroAccountsAndContacts === 'function') {
     refreshXeroAccountsAndContacts(); // TTL-cached — cheap to call on every tab switch
   }
+  if (tab === 'wages') wagesOnOpen();
   if (tab === 'cashflow' && typeof loadCashflowData === 'function') {
     loadCashflowData(); // TTL-cached — same pattern as the Bills COA/Contacts sync
   }
@@ -3692,6 +3775,294 @@ async function sendAllReadyCommissionReports() {
   for (const i of readyIdxs) {
     await sendCommissionReport(i);
     await new Promise((r) => setTimeout(r, 700));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wages tab — pay data comes from Xero Payroll via /xero-payroll, which is
+// protected by a server-side access key (WAGES_ACCESS_KEY in Netlify), not
+// this page's client-side password. The key lives in sessionStorage only,
+// and the wage data itself is kept in memory only — nothing is written to
+// localStorage except the non-sensitive hours / weeks / super % settings.
+// ---------------------------------------------------------------------------
+const WAGES_SETTINGS_KEY = 'wagesSettingsV1';
+const WAGES_KEY_STORAGE = 'wagesAccessKey';
+let wagesData = null;              // [{ id, name, basis, hourlyRate?, annualSalary?, employmentBasis, note? }]
+let wagesSettings = { hours: 38, weeks: 52, superPct: 12 };
+let wagesAdj = {};                 // id -> { dollar, pct, src: 'dollar'|'pct', dollarStr, pctStr }
+let wagesScenarioOn = false;
+let wagesSort = { field: 'name', dir: 'asc' };
+let wagesOrder = [];               // employee ids in display order — only re-sorted on a header click / reload
+try {
+  const saved = JSON.parse(localStorage.getItem(WAGES_SETTINGS_KEY) || 'null');
+  if (saved && saved.hours > 0 && saved.weeks > 0 && saved.superPct >= 0) wagesSettings = saved;
+} catch (e) {}
+
+const wagesMoney = (n) => (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const wagesEsc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const wagesNum = (v) => { const n = parseFloat(String(v).replace(/[$,%\s]/g, '')); return Number.isFinite(n) ? n : 0; };
+
+// Everything shown for one person, current and scenario. Salaried staff are
+// converted to an hourly rate using the same hours x weeks, so "yearly" is
+// always their real salary and the hourly figure is comparable to others.
+function wagesCalc(e) {
+  const { hours, weeks, superPct } = wagesSettings;
+  const divisor = hours * weeks;
+  const hourly = e.basis === 'salary' ? (divisor > 0 ? e.annualSalary / divisor : 0) : e.hourlyRate;
+  const yearly = hourly * divisor;
+  const sup = yearly * (superPct / 100);
+  const adj = wagesAdj[e.id];
+  const dollar = adj ? adj.dollar : 0;
+  const pct = adj ? adj.pct : 0;
+  const newHourly = hourly + dollar;
+  const newYearly = newHourly * divisor;
+  const newSuper = newYearly * (superPct / 100);
+  return { hourly, yearly, super: sup, total: yearly + sup, dollar, pct, newHourly, newYearly, newSuper, newTotal: newYearly + newSuper, change: (newYearly + newSuper) - (yearly + sup) };
+}
+const wagesRated = () => (wagesData || []).filter((e) => e.basis);
+
+const WAGES_COLUMNS = [
+  { key: 'name', label: 'Team member', num: false },
+  { key: 'hourly', label: 'Hourly rate', num: true },
+  { key: 'yearly', label: 'Yearly wage', num: true },
+  { key: 'super', label: 'Super', num: true },
+  { key: 'total', label: 'Total', num: true },
+  { key: 'dollar', label: '+ $ / hr', num: true, scenario: true },
+  { key: 'pct', label: '+ %', num: true, scenario: true },
+  { key: 'newHourly', label: 'New hourly', num: true, scenario: true },
+  { key: 'newYearly', label: 'New yearly', num: true, scenario: true },
+  { key: 'newSuper', label: 'New super', num: true, scenario: true },
+  { key: 'newTotal', label: 'New total', num: true, scenario: true },
+  { key: 'change', label: 'Change', num: true, scenario: true },
+];
+
+function wagesOnOpen() {
+  const gate = document.getElementById('wagesGate');
+  let key = null;
+  try { key = sessionStorage.getItem(WAGES_KEY_STORAGE); } catch (e) {}
+  if (!key) { showWagesGate(''); return; }
+  gate.style.display = 'none';
+  document.getElementById('wagesContent').style.display = 'block';
+  if (!wagesData) loadWages();
+}
+
+function showWagesGate(msg, html) {
+  document.getElementById('wagesContent').style.display = 'none';
+  document.getElementById('wagesGate').style.display = 'block';
+  const m = document.getElementById('wagesGateMsg');
+  if (html) m.innerHTML = html; else m.textContent = msg || '';
+  document.getElementById('wagesKeyInput').value = '';
+}
+
+function submitWagesKey() {
+  const v = document.getElementById('wagesKeyInput').value.trim();
+  if (!v) return;
+  try { sessionStorage.setItem(WAGES_KEY_STORAGE, v); } catch (e) {}
+  wagesData = null;
+  wagesOnOpen();
+}
+
+function setWagesStatus(msg, isError) {
+  const el = document.getElementById('wagesStatus');
+  el.textContent = msg || '';
+  el.className = 'status-line' + (isError ? ' error' : '');
+}
+
+async function loadWages() {
+  let key = null;
+  try { key = sessionStorage.getItem(WAGES_KEY_STORAGE); } catch (e) {}
+  if (!key) { showWagesGate(''); return; }
+  document.getElementById('wagesGate').style.display = 'none';
+  document.getElementById('wagesContent').style.display = 'block';
+  setWagesStatus('Loading pay details from Xero…');
+  try {
+    const res = await fetch('/.netlify/functions/xero-payroll', { headers: { 'X-Wages-Key': key } });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (e) {}
+    if (res.status === 401) {
+      try { sessionStorage.removeItem(WAGES_KEY_STORAGE); } catch (e) {}
+      showWagesGate('That access key was not accepted — try again.');
+      return;
+    }
+    if (data.code === 'not_configured') { showWagesGate('The wages access key has not been set up yet: add a WAGES_ACCESS_KEY environment variable in Netlify, then redeploy.'); return; }
+    if (data.code === 'payroll_not_authorised') {
+      showWagesGate('', 'Xero has not been connected with payroll access yet. <a href="/.netlify/functions/xero-connect" target="_blank" rel="noopener">Reconnect Xero</a> and approve the payroll permissions, then press Refresh.');
+      return;
+    }
+    if (!res.ok || !Array.isArray(data.employees)) throw new Error(data.error || `Request failed (${res.status})`);
+    wagesData = data.employees;
+    wagesAdj = {};
+    resortWages();
+    renderWages();
+    const unrated = wagesData.filter((e) => !e.basis).length;
+    setWagesStatus(unrated ? `${unrated} team member${unrated === 1 ? '' : 's'} could not be priced — see the notes below.` : '');
+  } catch (err) {
+    setWagesStatus(`Failed to load: ${err.message}`, true);
+  }
+}
+
+function onWagesSettingInput() {
+  const hours = wagesNum(document.getElementById('wagesHours').value);
+  const weeks = wagesNum(document.getElementById('wagesWeeks').value);
+  const superPct = wagesNum(document.getElementById('wagesSuper').value);
+  if (!(hours > 0) || !(weeks > 0) || superPct < 0) return; // ignore while mid-typing / invalid
+  wagesSettings = { hours, weeks, superPct };
+  try { localStorage.setItem(WAGES_SETTINGS_KEY, JSON.stringify(wagesSettings)); } catch (e) {}
+  // Keep any scenario % <-> $ pairs consistent with the (unchanged) hourly rates.
+  renderWages();
+}
+
+function toggleWagesScenario() {
+  wagesScenarioOn = !wagesScenarioOn;
+  if (!wagesScenarioOn) {
+    wagesAdj = {};
+    document.getElementById('wagesGlobalDollar').value = '';
+    document.getElementById('wagesGlobalPct').value = '';
+  }
+  resortWages();
+  renderWages();
+}
+function resetWagesScenario() {
+  wagesAdj = {};
+  document.getElementById('wagesGlobalDollar').value = '';
+  document.getElementById('wagesGlobalPct').value = '';
+  renderWages();
+}
+
+// $ and % are two views of the same increase: whichever one is typed is the
+// source, the other is derived from the person's current hourly rate.
+function setWagesAdj(e, field, str) {
+  const hourly = wagesCalc({ ...e }).hourly;
+  const v = wagesNum(str);
+  const adj = { src: field };
+  if (field === 'dollar') { adj.dollar = v; adj.pct = hourly > 0 ? (v / hourly) * 100 : 0; adj.dollarStr = str; adj.pctStr = null; }
+  else { adj.pct = v; adj.dollar = hourly * (v / 100); adj.pctStr = str; adj.dollarStr = null; }
+  wagesAdj[e.id] = adj;
+}
+function onWagesRowInput(id, field, str) {
+  const e = wagesData.find((x) => x.id === id);
+  if (!e) return;
+  if (String(str).trim() === '') delete wagesAdj[id]; else setWagesAdj(e, field, str);
+  renderWages();
+}
+function onWagesGlobalInput(field) {
+  const str = document.getElementById(field === 'dollar' ? 'wagesGlobalDollar' : 'wagesGlobalPct').value;
+  const other = document.getElementById(field === 'dollar' ? 'wagesGlobalPct' : 'wagesGlobalDollar');
+  wagesAdj = {};
+  if (String(str).trim() === '') { other.value = ''; renderWages(); return; }
+  const rated = wagesRated();
+  for (const e of rated) setWagesAdj(e, field, str);
+  // The other global box shows the average equivalent so the pair reads as linked.
+  const hourlies = rated.map((e) => wagesCalc(e).hourly);
+  const avg = hourlies.length ? hourlies.reduce((a, b) => a + b, 0) / hourlies.length : 0;
+  const v = wagesNum(str);
+  other.value = field === 'dollar' ? (avg > 0 ? ((v / avg) * 100).toFixed(2) : '') : (v ? (avg * v / 100).toFixed(2) : '');
+  renderWages();
+}
+
+function setWagesSort(field) {
+  wagesSort = { field, dir: wagesSort.field === field && wagesSort.dir === 'asc' ? 'desc' : 'asc' };
+  resortWages();
+  renderWages();
+}
+function resortWages() {
+  const rows = (wagesData || []).map((e) => ({ e, c: e.basis ? wagesCalc(e) : null }));
+  const { field, dir } = wagesSort;
+  const mult = dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    // People who couldn't be priced always sink to the bottom.
+    if (!a.c !== !b.c) return a.c ? -1 : 1;
+    if (field === 'name') return mult * a.e.name.localeCompare(b.e.name);
+    if (!a.c) return a.e.name.localeCompare(b.e.name);
+    return mult * (a.c[field] - b.c[field]) || a.e.name.localeCompare(b.e.name);
+  });
+  wagesOrder = rows.map((r) => r.e.id);
+}
+
+function renderWages() {
+  if (!wagesData) return;
+  // Keep the cursor where it was — every keystroke in a scenario box re-renders.
+  const active = document.activeElement;
+  const focusId = active && active.dataset ? active.dataset.wfocus : null;
+  const caret = focusId && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+
+  for (const [id, val] of [['wagesHours', wagesSettings.hours], ['wagesWeeks', wagesSettings.weeks], ['wagesSuper', wagesSettings.superPct]]) {
+    const el = document.getElementById(id);
+    if (document.activeElement !== el) el.value = val;
+  }
+  document.getElementById('wagesScenarioBar').style.display = wagesScenarioOn ? 'flex' : 'none';
+  document.getElementById('wagesScenarioBtn').classList.toggle('primary', wagesScenarioOn);
+
+  const cols = WAGES_COLUMNS.filter((c) => wagesScenarioOn || !c.scenario);
+  document.getElementById('wagesHead').innerHTML = '<tr>' + cols.map((c) =>
+    `<th class="${c.num ? 'num ' : ''}sortable" onclick="setWagesSort('${c.key}')">${c.label}<span class="sort-arrow">${wagesSort.field === c.key ? (wagesSort.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`).join('') + '</tr>';
+
+  const byId = new Map(wagesData.map((e) => [e.id, e]));
+  const tot = { yearly: 0, super: 0, total: 0, hourly: 0, newYearly: 0, newSuper: 0, newTotal: 0, newHourly: 0, dollar: 0, n: 0 };
+  let html = '';
+  for (const id of wagesOrder) {
+    const e = byId.get(id);
+    if (!e) continue;
+    if (!e.basis) {
+      html += `<tr class="wages-unpriced"><td class="name-cell" style="cursor:default">${wagesEsc(e.name)}</td><td colspan="${cols.length - 1}" class="wages-note">${wagesEsc(e.note || 'No pay rate found')}</td></tr>`;
+      continue;
+    }
+    const c = wagesCalc(e);
+    tot.n++; tot.yearly += c.yearly; tot.super += c.super; tot.total += c.total; tot.hourly += c.hourly;
+    tot.newYearly += c.newYearly; tot.newSuper += c.newSuper; tot.newTotal += c.newTotal; tot.newHourly += c.newHourly;
+    const adj = wagesAdj[id];
+    const dollarVal = adj ? (adj.src === 'dollar' ? adj.dollarStr : adj.dollar.toFixed(2)) : '';
+    const pctVal = adj ? (adj.src === 'pct' ? adj.pctStr : adj.pct.toFixed(2)) : '';
+    const tag = e.basis === 'salary' ? '<span class="wages-tag">salary</span>' : (e.employmentBasis === 'CASUAL' ? '<span class="wages-tag">casual</span>' : '');
+    const cell = {
+      name: `<td class="name-cell" style="cursor:default">${wagesEsc(e.name)}${tag}</td>`,
+      hourly: `<td class="num">${wagesMoney(c.hourly)}</td>`,
+      yearly: `<td class="num">${wagesMoney(c.yearly)}</td>`,
+      super: `<td class="num">${wagesMoney(c.super)}</td>`,
+      total: `<td class="num emph-cell">${wagesMoney(c.total)}</td>`,
+      dollar: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="d-${wagesEsc(id)}" value="${wagesEsc(dollarVal)}" placeholder="0.00" oninput="onWagesRowInput('${wagesEsc(id)}','dollar',this.value)"></td>`,
+      pct: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="p-${wagesEsc(id)}" value="${wagesEsc(pctVal)}" placeholder="0.00" oninput="onWagesRowInput('${wagesEsc(id)}','pct',this.value)"></td>`,
+      newHourly: `<td class="num">${wagesMoney(c.newHourly)}</td>`,
+      newYearly: `<td class="num">${wagesMoney(c.newYearly)}</td>`,
+      newSuper: `<td class="num">${wagesMoney(c.newSuper)}</td>`,
+      newTotal: `<td class="num emph-cell">${wagesMoney(c.newTotal)}</td>`,
+      change: `<td class="num ${c.change > 0.005 ? 'wages-up' : c.change < -0.005 ? 'wages-down' : ''}">${c.change > 0.005 ? '+' : ''}${wagesMoney(c.change)}</td>`,
+    };
+    html += '<tr>' + cols.map((col) => cell[col.key]).join('') + '</tr>';
+  }
+  // Totals: a sum for every money column; hourly / $-per-hr are shown as averages
+  // (adding hourly rates together isn't meaningful).
+  const avg = (v) => (tot.n ? v / tot.n : 0);
+  const totalsCell = {
+    name: `<td>Total${tot.n ? ` <span class="wages-tag">${tot.n} people</span>` : ''}</td>`,
+    hourly: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.hourly))}</td>`,
+    yearly: `<td class="num">${wagesMoney(tot.yearly)}</td>`,
+    super: `<td class="num">${wagesMoney(tot.super)}</td>`,
+    total: `<td class="num">${wagesMoney(tot.total)}</td>`,
+    dollar: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.newHourly - tot.hourly))}</td>`,
+    pct: `<td class="num">${tot.hourly > 0 ? (((tot.newHourly - tot.hourly) / tot.hourly) * 100).toFixed(2) + '%' : '—'}</td>`,
+    newHourly: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.newHourly))}</td>`,
+    newYearly: `<td class="num">${wagesMoney(tot.newYearly)}</td>`,
+    newSuper: `<td class="num">${wagesMoney(tot.newSuper)}</td>`,
+    newTotal: `<td class="num">${wagesMoney(tot.newTotal)}</td>`,
+    change: `<td class="num">${tot.newTotal - tot.total > 0.005 ? '+' : ''}${wagesMoney(tot.newTotal - tot.total)}</td>`,
+  };
+  if (tot.n) html += '<tr class="total-row">' + cols.map((col) => totalsCell[col.key]).join('') + '</tr>';
+  document.getElementById('wagesRows').innerHTML = html || `<tr><td colspan="${cols.length}" class="wages-note">No active team members found in Xero Payroll.</td></tr>`;
+
+  const stat = (label, val, cls) => `<div class="stat ${cls || ''}">${label}<strong>${val}</strong></div>`;
+  const diff = tot.newTotal - tot.total;
+  document.getElementById('wagesStats').innerHTML =
+    stat('Team members', tot.n) +
+    stat('Yearly wages', wagesMoney(tot.yearly)) +
+    stat(`Super (${wagesSettings.superPct}%)`, wagesMoney(tot.super)) +
+    stat('Total cost', wagesMoney(tot.total)) +
+    (wagesScenarioOn ? stat('Scenario total', wagesMoney(tot.newTotal)) + stat('Extra cost / year', (diff > 0.005 ? '+' : '') + wagesMoney(diff) + (tot.total > 0 ? ` (${diff > 0.005 ? '+' : ''}${((diff / tot.total) * 100).toFixed(2)}%)` : ''), diff > 0.005 ? 's-red' : '') : '');
+
+  if (focusId) {
+    const el = document.querySelector(`[data-wfocus="${focusId}"]`);
+    if (el) { el.focus(); if (caret !== null) { try { el.setSelectionRange(caret, caret); } catch (e) {} } }
   }
 }
 
