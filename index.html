@@ -3791,7 +3791,7 @@ let wagesData = null;              // [{ id, name, basis, hourlyRate?, annualSal
 let wagesSettings = { hours: 38, weeks: 52, superPct: 12 };
 let wagesAdj = {};                 // id -> { dollar, pct, src: 'dollar'|'pct', dollarStr, pctStr }
 let wagesScenarioOn = false;
-let wagesSort = { field: 'name', dir: 'asc' };
+let wagesSort = { field: 'hourly', dir: 'desc' }; // highest hourly rate first by default
 let wagesOrder = [];               // employee ids in display order — only re-sorted on a header click / reload
 try {
   const saved = JSON.parse(localStorage.getItem(WAGES_SETTINGS_KEY) || 'null');
