@@ -651,7 +651,8 @@ body.app-ui {
   --shadow-card: 0 1px 3px rgba(0,0,0,.07), 0 1px 2px -1px rgba(0,0,0,.05);
   --shadow-pop: 0 20px 25px -5px rgba(0,0,0,.10), 0 8px 10px -6px rgba(0,0,0,.10);
   --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-num: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace; /* labels only */
+  --font-num: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; /* numbers: original app font */
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
@@ -659,7 +660,7 @@ body.app-ui {
 /* ---- Top bar ---- */
 body.app-ui .app-header { position: sticky; top: 0; z-index: 50; background: #0a0a0a; border-bottom: 1px solid #2a2a2a; }
 body.app-ui .app-header-inner { max-width: 1500px; margin: 0 auto; padding: 0 20px; height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-body.app-ui .app-name { font-family: var(--font-num); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #9a9ca5; border-left: 1px solid #2a2a2a; padding-left: 14px; white-space: nowrap; }
+body.app-ui .app-name { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #9a9ca5; border-left: 1px solid #2a2a2a; padding-left: 14px; white-space: nowrap; }
 @media (max-width: 860px) {
   body.app-ui .app-header-inner { height: auto; flex-direction: column; align-items: stretch; padding: 12px 16px; gap: 10px; }
   body.app-ui .app-name { display: none; }
@@ -689,7 +690,7 @@ body.app-ui .picker .results div:hover { background: var(--inset); }
 body.app-ui .debtors-header { flex-wrap: wrap; gap: 12px 20px; margin-bottom: 16px; }
 body.app-ui .debtors-header h2 { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
 body.app-ui .debtors-subtitle { font-weight: 400; }
-body.app-ui .sec-title { font-family: var(--font-num); font-size: 11px; font-weight: 500; letter-spacing: .12em; }
+body.app-ui .sec-title { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: .12em; }
 
 /* ---- Stat tiles ---- */
 body.app-ui .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 18px; box-shadow: var(--shadow-card); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); min-width: 120px; }
@@ -753,7 +754,7 @@ body.app-ui #billsView .btn:hover { background: var(--inset); }
 body.app-ui #billsView .dark { background: #0a0a0a; color: #fff; border-color: #0a0a0a; }
 body.app-ui #billsView .dark:hover { background: #262626; }
 body.app-ui #billsView .metric, body.app-ui #billsView .ccard, body.app-ui #billsView .sbox, body.app-ui #billsView .frow { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-card); }
-body.app-ui #billsView .mlbl { font-family: var(--font-num); letter-spacing: .1em; }
+body.app-ui #billsView .mlbl { font-family: var(--font-mono); letter-spacing: .1em; }
 body.app-ui #billsView .mval { font-family: var(--font-num); font-weight: 500; letter-spacing: -.02em; }
 body.app-ui #billsView .tbl th { border-bottom-color: var(--border); font-weight: 600; color: var(--muted); }
 body.app-ui #billsView .tbl td { border-bottom-color: var(--inset); }
@@ -769,7 +770,7 @@ body.app-ui #cashflowView { max-width: 1100px; margin: 24px auto 40px; padding: 
 body.app-ui #cashflowView .btn { padding: 8px 16px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); border-radius: 8px; font-family: inherit; font-weight: 500; cursor: pointer; box-shadow: var(--shadow-card); }
 body.app-ui #cashflowView .btn:hover:not(:disabled) { background: var(--inset); }
 body.app-ui #cashflowView .cf-card, body.app-ui #cashflowView .cf-scen-panel { border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); background: var(--surface); }
-body.app-ui #cashflowView .cf-card-title { font-family: var(--font-num); font-weight: 500; letter-spacing: .1em; }
+body.app-ui #cashflowView .cf-card-title { font-family: var(--font-mono); font-weight: 500; letter-spacing: .1em; }
 body.app-ui #cashflowView .cf-kpi { background: var(--inset); border-radius: 10px; }
 body.app-ui #cashflowView .cf-kpi-value, body.app-ui #cashflowView .cf-sl-val, body.app-ui #cashflowView .cf-d-amt, body.app-ui #cashflowView .cf-stat-val { font-family: var(--font-num); font-weight: 500; }
 body.app-ui #cashflowView .cf-kpi-value { font-size: 22px; }
