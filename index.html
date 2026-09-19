@@ -2299,6 +2299,10 @@ function isHiddenCustomer(name) {
   return !!hiddenCustomersMap[normName(name)];
 }
 
+function escHtml(t) {
+  return String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 async function loadHiddenCustomersMap() {
   try {
     const res = await fetch('/.netlify/functions/hidden-customers');
@@ -2313,6 +2317,7 @@ async function loadHiddenCustomersMap() {
 // reason — the UI shouldn't wait on a round-trip to reflect a toggle.
 async function setCustomerHidden(name, hidden, reason) {
   const key = normName(name);
+  const previous = hiddenCustomersMap[key];
   if (hidden) hiddenCustomersMap[key] = { reason: reason || '', hiddenAt: new Date().toISOString() };
   else delete hiddenCustomersMap[key];
   debtors = allDebtors.filter((d) => !isHiddenCustomer(d.name));
@@ -2327,7 +2332,16 @@ async function setCustomerHidden(name, hidden, reason) {
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Save failed (${res.status})`);
   } catch (err) {
+    // Put things back as they were — otherwise the customer looks unhidden
+    // (or hidden) until the next reload, when the server's copy quietly wins.
+    if (previous) hiddenCustomersMap[key] = previous;
+    else delete hiddenCustomersMap[key];
+    debtors = allDebtors.filter((d) => !isHiddenCustomer(d.name));
+    renderAll();
+    renderHiddenPanel();
     setDebtorsStatus(`Failed to save — try again: ${err.message}`, true);
+    // The status line lives on the Debtors tab only, so also say it out loud.
+    window.alert(`Couldn't ${hidden ? 'hide' : 'unhide'} "${name}" — ${err.message}. Nothing was changed; please try again.`);
   }
 }
 
@@ -2359,15 +2373,22 @@ function renderHiddenPanel() {
         const info = hiddenCustomersMap[key];
         const match = allDebtors.find((d) => normName(d.name) === key);
         const displayName = match ? match.name : key;
+        // No inline onclick: JSON.stringify's double quotes sat inside a
+        // double-quoted attribute, so the browser cut the handler off at
+        // "setCustomerHidden(" and Unhide silently did nothing. The name goes
+        // in a data attribute (escaped) and the handler is attached below.
         return '<div class="hidden-row">'
-          + '<div><strong>' + displayName + '</strong>'
-          + (info.reason ? '<div class="hidden-reason">' + info.reason.replace(/</g, '&lt;') + '</div>' : '')
+          + '<div><strong>' + escHtml(displayName) + '</strong>'
+          + (info.reason ? '<div class="hidden-reason">' + escHtml(info.reason) + '</div>' : '')
           + '</div>'
-          + '<button onclick="setCustomerHidden(' + JSON.stringify(displayName) + ', false)">Unhide</button>'
+          + '<button class="unhide-btn" data-name="' + escHtml(displayName) + '">Unhide</button>'
           + '</div>';
       }).join('');
   for (const list of document.querySelectorAll('.hidden-customers-list')) {
     list.innerHTML = html;
+    for (const btn of list.querySelectorAll('.unhide-btn')) {
+      btn.onclick = () => setCustomerHidden(btn.dataset.name, false);
+    }
   }
 }
 
