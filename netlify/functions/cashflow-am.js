@@ -86,12 +86,19 @@ function compactPurchaseOrder(p) {
 
 async function crawl(kind, cache, timeLeft) {
   const endpoint = kind === 'purchase_orders' ? 'purchase_orders' : 'orders';
-  const params = { 'pagination[page_size]': String(kind === 'purchase_orders' ? 100 : PAGE_SIZE), is_open: '1' };
+  const params = { 'pagination[page_size]': String(kind === 'purchase_orders' ? 100 : PAGE_SIZE) };
+  // orders accept is_open=1; purchase_orders may not (AM answers "field does not exist"), in
+  // which case we page everything and keep only the open ones when mapping.
+  if (kind === 'orders' || !cache.noOpenFilter) params.is_open = '1';
   let pages = 0;
   while (!cache.done && pages < MAX_PAGES && timeLeft() > 3500) {
     const p = { ...params };
     if (cache.cursor) p['pagination[last_id]'] = cache.cursor;
-    const data = await amGet(endpoint, p);
+    let data = await amGet(endpoint, p);
+    if (data.meta && data.meta.errors && data.meta.errors.length && kind === 'purchase_orders' && params.is_open) {
+      cache.noOpenFilter = true; delete params.is_open; delete p.is_open;
+      data = await amGet(endpoint, p);
+    }
     if (data.meta && data.meta.errors && data.meta.errors.length) {
       cache.error = data.meta.errors.join('; ').slice(0, 300);
       cache.done = true;
@@ -100,7 +107,11 @@ async function crawl(kind, cache, timeLeft) {
     const rows = data.response || [];
     pages++;
     if (kind === 'purchase_orders') {
-      if (!cache.sampleKeys && rows[0]) cache.sampleKeys = Object.keys(rows[0]).sort();
+      if (!cache.sampleKeys && rows[0]) {
+        cache.sampleKeys = Object.keys(rows[0]).sort();
+        // TEMPORARY diagnostic (removed once PO field mapping is confirmed): non-personal scalar fields only.
+        cache.sample = Object.fromEntries(Object.entries(rows[0]).filter(([k, v]) => v !== null && typeof v !== 'object' && /id$|date|status|open|amount|qty|balance|currency|term|number|^po|closed|void|received|type/i.test(k) && !/address|email|phone|note/i.test(k)));
+      }
       for (const r of rows) { const c = compactPurchaseOrder(r); if (c) cache.items.push(c); }
     } else {
       for (const r of rows) { const c = compactOrder(r); if (c) cache.items.push(c); }
@@ -149,6 +160,7 @@ exports.handler = async (event) => {
       items: cache.done ? cache.items : [],
       error: cache.error || null,
       sampleKeys: cache.sampleKeys || null,
+      sample: cache.sample || null,
     });
   } catch (err) {
     return json(500, { code: 'server_error', error: err.message });
