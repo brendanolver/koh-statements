@@ -20,7 +20,7 @@ const API_VERSION = '2024-07';
 const HISTORY_DAYS = 430;
 const WINDOW_DAYS = 7;
 const REREAD_DAYS = 14;
-const TIME_BUDGET_MS = 8000;
+const TIME_BUDGET_MS = Number(process.env.CASHFLOW_SHOPIFY_BUDGET_MS) || 8000;
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) };
@@ -63,23 +63,37 @@ const nextLink = (header) => {
   return null;
 };
 
-// All non-cancelled orders created in [fromIso-1d, toIso+1d] (a day of margin
-// each side so shop-timezone midnight never drops an order); the caller keeps
-// only those whose local date falls inside the window.
-async function fetchOrders(cfg, fromIso, toIso, timeLeft) {
-  const params = new URLSearchParams({
-    status: 'any', limit: '250', fields: 'id,created_at,cancelled_at,current_total_price',
-    created_at_min: `${addDays(fromIso, -1)}T00:00:00Z`, created_at_max: `${addDays(toIso, 1)}T23:59:59Z`,
-  });
-  const orders = [];
-  let resp = await shopifyGet(cfg, `/orders.json?${params}`);
+// Reads every non-cancelled order created in [fromIso-1d, toIso+1d] (a day of margin each
+// side so shop-timezone midnight never drops an order), adding the ones whose local date
+// falls inside [fromIso, toIso] into `part.daily`. A busy week (Black Friday: thousands of
+// orders) can't be read inside one time slice, so progress is kept in `part` (including
+// Shopify's next-page link) and the next invocation carries on from that page instead of
+// restarting the window. Returns true once the window is fully read.
+async function readWindow(cfg, fromIso, toIso, part, timeLeft) {
+  let url = part.next;
+  if (!url) {
+    const params = new URLSearchParams({
+      status: 'any', limit: '250', fields: 'id,created_at,cancelled_at,current_total_price',
+      created_at_min: `${addDays(fromIso, -1)}T00:00:00Z`, created_at_max: `${addDays(toIso, 1)}T23:59:59Z`,
+    });
+    url = `/orders.json?${params}`;
+  }
   for (;;) {
+    const resp = await shopifyGet(cfg, url);
     const body = await resp.json();
-    orders.push(...(body.orders || []));
+    for (const o of body.orders || []) {
+      if (o.cancelled_at) continue;
+      const day = String(o.created_at).slice(0, 10);
+      if (day < fromIso || day > toIso) continue;
+      const e = part.daily[day] || (part.daily[day] = [0, 0]);
+      e[0] = Math.round((e[0] + (Number(o.current_total_price) || 0)) * 100) / 100;
+      e[1] += 1;
+    }
     const next = nextLink(resp.headers.get('link'));
-    if (!next) return orders;
-    if (timeLeft() < 1500) return null; // ran out of time mid-window — redo it next slice
-    resp = await shopifyGet(cfg, next);
+    if (!next) { part.next = null; return true; }
+    part.next = next;
+    if (timeLeft() < 1500) return false;
+    url = next;
   }
 }
 
@@ -95,28 +109,25 @@ exports.handler = async (event) => {
     const from = addDays(today, -HISTORY_DAYS);
     const store = cashflowCacheStore();
     let cache = await store.get('shopify-daily', { type: 'json', consistency: 'strong' });
-    if (!cache || cache.from !== from && cache.from > from) cache = { from, through: null, daily: {} };
+    if (!cache || cache.from !== from && cache.from > from) cache = { from, through: null, daily: {}, partial: null };
 
     // Where to (re)start: the beginning on a first run, else 14 days before
     // what's already covered (recent orders get edited / refunded / cancelled).
-    let cursor = cache.through ? addDays(cache.through, -(REREAD_DAYS - 1)) : from;
+    // Mid-backfill: carry straight on (or resume the half-read window). Only once the whole
+    // history is in do we start each run 14 days back to pick up edits / refunds / cancels.
+    let cursor = cache.partial ? cache.partial.from : cache.through ? (cache.complete ? addDays(cache.through, -(REREAD_DAYS - 1)) : addDays(cache.through, 1)) : from;
     if (cursor < from) cursor = from;
     let windows = 0;
     try {
       while (cursor <= today && timeLeft() > 2500 && windows < 8) {
         const winEnd = addDays(cursor, WINDOW_DAYS - 1) > today ? today : addDays(cursor, WINDOW_DAYS - 1);
-        const orders = await fetchOrders(cfg, cursor, winEnd, timeLeft);
-        if (orders === null) break;
+        // Resume a half-read window if that's what the last slice left behind.
+        const part = cache.partial && cache.partial.from === cursor && cache.partial.to === winEnd ? cache.partial : { from: cursor, to: winEnd, daily: {}, next: null };
+        const finished = await readWindow(cfg, cursor, winEnd, part, timeLeft);
+        if (!finished) { cache.partial = part; break; }
         for (let d = cursor; d <= winEnd; d = addDays(d, 1)) delete cache.daily[d];
-        for (const o of orders) {
-          if (o.cancelled_at) continue;
-          const day = String(o.created_at).slice(0, 10);
-          if (day < cursor || day > winEnd) continue;
-          const v = Number(o.current_total_price) || 0;
-          const e = cache.daily[day] || (cache.daily[day] = [0, 0]);
-          e[0] = Math.round((e[0] + v) * 100) / 100;
-          e[1] += 1;
-        }
+        Object.assign(cache.daily, part.daily);
+        cache.partial = null;
         cache.through = winEnd;
         cursor = addDays(winEnd, 1);
         windows++;
@@ -126,6 +137,7 @@ exports.handler = async (event) => {
       const code = err.status === 401 || err.status === 403 ? 'shopify_not_authorised' : 'shopify_error';
       return json(200, { configured: true, error: { code, message: err.message }, done: false, through: cache.through, from });
     }
+    if (cache.through && cache.through >= today) cache.complete = true;
     await store.setJSON('shopify-daily', cache);
 
     const done = !!cache.through && cache.through >= today;
