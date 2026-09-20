@@ -28,7 +28,7 @@ function sanitise(doc) {
   const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po):[\w-]{1,80}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);
   if (dates.length) out.payDates = Object.fromEntries(dates);
   const st = doc && typeof doc.settings === 'object' && doc.settings ? doc.settings : {};
-  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'cashThreshold', 'onlineConversion']) {
+  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'cashThreshold', 'onlineConversion']) {
     const n = Number(st[k]);
     if (st[k] !== undefined && st[k] !== null && st[k] !== '' && Number.isFinite(n)) out.settings[k] = n;
   }

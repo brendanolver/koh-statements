@@ -244,9 +244,37 @@ test('tax bills (ATO / PAYG) are Other cash out, not stock', () => {
   assert.strictEqual(it.find((i) => i.meta.pid === 'ap:T1').line, 'otherOut'); assert.strictEqual(it.find((i) => i.meta.pid === 'ap:S1').line, 'stock');
   assert.ok(CFE.TAX_CONTACT_RE.test('Australian Taxation Office') && !CFE.TAX_CONTACT_RE.test('Patricia Mary Sexton'));
 });
-test('a foreign-currency PO with no exchange rate is reported, not silently dropped', () => {
-  const r = CFE.buildForecast(base({ amPOs: [{ id: 'P1', vendor: 'CHINA FACTORY', due: addDays(TODAY, 20), amount: 180000, cur: 'USD', amountAud: 0 }] }));
+test('a PO in a currency with no known rate is reported, not silently dropped', () => {
+  const r = CFE.buildForecast(base({ amPOs: [{ id: 'P1', vendor: 'EURO MILL', due: addDays(TODAY, 20), amount: 180000, cur: 'EUR' }] }));
   assert.strictEqual(r.scenarios.base.items.filter((i) => i.line === 'stock').length, 0);
-  const ex = r.scenarios.base.notes.excluded.find((e) => e.kind === 'PO with no exchange rate'); assert.ok(ex && ex.amount === 180000 && ex.currency === 'USD');
+  const ex = r.scenarios.base.notes.excluded.find((e) => e.kind === 'PO with no exchange rate'); assert.ok(ex && ex.amount === 180000 && ex.currency === 'EUR');
+  const r2 = CFE.buildForecast(base({ amPOs: [{ id: 'P1', vendor: 'EURO MILL', due: addDays(TODAY, 20), amount: 90000, cur: 'EUR' }], fx: { EUR: 0.6 } }));
+  near(r2.scenarios.base.items.find((i) => i.line === 'stock').amount, 150000, 0.5, 'EUR at 0.6 EUR per AUD');
+});
+test('USD POs convert at the USD-per-AUD setting; AUD POs are taken as-is', () => {
+  const r = CFE.buildForecast(base({ amPOs: [{ id: 'U1', vendor: 'FACTORY', due: addDays(TODAY, 20), amount: 66000, cur: 'USD', po: 'X1' }, { id: 'A1', vendor: 'LOCAL', due: addDays(TODAY, 20), amount: 5000, cur: 'AUD' }] }));
+  const it = r.scenarios.base.items.filter((i) => i.line === 'stock');
+  near(it.find((i) => i.label === 'FACTORY').amount, 100000, 0.5, '66000 / 0.66'); near(it.find((i) => i.label === 'LOCAL').amount, 5000);
+  const r2 = CFE.buildForecast(base({ amPOs: [{ id: 'U1', vendor: 'FACTORY', due: addDays(TODAY, 20), amount: 66000, cur: 'USD' }], settings: { usdPerAud: 0.5 } }));
+  near(r2.scenarios.base.items.find((i) => i.line === 'stock').amount, 132000, 0.5);
+});
+test('POs already past their ex-factory date are treated as billed (no double count with the Xero bill)', () => {
+  const r = CFE.buildForecast(base({
+    ap: [{ id: 'B1', number: 'INV-1', contact: 'GLAMOUR (CHINA) LTD', amountDueAud: 900000, currency: 'AUD', dueDate: addDays(TODAY, -60) }],
+    amPOs: [{ id: 'P1', vendor: 'Glamour (China) Ltd', due: addDays(TODAY, -10), amount: 594000, cur: 'USD', po: 'GL-1' }, { id: 'P2', vendor: 'Glamour (China) Ltd', due: addDays(TODAY, 40), amount: 66000, cur: 'USD', po: 'GL-2' }],
+  }));
+  const s = r.scenarios.base;
+  assert.ok(s.notes.excluded.some((e) => /past its ex-factory/.test(e.kind) && Math.round(e.amount) === 900000), 'the past PO is excluded, valued in AUD');
+  const pos = s.items.filter((i) => i.meta && i.meta.pid && i.meta.pid.startsWith('po:'));
+  assert.strictEqual(pos.length, 1); assert.strictEqual(pos[0].meta.pid, 'po:P2'); assert.strictEqual(pos[0].date, addDays(addDays(TODAY, 40), 30), 'ex-factory + PO terms');
+});
+test('a future PO that matches an open Xero bill (same supplier, ~same amount, or PO number on the bill) is not counted twice', () => {
+  const r = CFE.buildForecast(base({
+    ap: [{ id: 'B1', number: 'INV-77', reference: 'PO GL-9', contact: 'FACTORY A', amountDueAud: 50000, currency: 'AUD', dueDate: addDays(TODAY, 15) }, { id: 'B2', number: 'INV-78', contact: 'FACTORY B', amountDueAud: 30000, currency: 'AUD', dueDate: addDays(TODAY, 15) }],
+    amPOs: [{ id: 'P1', vendor: 'OTHER NAME', due: addDays(TODAY, 30), amount: 33000, cur: 'USD', po: 'GL-9' }, { id: 'P2', vendor: 'factory b', due: addDays(TODAY, 30), amount: 19700, cur: 'USD', po: 'ZZZ' }, { id: 'P3', vendor: 'FACTORY C', due: addDays(TODAY, 30), amount: 6600, cur: 'USD', po: 'CCC' }],
+  }));
+  const pids = r.scenarios.base.items.filter((i) => i.meta && i.meta.pid && i.meta.pid.startsWith('po:')).map((i) => i.meta.pid);
+  assert.deepStrictEqual(pids, ['po:P3']);
+  assert.strictEqual(r.scenarios.base.notes.excluded.filter((e) => e.kind === 'PO already billed in Xero').length, 2);
 });
 console.log(`\n${passed} passing${process.exitCode ? ' — with failures' : ''}`);

@@ -5980,19 +5980,14 @@ function cfBuildInput() {
   for (const [k, v] of Object.entries(termAcc)) termsByCustomer[k] = Math.round(v.reduce((a, b) => a + b, 0) / v.length);
 
   const conv = cfCalibrateConversion();
-  const amPOs = cf.am.pos ? cf.am.pos.map((p) => {
-    // Foreign-currency PO: the rate on an open bill in that currency, else the most recent one seen on a paid supplier bill.
-    const rate = p.cur === 'AUD' ? 1 : (x.fx[p.cur] || (cf.history && cf.history.fxRecent && cf.history.fxRecent[p.cur] && cf.history.fxRecent[p.cur].rate) || null);
-    const amountAud = rate ? p.amount / rate : 0;
-    // Already billed in Xero? (a bill referencing this PO, or the same supplier for ~the same amount)
-    const key = String(p.po || p.id).toLowerCase();
-    const dup = x.ap.some((b) => (key.length >= 4 && (`${b.number} ${b.reference}`).toLowerCase().includes(key))
-      || (b.contact.toUpperCase() === p.vendor.toUpperCase() && amountAud > 0 && Math.abs(b.amountDueAud - amountAud) / amountAud < 0.02));
-    return { ...p, amountAud, duplicateOfBill: dup };
-  }) : null;
+  // Currency conversion, the "already past ex-factory" rule and the Xero-bill de-duplication for
+  // purchase orders all live in the engine (unit-tested); this just hands over the raw POs and the
+  // exchange rates Xero has seen (foreign units per 1 AUD).
+  const fx = { ...((cf.history && cf.history.fxRecent) ? Object.fromEntries(Object.entries(cf.history.fxRecent).map(([k, v]) => [k, v.rate])) : {}), ...x.fx };
+  const amPOs = cf.am.pos || null;
 
   return {
-    today, cashToday: x.cashToday, ar: x.ar, ap: x.ap, amOrders: cf.am.orders || [], amPOs, termsByCustomer,
+    today, cashToday: x.cashToday, ar: x.ar, ap: x.ap, amOrders: cf.am.orders || [], amPOs, fx, termsByCustomer,
     shopify: cf.shopify && cf.shopify.daily && Object.keys(cf.shopify.daily).length ? { daily: cf.shopify.daily } : null,
     history: cf.history ? { stockPerWeek: cf.history.stockPerWeek, onlineReceiptsPerWeek: cf.history.receiptsPerWeek, otherOutPerWeek: cf.history.otherOutPerWeek, marketingPerWeek: cf.history.marketingPerWeek, conversion: conv } : null,
     overrides: cf.inputs.overrides || {}, payDates: cf.inputs.payDates || {}, settings,
@@ -6151,6 +6146,9 @@ function cfRenderWatch() {
   if (!cf.history) notes.push('Xero spending history unavailable — recurring costs (wages, marketing, tax) and typical supplier payments are not in the forecast.');
   else if (cf.history.stockPerWeek > 0) notes.push(`Stock payments beyond current bills/POs are estimated at the recent average of ${cfMoney(cf.history.stockPerWeek)}/week — enter Stock payments for specific months under Forecast inputs to override.`);
   else if (cf.src.suppliers) notes.push(`Supplier payment history couldn't be read (${cf.src.suppliers}) — future stock beyond current bills/POs is not estimated.`);
+  const pastPo = r.scenarios.base.notes.excluded.filter((e) => /past its ex-factory/.test(e.kind));
+  if (pastPo.length) notes.push(`${pastPo.length} open purchase order${pastPo.length === 1 ? '' : 's'} (${cfMoney(pastPo.reduce((a, e) => a + e.amount, 0))} AUD) are past their ex-factory date, so are treated as already billed in Xero and not counted twice.`);
+  if ((cf.am.pos || []).some((p) => p.cur === 'USD')) notes.push(`USD purchase orders are converted at ${r.settings.usdPerAud} USD per AUD (Apparel Magic has no usable rate) — change it under Forecast inputs.`);
   const noRate = r.scenarios.base.notes.excluded.filter((e) => /no exchange rate/.test(e.kind));
   if (noRate.length) notes.push(`${noRate.length} purchase order${noRate.length === 1 ? '' : 's'} in ${[...new Set(noRate.map((e) => e.currency))].join('/')} (${noRate.map((e) => e.label + ' ' + cfMoney(e.amount)).join(', ')}) left out — no exchange rate available. Enter the expected payment under Stock payments.`);
   const ex = r.scenarios.base.notes.excluded.filter((e) => /non-AUD/.test(e.kind));
@@ -6193,7 +6191,7 @@ function cfDrawChart() {
   const base = r.scenarios.base;
   const k = CFE.kpis(r, 'base', cf.view);
   const lowX = CFE.util.daysBetween(r.today, k.lowest.date);
-  const minX = xs[0];
+  const minX = Math.min(xs[0], -Math.ceil(H / 8)); // always leave room left of "today" (even before history has loaded)
   // Ticks: weekly boundaries, or month ends.
   const tickXs = [];
   if (cf.view === 'weeks13') { for (let x = Math.ceil(minX / 7) * 7; x <= H; x += 7) tickXs.push(x); }
@@ -6224,7 +6222,7 @@ function cfDrawChart() {
         ctx.font = '600 11.5px -apple-system, Helvetica, Arial, sans-serif'; ctx.fillStyle = col; ctx.textAlign = align || 'center'; ctx.textBaseline = above ? 'bottom' : 'top';
         ctx.fillText(text, px(vx), py(vy) + (above ? -10 : 10));
       };
-      dot(0, markers.cash, '#16181c'); label(0, markers.cash, `Today ${cfMoneyCompact(markers.cash)}`, '#16181c', true, 'right');
+      dot(0, markers.cash, '#16181c'); label(0, markers.cash, `Today ${cfMoneyCompact(markers.cash)}`, '#16181c', true, px(0) - a.left < 110 ? 'left' : 'right');
       if (markers.low.x > 0) { dot(markers.low.x, markers.low.y, '#d0021b'); label(markers.low.x, markers.low.y, markers.low.label, '#d0021b', false); }
       dot(markers.end.x, markers.end.y, '#0f5c4a'); label(markers.end.x, markers.end.y, markers.end.label, '#0f5c4a', true, 'right');
       ctx.restore();
@@ -6292,7 +6290,8 @@ function cfRenderInputs() {
     setRow('arLateDays', 'Customers pay after due date', st.arLateDays, 'days') +
     setRow('overdueCollectDays', 'Overdue receivables collected in', st.overdueCollectDays, 'days') +
     setRow('apOverduePayDays', 'Overdue bills paid in', st.apOverduePayDays, 'days') +
-    setRow('poTermsDays', 'PO paid after due date', st.poTermsDays, 'days') +
+    setRow('poTermsDays', 'POs paid after ex-factory date', st.poTermsDays, 'days') +
+    setRow('usdPerAud', 'USD per 1 AUD (for USD POs)', st.usdPerAud, '') +
     setRow('onlineConversion', `Shopify sales → cash (auto ${Math.round(r.conversion * 100)}%)`, cf.inputs.settings.onlineConversion ?? '', '%') + `</div>`;
 }
 

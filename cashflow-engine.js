@@ -38,7 +38,8 @@
     arLateDays: 7,            // wholesale invoices are typically paid this many days after due
     overdueCollectDays: 21,   // overdue receivables are assumed collected this many days from today
     apOverduePayDays: 7,      // overdue bills are assumed paid this many days from today
-    poTermsDays: 30,          // Apparel Magic purchase orders are assumed paid this long after the due date
+    poTermsDays: 30,          // Apparel Magic purchase orders are assumed paid this long after their ex-factory date
+    usdPerAud: 0.66,          // Apparel Magic has no usable exchange rate (its POs carry rate 1), so USD POs use this
     shipLateDays: 7,          // open orders already past their due date are assumed to ship this many days from today
     cashThreshold: 100000,    // "Cashflow Watch" warns when forecast cash drops below this
     onlineConversion: null,   // Shopify sales -> bank receipts; null = calibrate from Xero history
@@ -159,12 +160,23 @@
       push(TAX_CONTACT_RE.test(b.contact) ? 'otherOut' : 'stock', pay < tomorrow ? tomorrow : pay, b.amountDueAud, b.contact, 'Xero', 'confirmed', { doc: b.number, due: b.dueDate, overdue, currency: b.currency, pid, manualDate: !!manualDate });
     }
     for (const p of input.amPOs || []) {
-      if (p.duplicateOfBill) { notes.excluded.push({ kind: 'PO already billed in Xero', label: p.vendor, amount: p.amountAud }); continue; }
-      if (!(p.amountAud > 0)) { if (p.amount > 0) notes.excluded.push({ kind: 'PO with no exchange rate', label: p.vendor, amount: p.amount, currency: p.cur }); continue; }
+      // AM amounts are in the PO's own currency: convert USD at the setting, other currencies
+      // at a Xero rate if there is one, otherwise say so rather than guess.
+      const rate = !p.cur || p.cur === 'AUD' ? 1 : p.cur === 'USD' ? settings.usdPerAud : (input.fx && input.fx[p.cur]) || null;
+      const amountAud = p.amountAud !== undefined ? p.amountAud : (rate ? p.amount / rate : 0);
+      if (!(amountAud > 0)) { if (p.amount > 0) notes.excluded.push({ kind: 'PO with no exchange rate', label: p.vendor, amount: p.amount, currency: p.cur }); continue; }
+      // A PO whose ex-factory date has passed is (almost always) already shipped and billed —
+      // Xero holds that bill — so counting it too would double-count the same money.
+      if (p.due && p.due < today) { notes.excluded.push({ kind: 'PO past its ex-factory date (assumed billed in Xero)', label: p.vendor, amount: amountAud }); continue; }
+      const key = String(p.po || p.id).toLowerCase();
+      const billed = p.duplicateOfBill || (input.ap || []).some((b) => (key.length >= 4 && `${b.number} ${b.reference}`.toLowerCase().includes(key))
+        || (String(b.contact).toUpperCase() === String(p.vendor).toUpperCase() && Math.abs(b.amountDueAud - amountAud) / amountAud < 0.02));
+      if (billed) { notes.excluded.push({ kind: 'PO already billed in Xero', label: p.vendor, amount: amountAud }); continue; }
+      const p2 = { ...p, amountAud };
       const pid = 'po:' + p.id;
       const manualDate = input.payDates && input.payDates[pid];
-      const pay = manualDate || addDays(p.due < today ? today : p.due, settings.poTermsDays);
-      push('stock', pay < tomorrow ? tomorrow : pay, p.amountAud, p.vendor, 'Apparel Magic', 'confirmed', { doc: p.po || p.id, due: p.due, pid, manualDate: !!manualDate });
+      const pay = manualDate || addDays(p2.due || addDays(today, 30), settings.poTermsDays);
+      push('stock', pay < tomorrow ? tomorrow : pay, p2.amountAud, p.vendor, 'Apparel Magic', 'confirmed', { doc: p.po || p.id, due: p.due, pid, manualDate: !!manualDate, currency: p.cur });
     }
 
     // -- Stock we haven't been billed for yet. Known bills / POs only cover the
