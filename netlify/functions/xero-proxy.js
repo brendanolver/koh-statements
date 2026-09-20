@@ -30,7 +30,11 @@ exports.handler = async (event) => {
       },
     });
     const text = await resp.text();
-    const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const headers = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'Retry-After',
+    };
     // Xero's 429 rate-limit response has an empty body — the wait time is
     // only in this header, so hand it to the client.
     const retryAfter = resp.headers.get('retry-after');

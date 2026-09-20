@@ -1480,7 +1480,16 @@ async function fetchXeroJson(url) {
     }
     if (data !== null && !(res && res.status === 429)) return { res, data };
     if (attempt >= MAX_ATTEMPTS) {
-      if (res && res.status === 429) throw new Error('Xero rate limit reached (60 calls/min) — wait a minute and try again');
+      if (res && res.status === 429) {
+        const retryAfterSec = res && Number(res.headers.get('Retry-After'));
+        // Retry-After > 60 s means Xero's daily 5,000-call limit was hit
+        // (resets at midnight UTC), not just the 60-calls/min limit.
+        const isDaily = retryAfterSec > 60;
+        const hint = isDaily
+          ? `Daily Xero API limit reached — resets at midnight UTC (10 am AEST). Try again later.`
+          : `Xero rate limit reached (60 calls/min) — wait a minute and try again.`;
+        throw new Error(hint);
+      }
       throw new Error(networkErr ? networkErr.message : `Xero returned an empty response (${res ? res.status : 'no response'})`);
     }
     const retryAfter = res && Number(res.headers.get('Retry-After'));
