@@ -671,6 +671,7 @@
   .wages-hours-status a { color: var(--accent); font-weight: 600; }
   .wages-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; font-size: 10px; font-weight: 500; color: var(--muted); background: #f1f1ee; border-radius: 999px; }
   .wages-avg { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
+  .wages-fallback { color: var(--muted); font-style: italic; }
   .wages-note { color: var(--muted); font-size: 12px; font-style: italic; white-space: normal !important; }
   .wages-up { color: #b45309; font-weight: 600; }
   .wages-down { color: #1a7a3c; font-weight: 600; }
@@ -1326,13 +1327,13 @@ body.app-ui #cashflowView select { border-radius: 8px; }
         <label>Hours / week <input type="text" inputmode="decimal" id="wagesHours" oninput="onWagesSettingInput()"></label>
         <label>Weeks / year <input type="text" inputmode="decimal" id="wagesWeeks" oninput="onWagesSettingInput()"></label>
         <label>Super % <input type="text" inputmode="decimal" id="wagesSuper" oninput="onWagesSettingInput()"></label>
-        <label>Yearly wage uses
+        <label>Super, total &amp; scenarios use
           <select id="wagesBasis" onchange="onWagesBasisChange()">
             <option value="standard">standard hours</option>
             <option value="average">12-month average hours</option>
           </select>
         </label>
-        <span class="wages-hint">Yearly wage = hourly rate × hours × weeks. Super is calculated on the yearly wage.</span>
+        <span class="wages-hint">Yearly = hourly rate × hours × 52 weeks. Super is calculated on whichever yearly figure you pick on the left.</span>
       </div>
 
       <div id="wagesStats" class="stats"></div>
@@ -3845,6 +3846,10 @@ function wagesCalc(e) {
   const avgHours = e.avgWeeklyHours > 0 ? e.avgWeeklyHours : 0;
   const hoursUsed = e.basis === 'hourly' && wagesSettings.basis === 'average' && avgHours > 0 ? avgHours : hours;
   const yearly = hourly * hoursUsed * weeks;
+  // Both yearly figures are always available side by side; `yearly` (above) is
+  // whichever one the switch says super / total / scenarios should run off.
+  const yearlyStd = hourly * hours * weeks;
+  const yearlyAvg = e.basis === 'hourly' && avgHours > 0 ? hourly * avgHours * weeks : yearlyStd;
   const sup = yearly * (superPct / 100);
   const adj = wagesAdj[e.id];
   const dollar = adj ? adj.dollar : 0;
@@ -3852,7 +3857,7 @@ function wagesCalc(e) {
   const newHourly = hourly + dollar;
   const newYearly = newHourly * hoursUsed * weeks;
   const newSuper = newYearly * (superPct / 100);
-  return { hourly, avgHours, hoursUsed, weeksCounted: e.weeksCounted || 0, yearly, super: sup, total: yearly + sup, dollar, pct, newHourly, newYearly, newSuper, newTotal: newYearly + newSuper, change: (newYearly + newSuper) - (yearly + sup) };
+  return { hourly, avgHours, hoursUsed, weeksCounted: e.weeksCounted || 0, yearly, yearlyStd, yearlyAvg, super: sup, total: yearly + sup, dollar, pct, newHourly, newYearly, newSuper, newTotal: newYearly + newSuper, change: (newYearly + newSuper) - (yearly + sup) };
 }
 const wagesRated = () => (wagesData || []).filter((e) => e.basis);
 
@@ -3860,7 +3865,8 @@ const WAGES_COLUMNS = [
   { key: 'name', label: 'Team member', num: false },
   { key: 'hourly', label: 'Hourly rate', num: true },
   { key: 'avgHours', label: 'Avg hrs / wk', num: true },
-  { key: 'yearly', label: 'Yearly wage', num: true },
+  { key: 'yearlyStd', label: () => `Yearly (${wagesSettings.hours}h)`, num: true },
+  { key: 'yearlyAvg', label: 'Yearly (avg hrs)', num: true },
   { key: 'super', label: 'Super', num: true },
   { key: 'total', label: 'Total', num: true },
   { key: 'dollar', label: '+ $ / hr', num: true, scenario: true },
@@ -4114,10 +4120,10 @@ function renderWages() {
 
   const cols = WAGES_COLUMNS.filter((c) => wagesScenarioOn || !c.scenario);
   document.getElementById('wagesHead').innerHTML = '<tr>' + cols.map((c) =>
-    `<th class="${c.num ? 'num ' : ''}sortable" onclick="setWagesSort('${c.key}')">${c.label}<span class="sort-arrow">${wagesSort.field === c.key ? (wagesSort.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`).join('') + '</tr>';
+    `<th class="${c.num ? 'num ' : ''}sortable" onclick="setWagesSort('${c.key}')">${typeof c.label === 'function' ? c.label() : c.label}<span class="sort-arrow">${wagesSort.field === c.key ? (wagesSort.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`).join('') + '</tr>';
 
   const byId = new Map(wagesData.map((e) => [e.id, e]));
-  const tot = { yearly: 0, super: 0, total: 0, hourly: 0, newYearly: 0, newSuper: 0, newTotal: 0, newHourly: 0, dollar: 0, n: 0, hoursSum: 0, hoursN: 0 };
+  const tot = { yearly: 0, super: 0, total: 0, hourly: 0, newYearly: 0, newSuper: 0, newTotal: 0, newHourly: 0, dollar: 0, n: 0, hoursSum: 0, hoursN: 0, yearlyStd: 0, yearlyAvg: 0 };
   let html = '';
   for (const id of wagesOrder) {
     const e = byId.get(id);
@@ -4128,6 +4134,7 @@ function renderWages() {
     }
     const c = wagesCalc(e);
     if (c.avgHours) { tot.hoursSum += c.avgHours; tot.hoursN++; }
+    tot.yearlyStd += c.yearlyStd; tot.yearlyAvg += c.yearlyAvg;
     tot.n++; tot.yearly += c.yearly; tot.super += c.super; tot.total += c.total; tot.hourly += c.hourly;
     tot.newYearly += c.newYearly; tot.newSuper += c.newSuper; tot.newTotal += c.newTotal; tot.newHourly += c.newHourly;
     const adj = wagesAdj[id];
@@ -4139,7 +4146,8 @@ function renderWages() {
       name: `<td class="name-cell" style="cursor:default">${wagesEsc(e.name)}${tag}</td>`,
       hourly: `<td class="num">${wagesMoney(c.hourly)}</td>`,
       avgHours: `<td class="num" title="${c.avgHours ? `Averaged over ${c.weeksCounted} weeks with hours` : 'No payslip hours found yet'}">${c.avgHours ? c.avgHours.toFixed(1) : '—'}</td>`,
-      yearly: `<td class="num">${wagesMoney(c.yearly)}</td>`,
+      yearlyStd: `<td class="num">${wagesMoney(c.yearlyStd)}</td>`,
+      yearlyAvg: `<td class="num${e.basis === 'hourly' && !c.avgHours ? ' wages-fallback' : ''}"${e.basis === 'hourly' && !c.avgHours ? ` title="No payslip hours yet — showing the ${wagesSettings.hours}h figure"` : ''}>${wagesMoney(c.yearlyAvg)}</td>`,
       super: `<td class="num">${wagesMoney(c.super)}</td>`,
       total: `<td class="num emph-cell">${wagesMoney(c.total)}</td>`,
       dollar: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="d-${wagesEsc(id)}" value="${wagesEsc(dollarVal)}" placeholder="0.00" oninput="onWagesRowInput('${wagesEsc(id)}','dollar',this.value)"></td>`,
@@ -4159,7 +4167,8 @@ function renderWages() {
     name: `<td>Total${tot.n ? ` <span class="wages-tag">${tot.n} people</span>` : ''}</td>`,
     hourly: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.hourly))}</td>`,
     avgHours: `<td class="num">${tot.hoursN ? `<span class="wages-avg">avg</span> ${(tot.hoursSum / tot.hoursN).toFixed(1)}` : '—'}</td>`,
-    yearly: `<td class="num">${wagesMoney(tot.yearly)}</td>`,
+    yearlyStd: `<td class="num">${wagesMoney(tot.yearlyStd)}</td>`,
+    yearlyAvg: `<td class="num">${wagesMoney(tot.yearlyAvg)}</td>`,
     super: `<td class="num">${wagesMoney(tot.super)}</td>`,
     total: `<td class="num">${wagesMoney(tot.total)}</td>`,
     dollar: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.newHourly - tot.hourly))}</td>`,
@@ -4177,7 +4186,7 @@ function renderWages() {
   const diff = tot.newTotal - tot.total;
   document.getElementById('wagesStats').innerHTML =
     stat('Team members', tot.n) +
-    stat('Yearly wages', wagesMoney(tot.yearly)) +
+    stat(wagesSettings.basis === 'average' ? 'Yearly wages (avg hrs)' : `Yearly wages (${wagesSettings.hours}h)`, wagesMoney(tot.yearly)) +
     stat(`Super (${wagesSettings.superPct}%)`, wagesMoney(tot.super)) +
     stat('Total cost', wagesMoney(tot.total)) +
     (wagesScenarioOn ? stat('Scenario total', wagesMoney(tot.newTotal)) + stat('Extra cost / year', (diff > 0.005 ? '+' : '') + wagesMoney(diff) + (tot.total > 0 ? ` (${diff > 0.005 ? '+' : ''}${((diff / tot.total) * 100).toFixed(2)}%)` : ''), diff > 0.005 ? 's-red' : '') : '');
