@@ -34,21 +34,31 @@ test('overdue receivable / bill get the "collect / pay from today" rule', () => 
 });
 
 console.log('De-duplication');
-test('online-contact receivables, non-AUD receivables/orders and already-billed POs are not counted', () => {
+test('online-contact receivables and already-billed POs are not counted; NZD receivables/orders ARE, converted to AUD', () => {
   const r = CFE.buildForecast(base({
     ar: [
       { id: '1', contact: 'ONLINE SALES', amountDue: 9000, currency: 'AUD', dueDate: addDays(TODAY, 3), online: true },
-      { id: '2', contact: 'KIWI STORE', amountDue: 8000, currency: 'NZD', dueDate: addDays(TODAY, 3), online: false },
+      { id: '2', contact: 'KIWI STORE', amountDue: 1210, currency: 'NZD', rate: 1.21, dueDate: addDays(TODAY, 3), online: false },
       { id: '3', contact: 'REAL CUSTOMER', amountDue: 1000, currency: 'AUD', dueDate: addDays(TODAY, 3), online: false },
     ],
-    amOrders: [{ id: 'o1', cid: '9', cn: 'NZ CUSTOMER', po: 'X', cur: 'NZD', gst: 0.15, lines: [{ d: addDays(TODAY, 20), v: 7000 }] }],
+    amOrders: [{ id: 'o1', cid: '9', cn: 'NZ CUSTOMER', po: 'X', cur: 'NZD', gst: 0.15, lines: [{ d: addDays(TODAY, 20), v: 1210 }] }],
     amPOs: [{ id: 'p1', vendor: 'FACTORY', due: addDays(TODAY, 30), amountAud: 50000, duplicateOfBill: true }, { id: 'p2', vendor: 'FACTORY2', due: addDays(TODAY, 30), amountAud: 20000 }],
   }));
   const s = r.scenarios.base;
-  near(s.items.filter((i) => i.line === 'wholesale').reduce((a, i) => a + i.amount, 0), 1000);
+  const wh = s.items.filter((i) => i.line === 'wholesale');
+  near(wh.find((i) => i.label === 'KIWI STORE').amount, 1000, 0.01, "NZ$1,210 at the invoice's own rate 1.21 = A$1,000");
+  near(wh.find((i) => i.label === 'NZ CUSTOMER').amount, 1210 / 1.21 * 1.15, 0.01, 'AM NZD order: ex-GST NZ$1,210 -> A$1,000 at the NZD setting, + 15% GST');
+  near(wh.reduce((a, i) => a + i.amount, 0), 1000 + 1000 + 1150, 0.01);
   near(s.items.filter((i) => i.line === 'stock').reduce((a, i) => a + i.amount, 0), 20000);
-  assert.strictEqual(s.notes.excluded.length, 4);
-  assert.ok(s.notes.excluded.some((e) => e.kind === 'PO already billed in Xero'));
+  assert.deepStrictEqual(s.notes.excluded.map((e) => e.kind).sort(), ['PO already billed in Xero', 'online-contact receivable']);
+});
+test('NZD uses a Xero rate when one is known, else the setting; an unknown currency is reported not dropped', () => {
+  const inv = (cur) => ({ id: cur, contact: 'C', amountDue: 1000, currency: cur, dueDate: addDays(TODAY, 3), online: false });
+  const r = CFE.buildForecast(base({ ar: [inv('NZD'), inv('CAD')], fx: { NZD: 1.1 } }));
+  near(r.scenarios.base.items.find((i) => i.line === 'wholesale').amount, 1000 / 1.1, 0.01);
+  assert.ok(r.scenarios.base.notes.excluded.some((e) => e.kind === 'receivable with no exchange rate' && e.currency === 'CAD'));
+  const r2 = CFE.buildForecast(base({ ar: [inv('NZD')], settings: { nzdPerAud: 1.25 } }));
+  near(r2.scenarios.base.items.find((i) => i.line === 'wholesale').amount, 800, 0.01);
 });
 test('AM open order counts only its open (unshipped) balance, once, with GST added', () => {
   const r = CFE.buildForecast(base({
@@ -276,5 +286,99 @@ test('a future PO that matches an open Xero bill (same supplier, ~same amount, o
   const pids = r.scenarios.base.items.filter((i) => i.meta && i.meta.pid && i.meta.pid.startsWith('po:')).map((i) => i.meta.pid);
   assert.deepStrictEqual(pids, ['po:P3']);
   assert.strictEqual(r.scenarios.base.notes.excluded.filter((e) => e.kind === 'PO already billed in Xero').length, 2);
+});
+
+console.log('Amex statement timing');
+const cardsFx = (extra = {}) => base({
+  history: { marketingPerWeek: 7000 }, // $1,000 a day of card spend, all on the cards below
+  cards: [
+    { id: 'A', name: 'Amex Platinum Bus', last4: '1003', owed: 48000, recentCharges: [{ date: '2026-09-01', amount: 48000 }] },
+    { id: 'B', name: 'Amex Platinum #001', last4: '1000', owed: 171000, recentCharges: [{ date: '2026-09-10', amount: 60000 }] },
+  ],
+  cardShares: { marketing: { A: 0.5, B: 0.5 } }, ...extra,
+});
+test('card 1003 closes on the 25th and is paid on the 19th of the NEXT month; 1000 closes on the 5th and is paid on the 29th of the SAME month', () => {
+  const r = CFE.buildForecast(cardsFx());
+  const pay = (id) => r.scenarios.base.items.filter((i) => i.line === 'cards' && i.meta.card === id).sort((a, b) => (a.date < b.date ? -1 : 1));
+  const a = pay('A'), b = pay('B');
+  // 1003: nothing outstanding on the Aug-25 statement (all 48k is the open cycle). Sep-25 close: 48,000 + 5 days x $500 = 50,500, due 19 Oct.
+  assert.strictEqual(a[0].date, '2026-10-19'); near(a[0].amount, 48000 + 5 * 500, 0.5); assert.strictEqual(a[0].status, 'assumption');
+  // next: owed after that payment = charges 26 Sep..19 Oct (24 x 500 = 12,000); + 6 days to the 25 Oct close = 15,000; due 19 Nov
+  assert.strictEqual(a[1].date, '2026-11-19'); near(a[1].amount, 24 * 500 + 6 * 500, 0.5);
+  // 1000: the Sep-5 statement is 171,000 owed less 60,000 charged since = 111,000, already closed, due 29 Sep (confirmed)
+  assert.strictEqual(b[0].date, '2026-09-29'); near(b[0].amount, 111000, 0.5); assert.strictEqual(b[0].status, 'confirmed');
+  // then the 5 Oct close: 60,000 + 15 days x $500 = 67,500 — due 29 Oct (same month)
+  assert.strictEqual(b[1].date, '2026-10-29'); near(b[1].amount, 60000 + 15 * 500, 0.5);
+  assert.strictEqual(b[2].date, '2026-11-29');
+});
+test('card spend does NOT reduce bank cash until the statement is due', () => {
+  const r = CFE.buildForecast(cardsFx());
+  // before any statement is paid, bank balance is untouched by the marketing spend
+  near(bal(r, 'base', '2026-09-28'), 100000);
+  near(bal(r, 'base', '2026-09-29'), 100000 - 111000, 0.5, '1000 statement leaves on the 29th');
+  near(bal(r, 'base', '2026-10-18'), 100000 - 111000, 0.5, 'still nothing else until 1003 is due');
+  near(bal(r, 'base', '2026-10-19'), 100000 - 111000 - 48000 - 2500, 0.5);
+});
+test('Cash out reconciles: gross spend + Amex payments - card spend charged = what leaves the bank', () => {
+  const r = CFE.buildForecast(cardsFx()); const s = r.scenarios.base;
+  const total = (l) => s.flows[l].reduce((a, v) => a + v, 0);
+  near(total('cardCredit'), -total('marketing'), 0.5, 'all marketing spend is on the cards');
+  for (let i = 1; i < s.dates.length; i++) near(s.outflow[i], s.flows.stock[i] + s.flows.marketing[i] + s.flows.otherOut[i] + s.flows.cards[i] + s.flows.cardCredit[i], 0.001);
+  const wk = CFE.buckets(r, 'weeks13')[1]; // week of 28 Sep..4 Oct includes the 29 Sep 111k payment
+  near(wk.byScenario.base.out, 111000, 0.5, 'marketing bank-portion is nil this week; only the Amex payment leaves');
+  const e = CFE.explain(r, 'base', 'cards', wk.start, wk.end); assert.strictEqual(e.rows.length, 1); assert.ok(/1000/.test(e.rows[0].label)); assert.strictEqual(e.rows[0].pid, 'card:B:2026-09-05');
+});
+test('an already-overdue statement is paid within the "overdue bills" window; a manual date moves any statement', () => {
+  const inp = base({ cards: [{ id: 'A', name: 'Amex', last4: '1003', owed: 100000, recentCharges: [{ date: '2026-09-02', amount: 20000 }] }] });
+  const r = CFE.buildForecast(inp);
+  const it = r.scenarios.base.items.find((i) => i.line === 'cards');
+  near(it.amount, 80000, 0.5); assert.strictEqual(it.meta.overdue, true); assert.strictEqual(it.date, addDays(TODAY, 7));
+  const r2 = CFE.buildForecast({ ...inp, payDates: { 'card:A:2026-08-25': '2026-10-05' } });
+  assert.strictEqual(r2.scenarios.base.items.find((i) => i.line === 'cards').date, '2026-10-05');
+});
+test('card terms are editable per card and merge over the defaults', () => {
+  const s = CFE.mergeSettings({ cardTerms: { '1003': { closeDay: 20 } } });
+  assert.deepStrictEqual(s.cardTerms['1003'], { closeDay: 20, dueDay: 19, dueMonthOffset: 1 }); assert.deepStrictEqual(s.cardTerms['1000'], { closeDay: 5, dueDay: 29, dueMonthOffset: 0 });
+});
+test('with no cards configured nothing changes (marketing hits cash as it is spent)', () => {
+  const r = CFE.buildForecast(base({ history: { marketingPerWeek: 7000 } }));
+  near(bal(r, 'base', addDays(TODAY, 7)), 100000 - 7000, 0.5);
+});
+
+console.log('Online growth targets vs last year');
+const lyDaily = () => { const d = {}; for (let i = 1; i <= 435; i++) { const day = addDays(TODAY, -i); d[day] = [day.startsWith('2025-11') ? 1000 : 500, 10]; } return d; };
+test('a monthly target = last year\'s same month x (1 + target%), landing exactly on that number', () => {
+  const r = CFE.buildForecast(base({ shopify: { daily: lyDaily() }, history: { conversion: 1 }, onlineTargets: { '2026-11': 20 } }));
+  const nov = Object.entries(r.shopifyFc.perDay).filter(([d]) => d.startsWith('2026-11')).reduce((a, [, v]) => a + v, 0);
+  near(nov, 30 * 1000 * 1.2, 1, 'Nov 2025 = $30,000 -> +20% = $36,000');
+  assert.strictEqual(r.shopifyFc.targetInfo['2026-11'].applied, true); near(r.shopifyFc.targetInfo['2026-11'].ly, 30000, 0.01);
+  const it = r.scenarios.base.items.find((i) => i.line === 'online' && i.date.startsWith('2026-11'));
+  assert.ok(/\+20% target vs last year/.test(it.label) && it.source === 'Shopify');
+  const sums = (scn) => r.scenarios[scn].items.filter((i) => i.line === 'online' && i.date.startsWith('2026-11')).reduce((a, i) => a + i.amount, 0);
+  near(sums('base'), 36000, 1); near(sums('worst'), 36000 * 0.85, 1); near(sums('best'), 36000 * 1.15, 1);
+});
+test('months without a target keep the trend method; a target of 0% means "same as last year"; negative targets work', () => {
+  const r = CFE.buildForecast(base({ shopify: { daily: lyDaily() }, history: { conversion: 1 }, onlineTargets: { '2026-11': 0, '2026-12': -25 } }));
+  const m = (mk) => Object.entries(r.shopifyFc.perDay).filter(([d]) => d.startsWith(mk)).reduce((a, [, v]) => a + v, 0);
+  near(m('2026-11'), 30000, 1); near(m('2026-12'), 31 * 500 * 0.75, 1);
+  assert.strictEqual(r.shopifyFc.targetInfo['2026-10'], undefined, 'no target set for October');
+});
+test('the current month applies the target to the rest of the month; a month last year can\'t cover is reported and falls back', () => {
+  const r = CFE.buildForecast(base({ shopify: { daily: lyDaily() }, history: { conversion: 1 }, onlineTargets: { '2026-09': 10 } }));
+  near(r.shopifyFc.targetInfo['2026-09'].sales, 30 * 500 * 1.1, 1);
+  const thin = {}; for (let i = 1; i <= 100; i++) thin[addDays(TODAY, -i)] = [500, 5];
+  const r2 = CFE.buildForecast(base({ shopify: { daily: thin }, history: { conversion: 1 }, onlineTargets: { '2026-11': 20 } }));
+  assert.strictEqual(r2.shopifyFc.targetInfo['2026-11'].applied, false);
+});
+test('a manual monthly dollar override still beats a target', () => {
+  const r = CFE.buildForecast(base({ shopify: { daily: lyDaily() }, history: { conversion: 1 }, onlineTargets: { '2026-11': 20 }, overrides: { online: { '2026-11': 1700000 } } }));
+  const c = CFE.monthCell(r, 'base', 'online', '2026-11'); assert.strictEqual(c.source, 'Manual'); near(c.value, 1700000, 1); near(c.system, 36000, 1);
+});
+
+console.log('Loan balance from a balance-sheet report');
+test('finds the Lumi loan row anywhere in the report', () => {
+  const report = { Reports: [{ Rows: [{ RowType: 'Header', Cells: [] }, { RowType: 'Section', Title: 'Liabilities', Rows: [{ RowType: 'Row', Cells: [{ Value: 'Trade Creditors' }, { Value: '1,242,519.00' }] }, { RowType: 'Section', Title: 'Non-current', Rows: [{ RowType: 'Row', Cells: [{ Value: 'Lumi Business Loan' }, { Value: '350,000.00' }] }] }] }] }] };
+  assert.deepStrictEqual(CFE.findLoanBalance(report, /lumi/i), { name: 'Lumi Business Loan', balance: 350000 });
+  assert.strictEqual(CFE.findLoanBalance(report, /westpac/i), null); assert.strictEqual(CFE.findLoanBalance({}, /lumi/i), null);
 });
 console.log(`\n${passed} passing${process.exitCode ? ' — with failures' : ''}`);

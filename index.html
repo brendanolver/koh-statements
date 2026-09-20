@@ -566,6 +566,15 @@
 #cashflowView .cfx-status { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 #cashflowView .cfx-banner { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; background: #fff4f2; border: 1px solid #f3c7c3; color: #8a1f14; font-size: 13.5px; line-height: 1.5; }
 #cashflowView .cfx-banner b { font-weight: 700; }
+#cashflowView .cfx-accounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px; margin: -6px 0 18px; }
+#cashflowView .cfx-acct { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; display: block; }
+#cashflowView .cfx-acct-name { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
+#cashflowView .cfx-acct-name em { font-style: normal; font-size: 10.5px; color: #9aa0a8; }
+#cashflowView .cfx-acct-val { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+#cashflowView .cfx-acct-sub { font-size: 10.5px; color: var(--muted); margin-top: 3px; line-height: 1.35; }
+#cashflowView .cfx-acct-sum { background: #f7f7f4; }
+#cashflowView .cfx-acct-amex .cfx-acct-val { color: #b45309; }
+#cashflowView .cfx-acct input { width: 110px; padding: 3px 6px; font-size: 14px; font-weight: 600; text-align: right; border: 1px solid var(--border); border-radius: 6px; margin-top: 2px; }
 #cashflowView .cfx-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 #cashflowView .cfx-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #cashflowView .cfx-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
@@ -1388,6 +1397,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
   <div id="cfBanner" class="cfx-banner" style="display:none"></div>
 
   <div class="cfx-kpis" id="cfKpis"></div>
+  <div class="cfx-accounts" id="cfAccounts"></div>
 
   <div class="cfx-card">
     <div class="cfx-card-head">
@@ -5730,7 +5740,8 @@ const CF_SCEN_COLOURS = { worst: '#d0021b', base: '#0f5c4a', best: '#2e9e6b' };
 const cf = {
   loading: false, updatedAt: null,
   view: 'weeks13', scen: 'base',
-  inputs: { overrides: {}, settings: {}, payDates: {} },
+  inputs: { overrides: {}, settings: {}, payDates: {}, targets: { online: {} } },
+  loan: null,            // { name, balance, source } — the Lumi loan, from Xero's balance sheet when permitted
   xero: null,            // { cashToday, ar[], ap[], aud ids }
   history: null,         // { receiptsPerWeek, spendPerWeek, marketingPerWeek, topSpend[], weeks }
   am: { orders: null, pos: null, status: {}, },
@@ -5781,36 +5792,40 @@ async function cfXeroAll(path, where, key, extra) {
   return all;
 }
 
-async function cfBankSummary(fromISO, toISO, ids) {
+// Every account row in Xero's BankSummary for the period (id, name, closing balance).
+async function cfBankSummaryRows(fromISO, toISO) {
   const data = await cfXero({ path: 'Reports/BankSummary', fromDate: fromISO, toDate: toISO });
   const rows = (data.Reports && data.Reports[0] && data.Reports[0].Rows) || [];
-  let closing = 0;
+  const out = [];
   for (const section of rows) {
     if (section.RowType !== 'Section') continue;
     for (const row of section.Rows || []) {
       if (row.RowType !== 'Row') continue;
       const cells = row.Cells || [];
       const acct = cells[0] && cells[0].Attributes && cells[0].Attributes.find((a) => a.Id === 'accountID');
-      if (!acct || !ids.has(acct.Value)) continue; // AUD accounts only — never add NZD/USD into an AUD total
-      closing += parseFloat(cells[4] && cells[4].Value) || 0;
+      if (acct) out.push({ id: acct.Value, name: cells[0].Value, closing: parseFloat(cells[4] && cells[4].Value) || 0 });
     }
   }
-  return closing;
+  return out;
+}
+// Combined closing balance of a set of accounts (never mixes NZD/USD into an AUD total).
+async function cfBankSummary(fromISO, toISO, ids) {
+  return (await cfBankSummaryRows(fromISO, toISO)).filter((r) => ids.has(r.id)).reduce((a, r) => a + r.closing, 0);
 }
 
 async function cfLoadXeroCore() {
   const today = cfToday();
   const accts = (await cfXero({ path: 'Accounts', where: 'Type=="BANK" && Status=="ACTIVE" && CurrencyCode=="AUD"' })).Accounts || [];
   const ids = new Set(accts.map((a) => a.AccountID));
-  const [cashToday, arRaw, apRaw] = await Promise.all([
-    cfBankSummary(CFE.util.addDays(today, -6), today, ids),
+  const [summaryRows, arRaw, apRaw] = await Promise.all([
+    cfBankSummaryRows(CFE.util.addDays(today, -6), today),
     cfXeroAll('Invoices', 'Type=="ACCREC" && AmountDue>0', 'Invoices', { summaryOnly: 'true' }),
     cfXeroAll('Invoices', 'Type=="ACCPAY" && AmountDue>0', 'Invoices', { summaryOnly: 'true' }),
   ]);
   const fx = {}; // AUD-per-foreign helper: Xero's CurrencyRate is foreign units per 1 AUD
   const ar = arRaw.map((i) => ({
     id: i.InvoiceID, number: i.InvoiceNumber, contact: (i.Contact && i.Contact.Name) || 'Unknown',
-    amountDue: i.AmountDue || 0, currency: i.CurrencyCode || 'AUD', dueDate: cfIso(i.DueDate), invoiceDate: cfIso(i.Date),
+    amountDue: i.AmountDue || 0, currency: i.CurrencyCode || 'AUD', rate: i.CurrencyRate || null, dueDate: cfIso(i.DueDate), invoiceDate: cfIso(i.Date),
     online: CF_ONLINE_CONTACT_RE.test((i.Contact && i.Contact.Name) || ''),
   })).filter((i) => i.dueDate);
   const ap = apRaw.map((i) => {
@@ -5820,7 +5835,17 @@ async function cfLoadXeroCore() {
     return { id: i.InvoiceID, number: i.InvoiceNumber, reference: i.Reference || '', contact: (i.Contact && i.Contact.Name) || 'Unknown', amountDueAud: aud, currency: cur, dueDate: cfIso(i.DueDate) };
   }).filter((i) => i.dueDate);
   for (const i of arRaw) if (i.CurrencyCode && i.CurrencyCode !== 'AUD' && i.CurrencyRate) fx[i.CurrencyCode] = i.CurrencyRate;
-  cf.xero = { today, cashToday, ar, ap, ids, fx };
+  // Bank accounts vs credit cards (Xero marks cards CREDITCARD and gives the last 4 digits as the
+  // account number). "Cash today" is BANK cash only; each card's balance is what we OWE on it and
+  // is paid on the statement due dates (see the Amex logic in the engine).
+  const accounts = accts.map((a) => ({
+    id: a.AccountID, name: a.Name, type: a.BankAccountType || 'BANK', last4: String(a.BankAccountNumber || '').replace(/\D/g, '').slice(-4),
+    closing: (summaryRows.find((r) => r.id === a.AccountID) || { closing: 0 }).closing,
+  }));
+  const cashToday = accounts.filter((a) => a.type !== 'CREDITCARD').reduce((t, a) => t + a.closing, 0);
+  const cards = accounts.filter((a) => a.type === 'CREDITCARD').map((a) => ({ id: a.id, name: a.name, last4: a.last4, owed: -a.closing }));
+  const bankIds = new Set(accounts.filter((a) => a.type !== 'CREDITCARD').map((a) => a.id));
+  cf.xero = { today, cashToday, accounts, cards, ar, ap, ids, bankIds, fx };
 }
 
 // 13 weeks of direct bank activity on the AUD accounts (BankSummary reconciles
@@ -5829,7 +5854,7 @@ async function cfLoadXeroCore() {
 // everything that is NOT a supplier bill payment: marketing, wages, tax, rent,
 // card spend. Bill payments are handled from Xero bills' due dates instead.
 async function cfLoadHistory() {
-  const cachedHistory = cfCacheGet('history_' + cf.xero.today, 15 * 60 * 1000);
+  const cachedHistory = cfCacheGet('history2_' + cf.xero.today, 15 * 60 * 1000);
   if (cachedHistory) { cf.history = cachedHistory; return; }
   const { today, ids } = cf.xero;
   const from = CFE.util.addDays(today, -CF_HISTORY_WEEKS * 7);
@@ -5848,6 +5873,28 @@ async function cfLoadHistory() {
     if (isMkt) marketing += amt;
     const e = byContact.get(name) || { name, amount: 0, marketing: isMkt };
     e.amount += amt; byContact.set(name, e);
+  }
+  // How much of the marketing / other spend goes on each card, and each card's recent charges (used to
+  // split its balance into the closed statement vs the open cycle).
+  const cardIds = new Set(cf.xero.cards.map((c) => c.id));
+  const cardSpend = {}, cardCharges = {};
+  let mktAll = 0, otherAll = 0;
+  for (const t of s) {
+    const isMkt = CF_MARKETING_RE.test((t.Contact && t.Contact.Name) || '');
+    const amt = t.Total || 0;
+    if (isMkt) mktAll += amt; else otherAll += amt;
+    const acct = t.BankAccount.AccountID;
+    if (cardIds.has(acct)) {
+      const c = cardSpend[acct] || (cardSpend[acct] = { marketing: 0, other: 0 });
+      if (isMkt) c.marketing += amt; else c.other += amt;
+      (cardCharges[acct] = cardCharges[acct] || []).push({ date: cfIso(t.Date), amount: amt });
+    }
+  }
+  const cardShares = { marketing: {}, otherOut: {} };
+  for (const id of cardIds) {
+    const c = cardSpend[id] || { marketing: 0, other: 0 };
+    cardShares.marketing[id] = mktAll > 0 ? c.marketing / mktAll : 0;
+    cardShares.otherOut[id] = otherAll > 0 ? c.other / otherAll : 0;
   }
   const receipts = r.reduce((a, t) => a + (t.Total || 0), 0);
   // Supplier bill payments live on the bills themselves (they are not bank
@@ -5881,14 +5928,14 @@ async function cfLoadHistory() {
     }
   } catch (e) { cf.src.suppliers = e.message; supplierTotal = 0; }
   cf.history = {
-    fxRecent, supplierTotal, taxTotal, stockPerWeek: supplierTotal / CF_HISTORY_WEEKS,
+    cardShares, cardCharges, fxRecent, supplierTotal, taxTotal, stockPerWeek: supplierTotal / CF_HISTORY_WEEKS,
     topSuppliers: [...bySupplier.entries()].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount).slice(0, 10),
     weeks: CF_HISTORY_WEEKS, from, receiptsTotal: receipts, spendTotal, marketingTotal: marketing,
     receiptsPerWeek: receipts / CF_HISTORY_WEEKS, marketingPerWeek: marketing / CF_HISTORY_WEEKS, otherOutPerWeek: (spendTotal - marketing) / CF_HISTORY_WEEKS,
     topSpend: [...byContact.values()].sort((a, b) => b.amount - a.amount).slice(0, 12),
   };
   // Only cache a complete picture — never a run where the supplier payments failed to load.
-  if (!cf.src.suppliers) cfCacheSet('history_' + today, cf.history);
+  if (!cf.src.suppliers) cfCacheSet('history2_' + today, cf.history);
 }
 
 // Closing balances for the chart's "actual" line — one BankSummary call per
@@ -5896,8 +5943,8 @@ async function cfLoadHistory() {
 async function cfEnsureHistory(view) {
   const kind = view === 'weeks13' ? 'weekly' : 'monthly';
   if (cf.hist[kind] || !cf.xero) return;
-  const { today, ids } = cf.xero;
-  const cachedHist = cfCacheGet(`hist_${kind}_${today}`, 6 * 3600 * 1000);
+  const { today, bankIds: ids } = cf.xero;
+  const cachedHist = cfCacheGet(`hist2_${kind}_${today}`, 6 * 3600 * 1000);
   if (cachedHist) { cf.hist[kind] = cachedHist; return; }
   const jobs = [];
   if (kind === 'weekly') {
@@ -5915,7 +5962,7 @@ async function cfEnsureHistory(view) {
     }
   }));
   cf.hist[kind] = out.sort((a, b) => (a.to < b.to ? -1 : 1));
-  if (jobs.length === out.length) cfCacheSet(`hist_${kind}_${today}`, cf.hist[kind]);
+  if (jobs.length === out.length) cfCacheSet(`hist2_${kind}_${today}`, cf.hist[kind]);
 }
 
 // ── Apparel Magic / Shopify ──────────────────────────────────────────────────
@@ -5963,8 +6010,8 @@ async function cfLoadInputs() {
   try {
     const res = await fetch('/.netlify/functions/cashflow-inputs');
     const doc = await res.json();
-    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {} };
-  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {} }; }
+    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {}, targets: { online: (doc.targets && doc.targets.online) || {} } };
+  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {}, targets: { online: {} } }; }
 }
 function cfSaveInputsDebounced() {
   document.getElementById('cfSaveState').textContent = 'Saving…';
@@ -6004,6 +6051,9 @@ function cfBuildInput() {
 
   return {
     today, cashToday: x.cashToday, ar: x.ar, ap: x.ap, amOrders: cf.am.orders || [], amPOs, fx, termsByCustomer,
+    cards: x.cards.map((c) => ({ ...c, recentCharges: (cf.history && cf.history.cardCharges && cf.history.cardCharges[c.id]) || [] })),
+    cardShares: (cf.history && cf.history.cardShares) || {},
+    onlineTargets: (cf.inputs.targets && cf.inputs.targets.online) || {},
     shopify: cf.shopify && cf.shopify.daily && Object.keys(cf.shopify.daily).length ? { daily: cf.shopify.daily } : null,
     history: cf.history ? { stockPerWeek: cf.history.stockPerWeek, onlineReceiptsPerWeek: cf.history.receiptsPerWeek, otherOutPerWeek: cf.history.otherOutPerWeek, marketingPerWeek: cf.history.marketingPerWeek, conversion: conv } : null,
     overrides: cf.inputs.overrides || {}, payDates: cf.inputs.payDates || {}, settings,
@@ -6048,14 +6098,60 @@ function cfRenderKpis() {
   const thr = r.settings.cashThreshold;
   const s = r.scenarios[cf.scen];
   const end30 = CFE.util.addDays(r.today, 30);
-  const conf = (line) => { let c = 0, t = 0; for (const it of s.items) if (it.date <= end30 && CFE.LINES_IN.includes(it.line) === (line === 'in') && CFE.LINES_OUT.includes(it.line) === (line === 'out')) { t += it.amount; if (it.status === 'confirmed') c += it.amount; } return t > 0 ? Math.round((c / t) * 100) : null; };
+  const conf = (line) => { let c = 0, t = 0; for (const it of s.items) if (it.line !== 'cardCredit' && it.date <= end30 && CFE.LINES_IN.includes(it.line) === (line === 'in') && CFE.LINES_OUT.includes(it.line) === (line === 'out')) { t += it.amount; if (it.status === 'confirmed') c += it.amount; } return t > 0 ? Math.round((c / t) * 100) : null; };
   const inConf = conf('in'), outConf = conf('out');
   document.getElementById('cfKpis').innerHTML =
-    cfKpi('Cash today', cfMoney(k.cashToday), 'AUD bank &amp; card accounts') +
+    cfKpi('Cash today', cfMoney(k.cashToday), cf.xero.cards.length ? `Bank cash · Amex owing ${cfMoney(cf.xero.cards.reduce((a, c) => a + Math.max(0, c.owed), 0))}` : 'AUD bank accounts', k.cashToday < 0 ? 'cfx-neg' : '') +
     cfKpi('Cash in — next 30 days', cfMoney(k.in30), inConf === null ? '' : `${inConf}% from confirmed invoices &amp; orders`, 'cfx-pos') +
     cfKpi('Cash out — next 30 days', cfMoney(k.out30), outConf === null ? '' : `${outConf}% from confirmed bills &amp; POs`) +
     cfKpi('30-day cash position', cfMoney(k.position30), `${k.position30 >= k.cashToday ? '+' : '-'}${cfMoney(Math.abs(k.position30 - k.cashToday))} vs today`, k.position30 < 0 ? 'cfx-neg' : '') +
     cfKpi('Lowest forecast cash', cfMoney(k.lowest.value), `on ${cfDateLabel(k.lowest.date)}${k.lowest.value < thr ? ' · below threshold' : ''}`, k.lowest.value < thr ? 'cfx-neg' : '');
+}
+
+// Account balances: bank accounts, each card (what's owing + its statement rule and next payment) and the loan.
+function cfRenderAccounts() {
+  const x = cf.xero, r = cf.result;
+  const alias = (n) => (/^business account$/i.test(n) ? 'ANZ Business Account' : n.replace('American Express®', 'Amex').replace('American Express', 'Amex'));
+  const order = (a) => (/business/i.test(a.name) ? 0 : a.type === 'CREDITCARD' ? 5 : /paypal/i.test(a.name) ? 2 : 3);
+  const nextPay = (cardId) => r.scenarios.base.items.filter((i) => i.line === 'cards' && i.meta && i.meta.card === cardId).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+  const ord = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+  let html = '';
+  for (const a of [...x.accounts].sort((p, q) => order(p) - order(q) || q.closing - p.closing)) {
+    if (a.type === 'CREDITCARD') {
+      const t = (r.settings.cardTerms && r.settings.cardTerms[a.last4]) || r.settings.cardDefault;
+      const np = nextPay(a.id);
+      html += `<div class="cfx-acct cfx-acct-amex"><div class="cfx-acct-name">${cfEsc(alias(a.name))}${a.last4 ? `<em>···${cfEsc(a.last4)}</em>` : ''}</div><div class="cfx-acct-val">${cfMoney(Math.max(0, -a.closing))}</div><div class="cfx-acct-sub">owing · closes ${ord(t.closeDay)}, due ${ord(t.dueDay)} ${t.dueMonthOffset ? 'next month' : 'same month'}${np ? `<br>next payment ${cfMoney(np.amount)} on ${cfDateLabel(np.date)}` : ''}</div></div>`;
+    } else {
+      html += `<div class="cfx-acct"><div class="cfx-acct-name">${cfEsc(alias(a.name))}</div><div class="cfx-acct-val ${a.closing < 0 ? 'cfx-neg' : ''}">${cfMoney(a.closing)}</div></div>`;
+    }
+  }
+  const owing = x.cards.reduce((t, c) => t + Math.max(0, c.owed), 0);
+  html += `<div class="cfx-acct cfx-acct-sum"><div class="cfx-acct-name">Bank cash</div><div class="cfx-acct-val">${cfMoney(x.cashToday)}</div>${x.cards.length ? `<div class="cfx-acct-sub">after paying Amex in full: ${cfMoney(x.cashToday - owing)}</div>` : ''}</div>`;
+  const manual = cf.inputs.settings.lumiLoanBalance;
+  if (cf.loan && (manual === undefined || manual === null || manual === '')) {
+    html += `<div class="cfx-acct"><div class="cfx-acct-name">Lumi loan</div><div class="cfx-acct-val">${cfMoney(cf.loan.balance)}</div><div class="cfx-acct-sub">owing · from Xero</div></div>`;
+  } else {
+    html += `<div class="cfx-acct"><div class="cfx-acct-name">Lumi loan</div><input type="text" inputmode="decimal" data-set="lumiLoanBalance" value="${manual === undefined || manual === null ? '' : Math.round(manual).toLocaleString('en-AU')}" placeholder="enter balance" onchange="cfOnLoan(this)"><div class="cfx-acct-sub">owing · entered by hand (Xero doesn't share it yet)</div></div>`;
+  }
+  document.getElementById('cfAccounts').innerHTML = html;
+}
+function cfOnLoan(el) {
+  const v = cfParseAmt(el.value);
+  if (v === undefined) return;
+  if (v === null) delete cf.inputs.settings.lumiLoanBalance; else cf.inputs.settings.lumiLoanBalance = v;
+  cfRenderAccounts(); cfSaveInputsDebounced();
+}
+// The Lumi loan is a liability, not a bank account, so it isn't in BankSummary. Try Xero's balance
+// sheet once per session; if this connection isn't permitted to read it, the balance is typed in by hand.
+async function cfLoadLoan() {
+  const cached = cfCacheGet('loan_' + cf.xero.today, 6 * 3600 * 1000);
+  if (cached) { cf.loan = cached.found ? cached.found : null; return; }
+  try {
+    const report = await cfXero({ path: 'Reports/BalanceSheet', date: cf.xero.today });
+    const found = CFE.findLoanBalance(report, /lumi/i);
+    cf.loan = found ? { ...found, source: 'Xero' } : null;
+    cfCacheSet('loan_' + cf.xero.today, { found: cf.loan });
+  } catch (e) { cf.loan = null; cfCacheSet('loan_' + cf.xero.today, { found: null }); }
 }
 
 function cfRenderControls() {
@@ -6179,8 +6275,11 @@ function cfRenderWatch() {
   if ((cf.am.pos || []).some((p) => p.cur === 'USD')) notes.push(`USD purchase orders are converted at ${r.settings.usdPerAud} USD per AUD (Apparel Magic has no usable rate) — change it under Forecast inputs.`);
   const noRate = r.scenarios.base.notes.excluded.filter((e) => /no exchange rate/.test(e.kind));
   if (noRate.length) notes.push(`${noRate.length} purchase order${noRate.length === 1 ? '' : 's'} in ${[...new Set(noRate.map((e) => e.currency))].join('/')} (${noRate.map((e) => e.label + ' ' + cfMoney(e.amount)).join(', ')}) left out — no exchange rate available. Enter the expected payment under Stock payments.`);
-  const ex = r.scenarios.base.notes.excluded.filter((e) => /non-AUD/.test(e.kind));
-  if (ex.length) notes.push(`${ex.length} NZD/foreign receivable or order (${cfMoney(ex.reduce((a, e) => a + e.amount, 0))}) excluded — cash position covers AUD accounts only.`);
+  const nzd = r.scenarios.base.items.filter((i) => i.meta && i.meta.currency === 'NZD');
+  if (nzd.length) notes.push(`${nzd.length} NZD receivable${nzd.length === 1 ? '' : 's'}/order line${nzd.length === 1 ? '' : 's'} (${cfMoney(nzd.reduce((a, i) => a + i.amount, 0))} AUD) are included, converted at the invoice's own rate or ${r.settings.nzdPerAud} NZD per AUD. Cash today doesn't include your NZD/USD PayPal accounts.`);
+  const noRateAr = r.scenarios.base.notes.excluded.filter((e) => /^(receivable|order) with no exchange rate/.test(e.kind));
+  if (noRateAr.length) notes.push(`${noRateAr.length} receivable/order in ${[...new Set(noRateAr.map((e) => e.currency))].join('/')} (${cfMoney(noRateAr.reduce((a, e) => a + e.amount, 0))}) left out — no exchange rate available.`);
+  if (x.cards.length) notes.push(`Card spend leaves the bank when each Amex statement is due (${x.cards.map((c) => `···${c.last4}`).join(', ')}), not when it's spent. Cash today is bank cash only; the ${cfMoney(x.cards.reduce((a, c) => a + Math.max(0, c.owed), 0))} owing on the cards is paid on those due dates.`);
   const items = CFE.watch(r, {
     overdueAr: { total: overdueAr.reduce((a, i) => a + i.amountDue, 0), count: overdueAr.length },
     overdueAp: { total: overdueAp.reduce((a, i) => a + i.amountDueAud, 0), count: overdueAp.length },
@@ -6294,7 +6393,17 @@ function cfRenderInputs() {
   const months = Array.from({ length: 12 }, (_, i) => CFE.util.addMonths(m0, i));
   let html = '<thead><tr><th></th>' + months.map((m, i) => `<th>${cfMonthLabel(m)}${i === 0 ? ' (rest)' : ''}</th>`).join('') + '</tr></thead><tbody>';
   const srcName = (s) => ({ 'Apparel Magic': 'Apparel Magic', Xero: 'Xero', Shopify: 'Shopify', Manual: 'Manual' }[s] || '');
-  for (const line of CFE.LINES) {
+  // Growth targets set for the year: online sales vs the same month last year.
+  const lyMonth = (mk) => { let t = 0; const ly = CFE.util.addMonths(mk, -12); for (const d in ((cf.shopify && cf.shopify.daily) || {})) if (d.startsWith(ly)) t += cf.shopify.daily[d][0]; return t; };
+  const tg = (cf.inputs.targets && cf.inputs.targets.online) || {};
+  html += `<tr class="cfx-target-row"><td>Online sales target <span class="cfx-hint">(% vs last year)</span></td>`;
+  for (const mk of months) {
+    const v = tg[mk], ti = r.shopifyFc && r.shopifyFc.targetInfo && r.shopifyFc.targetInfo[mk];
+    const sub = !r.shopifyFc ? 'needs Shopify' : ti && ti.applied ? `LY ${cfMoneyCompact(ti.ly)} → ${cfMoneyCompact(ti.sales)} sales` : ti ? cfEsc(ti.reason) : `LY ${cfMoneyCompact(lyMonth(mk))} sales`;
+    html += `<td class="cfx-cell"><input type="text" inputmode="decimal" class="${v !== undefined ? 'on' : ''}" data-tmonth="${mk}" value="${v === undefined ? '' : v}" placeholder="—" onchange="cfOnTarget(this)"><small>${sub}</small></td>`;
+  }
+  html += '</tr>';
+  for (const line of CFE.INPUT_LINES) {
     html += `<tr><td>${CFE.LINE_LABELS[line]}${CFE.LINES_OUT.includes(line) ? ' <span class="cfx-hint">(out)</span>' : ''}</td>`;
     for (const mk of months) {
       const c = CFE.monthCell(r, 'base', line, mk);
@@ -6312,6 +6421,7 @@ function cfRenderInputs() {
   const scenRow = (name) => `<tr><td>${CF_SCENS.find((x) => x[0] === name)[1]}</td>${['online', 'wholesale', 'out', 'delay'].map((k) => `<td><input type="text" inputmode="decimal" data-scen="${name}" data-key="${k}" value="${st.scenarios[name][k]}" onchange="cfOnScenario(this)"></td>`).join('')}</tr>`;
   document.getElementById('cfSettings').innerHTML =
     `<div><h4>Scenario assumptions</h4><table class="cfx-table cfx-scen"><thead><tr><th></th><th>Online %</th><th>Wholesale orders %</th><th>Spend %</th><th>Pay delay (days)</th></tr></thead><tbody>${['worst', 'base', 'best'].map(scenRow).join('')}</tbody></table><div class="cfx-hint" style="margin-top:6px;line-height:1.5">Online % moves online receipts (system or manual). Wholesale orders % trims/lifts unshipped Apparel Magic orders. Spend % moves marketing and other cash out. Pay delay shifts when customers pay.</div></div>` +
+    `<div><h4>Amex statements</h4>${(cf.xero.cards.length ? cf.xero.cards : []).map((c) => { const t = (st.cardTerms && st.cardTerms[c.last4]) || st.cardDefault; const f = (k, v) => `<input type="text" inputmode="numeric" data-last4="${cfEsc(c.last4)}" data-key="${k}" value="${v}" onchange="cfOnCardTerm(this)">`; return `<div class="cfx-set-row"><span>${cfEsc(c.name.replace('American Express®', 'Amex'))} ···${cfEsc(c.last4)}</span></div><div class="cfx-set-row"><span>closes on day</span><span>${f('closeDay', t.closeDay)}</span></div><div class="cfx-set-row"><span>due on day</span><span>${f('dueDay', t.dueDay)}</span></div><div class="cfx-set-row"><span>due in month</span><span><select data-last4="${cfEsc(c.last4)}" data-key="dueMonthOffset" onchange="cfOnCardTerm(this)"><option value="0"${t.dueMonthOffset ? '' : ' selected'}>same as close</option><option value="1"${t.dueMonthOffset ? ' selected' : ''}>month after close</option></select></span></div>`; }).join('') || '<div class="cfx-hint">No credit cards found in Xero.</div>'}<div class="cfx-hint" style="margin-top:6px;line-height:1.5">Card spend accrues on the card and leaves the bank when the statement is due.</div></div>` +
     `<div><h4>Timing &amp; thresholds</h4>` +
     setRow('cashThreshold', 'Warn if cash falls below', st.cashThreshold, '$') +
     setRow('defaultTermsDays', 'Default customer terms', st.defaultTermsDays, 'days') +
@@ -6320,6 +6430,7 @@ function cfRenderInputs() {
     setRow('apOverduePayDays', 'Overdue bills paid in', st.apOverduePayDays, 'days') +
     setRow('poTermsDays', 'POs paid after ex-factory date', st.poTermsDays, 'days') +
     setRow('usdPerAud', 'USD per 1 AUD (for USD POs)', st.usdPerAud, '') +
+    setRow('nzdPerAud', 'NZD per 1 AUD (NZ receivables)', st.nzdPerAud, '') +
     setRow('onlineConversion', `Shopify sales → cash (auto ${Math.round(r.conversion * 100)}%)`, cf.inputs.settings.onlineConversion ?? '', '%') + `</div>`;
 }
 
@@ -6347,6 +6458,21 @@ function cfOnSetting(el) {
   if (v !== null && !Number.isFinite(v)) return;
   if (v === null) delete cf.inputs.settings[el.dataset.set]; else cf.inputs.settings[el.dataset.set] = v;
   cfRecompute(); cfRenderMain(); cfRenderInputs(); cfSaveInputsDebounced();
+}
+function cfOnTarget(el) {
+  const raw = el.value.trim().replace('%', '');
+  const tg = (cf.inputs.targets = cf.inputs.targets || { online: {} }).online = cf.inputs.targets.online || {};
+  if (raw === '') delete tg[el.dataset.tmonth];
+  else { const v = Number(raw); if (!Number.isFinite(v)) return; tg[el.dataset.tmonth] = v; }
+  cfRecompute(); cfRenderMain(); cfSaveInputsDebounced();
+}
+function cfOnCardTerm(el) {
+  const v = Number(el.value);
+  if (!Number.isFinite(v)) return;
+  const st = cf.inputs.settings;
+  st.cardTerms = st.cardTerms || {};
+  (st.cardTerms[el.dataset.last4] = st.cardTerms[el.dataset.last4] || {})[el.dataset.key] = v;
+  cfRecompute(); cfRenderMain(); cfSaveInputsDebounced();
 }
 function cfOnScenario(el) {
   const v = Number(el.value);
@@ -6384,7 +6510,7 @@ function cfRenderDetail() {
 // ── Orchestration ────────────────────────────────────────────────────────────
 function cfRenderMain(skipInputs) {
   if (!cf.result) return;
-  cfRenderBanner(); cfRenderControls(); cfRenderKpis(); cfRenderConfidence(); cfRenderSummary(); cfRenderDrill(); cfRenderWatch(); cfRenderDetail();
+  cfRenderBanner(); cfRenderControls(); cfRenderKpis(); cfRenderAccounts(); cfRenderConfidence(); cfRenderSummary(); cfRenderDrill(); cfRenderWatch(); cfRenderDetail();
   if (!skipInputs) cfRenderInputs();
   cfDrawChart();
   cfSetStatus();
@@ -6405,6 +6531,7 @@ async function loadCashflowData(force) {
     cf.am = { orders: null, pos: null, status: {} };
     cf.shopify = null;
     cf.history = null;
+    cf.loan = null;
     cf.historyState = 'loading';
     await cfLoadInputs();
     await cfLoadXeroCore();
@@ -6417,6 +6544,7 @@ async function loadCashflowData(force) {
       cfLoadAm('orders').then(cfRefresh),
       cfLoadAm('purchase_orders').then(cfRefresh),
       cfLoadShopify().then(cfRefresh),
+      cfLoadLoan().then(cfRefresh),
       cfEnsureHistory(cf.view).then(() => cfDrawChart()),
     ];
     await Promise.all(later);

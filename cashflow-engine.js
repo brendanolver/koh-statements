@@ -27,9 +27,13 @@
   const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
   const LINES_IN = ['online', 'wholesale', 'otherIn'];
-  const LINES_OUT = ['stock', 'marketing', 'otherOut'];
+  // 'cards' = Amex statement payments leaving the bank on their due dates; 'cardCredit' = the (negative)
+  // card spend that is already inside Marketing / Other cash out but isn't paid until the statement
+  // is due — so the Cash out total is what actually leaves the bank, and both lines reconcile.
+  const LINES_OUT = ['stock', 'marketing', 'otherOut', 'cards', 'cardCredit'];
+  const INPUT_LINES = ['online', 'wholesale', 'otherIn', 'stock', 'marketing', 'otherOut']; // the ones you can override monthly
   const LINES = [...LINES_IN, ...LINES_OUT];
-  const LINE_LABELS = { online: 'Online sales', wholesale: 'Wholesale', otherIn: 'Other cash in', stock: 'Stock payments', marketing: 'Marketing', otherOut: 'Other cash out' };
+  const LINE_LABELS = { online: 'Online sales', wholesale: 'Wholesale', otherIn: 'Other cash in', stock: 'Stock payments', marketing: 'Marketing', otherOut: 'Other cash out', cards: 'Amex payments', cardCredit: 'Charged to Amex (paid later)' };
   // Which scenario percentage moves which line (see DEFAULT_SETTINGS.scenarios).
   const LINE_PCT_KEY = { online: 'online', wholesale: 'wholesale', marketing: 'out', otherOut: 'out' };
 
@@ -39,6 +43,11 @@
     overdueCollectDays: 21,   // overdue receivables are assumed collected this many days from today
     apOverduePayDays: 7,      // overdue bills are assumed paid this many days from today
     poTermsDays: 30,          // Apparel Magic purchase orders are assumed paid this long after their ex-factory date
+    nzdPerAud: 1.21,          // NZD receivables / orders are converted at this (foreign units per 1 AUD) unless the invoice carries its own rate
+    // Credit-card statement rules, keyed by the card's last 4 digits (from Xero): the day the statement
+    // closes, the day it's due, and whether that's the same month as the close (0) or the next (1).
+    cardTerms: { '1003': { closeDay: 25, dueDay: 19, dueMonthOffset: 1 }, '1000': { closeDay: 5, dueDay: 29, dueMonthOffset: 0 } },
+    cardDefault: { closeDay: 25, dueDay: 19, dueMonthOffset: 1 },
     usdPerAud: 0.66,          // Apparel Magic has no usable exchange rate (its POs carry rate 1), so USD POs use this
     shipLateDays: 7,          // open orders already past their due date are assumed to ship this many days from today
     cashThreshold: 100000,    // "Cashflow Watch" warns when forecast cash drops below this
@@ -58,6 +67,13 @@
       if (k === 'scenarios') continue;
       if (saved[k] !== undefined && saved[k] !== null && saved[k] !== '' && Number.isFinite(Number(saved[k]))) s[k] = Number(saved[k]);
     }
+    for (const key of ['cardTerms']) {
+      for (const [last4, t] of Object.entries((saved[key]) || {})) {
+        const cur = s[key][last4] || { ...s.cardDefault };
+        for (const k of ['closeDay', 'dueDay', 'dueMonthOffset']) if (t && t[k] !== undefined && t[k] !== '' && Number.isFinite(Number(t[k]))) cur[k] = Number(t[k]);
+        s[key][last4] = cur;
+      }
+    }
     if (saved.scenarios) {
       for (const sc of ['worst', 'base', 'best']) {
         for (const k of Object.keys(s.scenarios[sc])) {
@@ -75,7 +91,12 @@
   // this year is tracking against last (trailing 8 weeks vs the same 8 weeks a
   // year earlier). Where last year isn't available it falls back to the
   // trailing 28-day run-rate. Returns per-day gross sales and how it got there.
-  function shopifyForecast(daily, today, horizonDays) {
+  //
+  // `targets` ({ 'YYYY-MM': pct }) are the growth targets set for the year: for a month with a
+  // target the forecast is last year's sales for that same calendar month x (1 + target), spread
+  // over the month by last year's daily pattern so the month lands exactly on that number.
+  // Months without a target keep the trend method above.
+  function shopifyForecast(daily, today, horizonDays, targets) {
     const sales = (d) => (daily[d] ? daily[d][0] : null);
     const sumRange = (from, to) => { let s = 0, n = 0; for (let d = from; d <= to; d = addDays(d, 1)) { const v = sales(d); if (v !== null) { s += v; n++; } } return { s, n }; };
     const yest = addDays(today, -1);
@@ -85,19 +106,38 @@
     const yoy = coverageOk ? clamp(cur.s / ly.s, 0.4, 2.5) : null;
     const t28 = sumRange(addDays(today, -28), yest);
     const trailingPerDay = t28.n >= 20 ? t28.s / t28.n : (cur.n ? cur.s / cur.n : 0);
+    const shapeAt = (d) => { const c = addDays(d, -364); const w = sumRange(addDays(c, -3), addDays(c, 3)); return w.n >= 5 ? w.s / w.n : null; };
+    // Per-month growth targets -> a scale factor per month (only when last year's month is well covered).
+    const targetInfo = {}, monthFactor = {};
+    for (const [mk, raw] of Object.entries(targets || {})) {
+      const pct = Number(raw);
+      if (raw === '' || raw === null || raw === undefined || !Number.isFinite(pct)) continue;
+      const first = mk + '-01', last = lastDayOfMonth(first);
+      if (last <= today) continue; // a month that's already over
+      const lyFirst = addMonths(mk, -12) + '-01', lyLast = lastDayOfMonth(lyFirst);
+      const days = []; for (let d = first; d <= last; d = addDays(d, 1)) days.push(d);
+      let shapeSum = 0, have = 0;
+      for (const d of days) { const v = shapeAt(d); if (v !== null) { shapeSum += v; have++; } }
+      const ly = sumRange(lyFirst, lyLast);
+      const lyLen = daysBetween(lyFirst, lyLast) + 1;
+      if (have < days.length * 0.9 || ly.n < lyLen * 0.95 || shapeSum <= 0) { targetInfo[mk] = { applied: false, pct, reason: 'last year is not fully in Shopify history' }; continue; }
+      monthFactor[mk] = (ly.s * (1 + pct / 100)) / shapeSum;
+      targetInfo[mk] = { applied: true, pct, ly: ly.s, sales: ly.s * (1 + pct / 100) };
+    }
     const out = {}; let lyDays = 0, fallbackDays = 0;
     for (let i = 1; i <= horizonDays; i++) {
       const d = addDays(today, i);
       let v = null;
-      if (yoy !== null) {
-        const c = addDays(d, -364);
-        const w = sumRange(addDays(c, -3), addDays(c, 3));
-        if (w.n >= 5) { v = (w.s / w.n) * yoy; lyDays++; }
+      const mk = monthKey(d);
+      if (monthFactor[mk] !== undefined) { const sh = shapeAt(d); if (sh !== null) { v = sh * monthFactor[mk]; lyDays++; } }
+      if (v === null && yoy !== null) {
+        const sh = shapeAt(d);
+        if (sh !== null) { v = sh * yoy; lyDays++; }
       }
       if (v === null) { v = trailingPerDay; fallbackDays++; }
       out[d] = Math.max(0, v);
     }
-    return { perDay: out, yoy, trailingPerDay, lyDays, fallbackDays, method: yoy !== null ? 'last year × trend' : 'recent run-rate', hasData: cur.n > 0 || t28.n > 0 };
+    return { perDay: out, yoy, trailingPerDay, lyDays, fallbackDays, targetInfo, method: yoy !== null ? 'last year × trend' : 'recent run-rate', hasData: cur.n > 0 || t28.n > 0 };
   }
 
   // ------------------------------------------------------------ item building
@@ -120,30 +160,41 @@
     const notes = { excluded: [] };
 
     // -- Wholesale: Xero receivables (issued invoices; scenario only changes timing)
+    // Foreign-currency receivables/orders (NZD wholesale) are converted to AUD: an invoice's own
+    // Xero rate when it has one, else the NZD/USD setting or a rate seen in Xero.
+    const rateFor = (cur) => (!cur || String(cur).toUpperCase() === 'AUD' ? 1 : String(cur).toUpperCase() === 'NZD' ? (input.fx && input.fx.NZD) || settings.nzdPerAud : String(cur).toUpperCase() === 'USD' ? settings.usdPerAud : (input.fx && input.fx[cur]) || null);
     for (const inv of input.ar || []) {
       if (inv.online) { notes.excluded.push({ kind: 'online-contact receivable', label: inv.contact, amount: inv.amountDue }); continue; }
-      if (isForeign(inv.currency) || !(inv.amountDue > 0)) { if (inv.amountDue > 0) notes.excluded.push({ kind: 'non-AUD receivable', label: inv.contact, amount: inv.amountDue }); continue; }
+      if (!(inv.amountDue > 0)) continue;
+      const rate = isForeign(inv.currency) ? (inv.rate > 0 ? inv.rate : rateFor(inv.currency)) : 1;
+      if (!rate) { notes.excluded.push({ kind: 'receivable with no exchange rate', label: inv.contact, amount: inv.amountDue, currency: inv.currency }); continue; }
+      const amountAud = inv.amountDue / rate;
       const overdue = inv.dueDate < today;
       const expected = overdue ? addDays(today, settings.overdueCollectDays + delay) : addDays(inv.dueDate, settings.arLateDays + delay);
-      push('wholesale', expected < tomorrow ? tomorrow : expected, inv.amountDue, inv.contact, 'Xero', 'confirmed', { doc: inv.number, due: inv.dueDate, overdue });
+      push('wholesale', expected < tomorrow ? tomorrow : expected, amountAud, inv.contact, 'Xero', 'confirmed', { doc: inv.number, due: inv.dueDate, overdue, currency: isForeign(inv.currency) ? inv.currency : undefined });
     }
 
     // -- Wholesale: Apparel Magic open orders (confirmed, not yet invoiced)
     for (const o of input.amOrders || []) {
-      if (isForeign(o.cur)) { notes.excluded.push({ kind: 'non-AUD order', label: o.cn, amount: o.lines.reduce((a, l) => a + l.v, 0) }); continue; }
+      const oRate = isForeign(o.cur) ? rateFor(o.cur) : 1;
+      if (!oRate) { notes.excluded.push({ kind: 'order with no exchange rate', label: o.cn, amount: o.lines.reduce((a, l) => a + l.v, 0), currency: o.cur }); continue; }
       const terms = (input.termsByCustomer && input.termsByCustomer[(o.cn || '').toUpperCase()]) ?? settings.defaultTermsDays;
       for (const l of o.lines) {
         const ship = l.d < today ? addDays(today, settings.shipLateDays) : l.d;
         const receipt = addDays(ship, terms + settings.arLateDays + delay);
-        push('wholesale', receipt, l.v * (1 + (o.gst || 0)) * (1 + (sc.wholesale || 0) / 100), o.cn, 'Apparel Magic', 'confirmed', { doc: o.po || o.id, ship, terms, order: o.id });
+        push('wholesale', receipt, (l.v / oRate) * (1 + (o.gst || 0)) * (1 + (sc.wholesale || 0) / 100), o.cn, 'Apparel Magic', 'confirmed', { doc: o.po || o.id, ship, terms, order: o.id, currency: isForeign(o.cur) ? o.cur : undefined });
       }
     }
 
     // -- Online: Shopify sales (or Xero run-rate when Shopify isn't connected)
     const conv = input.conversion;
     if (input.shopifyFc && input.shopifyFc.hasData) {
+      const ti = input.shopifyFc.targetInfo || {};
       for (const [d, v] of Object.entries(input.shopifyFc.perDay)) {
-        push('online', d, v * conv * (1 + (sc.online || 0) / 100), 'Shopify forecast', 'Shopify', 'assumption', { method: input.shopifyFc.method });
+        const t = ti[monthKey(d)];
+        const targeted = t && t.applied;
+        push('online', d, v * conv * (1 + (sc.online || 0) / 100), targeted ? `Shopify forecast (${t.pct >= 0 ? '+' : ''}${t.pct}% target vs last year)` : 'Shopify forecast', 'Shopify', 'assumption',
+          { method: targeted ? `last year's ${monthKey(addDays(d, -365))} sales × (1 ${t.pct >= 0 ? '+' : '−'} ${Math.abs(t.pct)}%)` : input.shopifyFc.method });
       }
     } else if (input.history && input.history.onlineReceiptsPerWeek > 0) {
       const perDay = input.history.onlineReceiptsPerWeek / 7;
@@ -206,6 +257,67 @@
     return { items, notes };
   }
 
+  // ------------------------------------------------------ credit-card timing
+  const monthDayIso = (mk, day) => { const last = Number(lastDayOfMonth(mk + '-01').slice(8)); return `${mk}-${String(Math.min(Math.max(1, Math.round(day)), last)).padStart(2, '0')}`; };
+  const dueForClose = (closeIso, t) => monthDayIso(addMonths(monthKey(closeIso), t.dueMonthOffset), t.dueDay);
+
+  // Each card accrues its share of the forecast marketing / other spend, a statement is struck on the
+  // close day (everything owed at that moment, less any earlier statement still unpaid), and that
+  // statement leaves the bank on its due date. The statement already closed today is worked out from
+  // the balance owed less the charges since it closed. Mutates flows / items; returns nothing.
+  function scheduleCards(input, settings, flows, items, H) {
+    const { today } = input;
+    const tomorrow = addDays(today, 1);
+    for (const card of input.cards || []) {
+      const t = (settings.cardTerms && settings.cardTerms[card.last4]) || settings.cardDefault;
+      const label = `${card.name}${card.last4 ? ' ···' + card.last4 : ''}`;
+      const charges = new Array(H + 1).fill(0);
+      for (const line of ['marketing', 'otherOut']) {
+        const share = (input.cardShares && input.cardShares[line] && input.cardShares[line][card.id]) || 0;
+        if (share > 0) for (let i = 1; i <= H; i++) charges[i] += flows[line][i] * share;
+      }
+      const m0 = monthKey(today);
+      const closes = [];
+      for (let k = -3; k <= 13; k++) closes.push(monthDayIso(addMonths(m0, k), t.closeDay));
+      const pastCloses = closes.filter((c) => c <= today);
+      const L = pastCloses[pastCloses.length - 1];
+      const owed0 = Math.max(0, card.owed || 0);
+      const since = (card.recentCharges || []).filter((c) => c.date > L && c.date <= today).reduce((a, c) => a + c.amount, 0);
+      const stmt0 = Math.max(0, owed0 - since);
+      const sched = []; // { date, amount, close, due, status, overdue }
+      const payDateFor = (close, due, fallback) => (input.payDates && input.payDates[`card:${card.id}:${close}`]) || fallback || due;
+      if (stmt0 > 0.5) {
+        const due0 = dueForClose(L, t);
+        const overdue = due0 <= today;
+        let d = payDateFor(L, due0, overdue ? addDays(today, settings.apOverduePayDays) : due0);
+        if (d < tomorrow) d = tomorrow;
+        sched.push({ date: d, amount: stmt0, close: L, due: due0, status: 'confirmed', overdue, paid: false });
+      }
+      let owed = owed0;
+      for (let i = 1; i <= H; i++) {
+        const d = addDays(today, i);
+        owed += charges[i];
+        if (charges[i] > 0) { flows.cardCredit[i] -= charges[i]; items.push({ line: 'cardCredit', date: d, amount: -charges[i], label: `Charged to ${label} (paid on statement due date)`, source: 'Xero', status: 'assumption' }); }
+        if (closes.includes(d)) {
+          const pending = sched.filter((p) => !p.paid).reduce((a, p) => a + p.amount, 0);
+          const amount = owed - pending;
+          if (amount > 0.5) {
+            const due = dueForClose(d, t);
+            let pd = payDateFor(d, due);
+            if (pd <= d) pd = addDays(d, 1);
+            sched.push({ date: pd, amount, close: d, due, status: 'assumption', overdue: false, paid: false });
+          }
+        }
+        for (const p of sched) {
+          if (p.paid || p.date !== d) continue;
+          p.paid = true; owed -= p.amount;
+          flows.cards[i] += p.amount;
+          items.push({ line: 'cards', date: d, amount: p.amount, label: label, source: 'Xero', status: p.status, meta: { doc: `statement closing ${fmtDate(p.close)}`, due: p.due, overdue: p.overdue, pid: `card:${card.id}:${p.close}`, manualDate: !!(input.payDates && input.payDates[`card:${card.id}:${p.close}`]), card: card.id } });
+        }
+      }
+    }
+  }
+
   // -------------------------------------------------------------- scenarios
   function computeScenario(input, settings, name) {
     const sc = settings.scenarios[name];
@@ -238,6 +350,8 @@
       }
     }
 
+    scheduleCards(input, settings, flows, items, H);
+
     const balance = new Array(H + 1).fill(0);
     balance[0] = input.cashToday;
     const inflow = new Array(H + 1).fill(0), outflow = new Array(H + 1).fill(0);
@@ -260,7 +374,7 @@
       ? settings.onlineConversion / (settings.onlineConversion > 1.5 ? 100 : 1)
       : (input.history && input.history.conversion) || 0.97;
     full.conversion = conv;
-    if (input.shopify && input.shopify.daily) full.shopifyFc = shopifyForecast(input.shopify.daily, input.today, horizonDays);
+    if (input.shopify && input.shopify.daily) full.shopifyFc = shopifyForecast(input.shopify.daily, input.today, horizonDays, input.onlineTargets);
     const scenarios = {};
     for (const n of ['worst', 'base', 'best']) scenarios[n] = computeScenario(full, settings, n);
     return { today: input.today, cashToday: input.cashToday, horizonDays, settings, conversion: conv, shopifyFc: full.shopifyFc || null, scenarios, input: full };
@@ -397,6 +511,11 @@
     if (lw.d && lw.v < thr && lb.v >= thr) w.push({ level: 'warn', kind: 'worst', text: `In the worst case cash falls to ${money(lw.v)} on ${fmtDate(lw.d)} (below ${money(thr)})` });
     const soon = base.items.filter((it) => it.line === 'stock' && it.date <= addDays(result.today, 30)).sort((a, b) => b.amount - a.amount)[0];
     if (soon && (soon.amount >= 50000 || soon.amount >= 0.15 * result.cashToday)) w.push({ level: 'warn', kind: 'supplier', text: `Large supplier payment approaching: ${money(soon.amount)} to ${soon.label} around ${fmtDate(soon.date)}` });
+    const cardPay = base.items.filter((it) => it.line === 'cards' && it.date <= addDays(result.today, 30));
+    if (cardPay.length) {
+      const tot = cardPay.reduce((a, it) => a + it.amount, 0), first = cardPay.slice().sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+      w.push({ level: 'info', kind: 'amex', text: `Amex payments due in the next 30 days: ${money(tot)} (next: ${money(first.amount)} on ${fmtDate(first.date)}, ${first.label})` });
+    }
     const ex = extra || {};
     if (ex.overdueAr && ex.overdueAr.total >= 25000) w.push({ level: 'info', kind: 'ar', text: `Overdue receivables: ${money(ex.overdueAr.total)} across ${ex.overdueAr.count} invoices` });
     if (ex.overdueAp && ex.overdueAp.total >= 10000) w.push({ level: 'info', kind: 'ap', text: `Overdue payables: ${money(ex.overdueAp.total)} across ${ex.overdueAp.count} bills — assumed paid within ${result.settings.apOverduePayDays} days; set a payment date on any bill under Cash out in the summary` });
@@ -407,9 +526,27 @@
   function money(n) { const a = Math.abs(Math.round(n)); return (n < 0 ? '-$' : '$') + a.toLocaleString('en-AU'); }
   function fmtDate(iso) { return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' }); }
 
+  // Finds one account's balance in a Xero balance-sheet report (e.g. the Lumi loan): walks the
+  // report rows for an account whose name matches, returns { name, balance } or null.
+  function findLoanBalance(report, nameRe) {
+    const rows = (report && report.Reports && report.Reports[0] && report.Reports[0].Rows) || [];
+    const walk = (list) => {
+      for (const row of list || []) {
+        if (row.Rows) { const hit = walk(row.Rows); if (hit) return hit; }
+        const cells = row.Cells || [];
+        if (row.RowType === 'Row' && cells[0] && nameRe.test(String(cells[0].Value || ''))) {
+          const n = parseFloat(String(cells[1] && cells[1].Value).replace(/[$,]/g, ''));
+          if (Number.isFinite(n)) return { name: cells[0].Value, balance: n };
+        }
+      }
+      return null;
+    };
+    return walk(rows);
+  }
+
   const CFE = {
-    LINES, LINES_IN, LINES_OUT, LINE_LABELS, DEFAULT_SETTINGS,
-    TAX_CONTACT_RE, mergeSettings, shopifyForecast, buildForecast, buckets, kpis, explain, monthCell, watch,
+    LINES, LINES_IN, LINES_OUT, INPUT_LINES, LINE_LABELS, DEFAULT_SETTINGS,
+    TAX_CONTACT_RE, findLoanBalance, mergeSettings, shopifyForecast, buildForecast, buckets, kpis, explain, monthCell, watch,
     util: { addDays, daysBetween, monthKey, addMonths, lastDayOfMonth, toIso, toMs, round2, money, fmtDate },
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = CFE;

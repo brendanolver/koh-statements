@@ -23,14 +23,27 @@ function sanitise(doc) {
       if (/^\d{4}-\d{2}$/.test(m) && Number.isFinite(n)) (out.overrides[line] = out.overrides[line] || {})[m] = Math.round(n * 100) / 100;
     }
   }
+  // Online growth targets vs last year, per month (YYYY-MM -> percent).
+  const tg = doc && doc.targets && typeof doc.targets.online === 'object' && doc.targets.online ? doc.targets.online : {};
+  const targets = Object.entries(tg).filter(([k, v]) => /^\d{4}-\d{2}$/.test(k) && v !== '' && v !== null && Number.isFinite(Number(v)) && Number(v) >= -100 && Number(v) <= 1000).map(([k, v]) => [k, Math.round(Number(v) * 10) / 10]);
+  if (targets.length) out.targets = { online: Object.fromEntries(targets) };
   // Expected payment date per bill / PO (id -> YYYY-MM-DD), capped so the document stays small.
   const pd = doc && typeof doc.payDates === 'object' && doc.payDates ? doc.payDates : {};
-  const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po):[\w-]{1,80}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);
+  const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po|card):[\w:-]{1,120}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);
   if (dates.length) out.payDates = Object.fromEntries(dates);
   const st = doc && typeof doc.settings === 'object' && doc.settings ? doc.settings : {};
-  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'cashThreshold', 'onlineConversion']) {
+  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'nzdPerAud', 'cashThreshold', 'onlineConversion', 'lumiLoanBalance']) {
     const n = Number(st[k]);
     if (st[k] !== undefined && st[k] !== null && st[k] !== '' && Number.isFinite(n)) out.settings[k] = n;
+  }
+  if (st.cardTerms && typeof st.cardTerms === 'object') {
+    out.settings.cardTerms = {};
+    for (const [last4, t] of Object.entries(st.cardTerms).slice(0, 10)) {
+      if (!/^\d{2,6}$/.test(last4) || !t || typeof t !== 'object') continue;
+      const row = {};
+      for (const k of ['closeDay', 'dueDay', 'dueMonthOffset']) { const n = Number(t[k]); if (t[k] !== undefined && t[k] !== '' && Number.isFinite(n)) row[k] = n; }
+      if (Object.keys(row).length) out.settings.cardTerms[last4] = row;
+    }
   }
   if (st.scenarios && typeof st.scenarios === 'object') {
     out.settings.scenarios = {};
