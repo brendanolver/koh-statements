@@ -15,9 +15,10 @@ const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 // developer.xero.com, same as every other scope here.
 // payroll.employees.read + payroll.settings.read added for the Wages tab
 // (Payroll AU API — read-only; employees + their pay templates, and Pay
-// Items for earnings-rate lookups). Scope names confirmed against Xero's own
+// Items for earnings-rate lookups). payroll.payruns.read + payroll.payslip.read
+// are for the Wages tab's 12-month average hours (hours only exist on payslips). Scope names confirmed against Xero's own
 // published Payroll AU OpenAPI spec (XeroAPI/Xero-OpenAPI).
-const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions.read accounting.reports.banksummary.read payroll.employees.read payroll.settings.read';
+const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions.read accounting.reports.banksummary.read payroll.employees.read payroll.settings.read payroll.payruns.read payroll.payslip.read';
 
 exports.handler = async (event) => {
   try {

@@ -45,4 +45,10 @@ function statementRecipientsStore() {
   return namedStore('statement-recipients');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore };
+// Hours read off each posted payslip (see xero-payroll-hours.js) — payslips
+// don't change once posted, so each is only ever fetched from Xero once.
+function wagesHoursStore() {
+  return namedStore('wages-hours');
+}
+
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore };

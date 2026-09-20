@@ -667,6 +667,8 @@
   .wages-scenario-title { font-weight: 600; }
   .wages-or { color: var(--muted); }
   .wages-hint { font-size: 12px; color: var(--muted); }
+  .wages-settings select { padding: 6px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  .wages-hours-status a { color: var(--accent); font-weight: 600; }
   .wages-tag { display: inline-block; margin-left: 8px; padding: 1px 7px; font-size: 10px; font-weight: 500; color: var(--muted); background: #f1f1ee; border-radius: 999px; }
   .wages-avg { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
   .wages-note { color: var(--muted); font-size: 12px; font-style: italic; white-space: normal !important; }
@@ -1324,6 +1326,12 @@ body.app-ui #cashflowView select { border-radius: 8px; }
         <label>Hours / week <input type="text" inputmode="decimal" id="wagesHours" oninput="onWagesSettingInput()"></label>
         <label>Weeks / year <input type="text" inputmode="decimal" id="wagesWeeks" oninput="onWagesSettingInput()"></label>
         <label>Super % <input type="text" inputmode="decimal" id="wagesSuper" oninput="onWagesSettingInput()"></label>
+        <label>Yearly wage uses
+          <select id="wagesBasis" onchange="onWagesBasisChange()">
+            <option value="standard">standard hours</option>
+            <option value="average">12-month average hours</option>
+          </select>
+        </label>
         <span class="wages-hint">Yearly wage = hourly rate × hours × weeks. Super is calculated on the yearly wage.</span>
       </div>
 
@@ -1338,7 +1346,8 @@ body.app-ui #cashflowView select { border-radius: 8px; }
         <span class="wages-hint">Type either box and the other fills in. You can still override any person below — including typing their new hourly rate directly.</span>
       </div>
 
-      <div id="wagesStatus" class="status-line" style="margin:0 0 10px;"></div>
+      <div id="wagesStatus" class="status-line" style="margin:0 0 6px;"></div>
+      <div id="wagesHoursStatus" class="status-line wages-hours-status" style="margin:0 0 10px;"></div>
       <div class="debtors-table-wrap">
         <table class="debtors-table wages-table">
           <thead id="wagesHead"></thead>
@@ -3809,14 +3818,14 @@ async function sendAllReadyCommissionReports() {
 const WAGES_SETTINGS_KEY = 'wagesSettingsV1';
 const WAGES_KEY_STORAGE = 'wagesAccessKey';
 let wagesData = null;              // [{ id, name, basis, hourlyRate?, annualSalary?, employmentBasis, note? }]
-let wagesSettings = { hours: 38, weeks: 52, superPct: 12 };
+let wagesSettings = { hours: 38, weeks: 52, superPct: 12, basis: 'standard' }; // basis: 'standard' (flat hours) | 'average' (12-month average hours from payslips)
 let wagesAdj = {};                 // id -> { dollar, pct, src: 'dollar'|'pct', dollarStr, pctStr }
 let wagesScenarioOn = false;
 let wagesSort = { field: 'hourly', dir: 'desc' }; // highest hourly rate first by default
 let wagesOrder = [];               // employee ids in display order — only re-sorted on a header click / reload
 try {
   const saved = JSON.parse(localStorage.getItem(WAGES_SETTINGS_KEY) || 'null');
-  if (saved && saved.hours > 0 && saved.weeks > 0 && saved.superPct >= 0) wagesSettings = saved;
+  if (saved && saved.hours > 0 && saved.weeks > 0 && saved.superPct >= 0) wagesSettings = { ...wagesSettings, ...saved, basis: saved.basis === 'average' ? 'average' : 'standard' };
 } catch (e) {}
 
 const wagesMoney = (n) => (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3830,21 +3839,27 @@ function wagesCalc(e) {
   const { hours, weeks, superPct } = wagesSettings;
   const divisor = hours * weeks;
   const hourly = e.basis === 'salary' ? (divisor > 0 ? e.annualSalary / divisor : 0) : e.hourlyRate;
-  const yearly = hourly * divisor;
+  // In "12-month average" mode an hourly person's yearly wage uses the hours
+  // they actually averaged (people with no payslip hours yet fall back to the
+  // standard hours). Salaried people are paid their salary whatever the hours.
+  const avgHours = e.avgWeeklyHours > 0 ? e.avgWeeklyHours : 0;
+  const hoursUsed = e.basis === 'hourly' && wagesSettings.basis === 'average' && avgHours > 0 ? avgHours : hours;
+  const yearly = hourly * hoursUsed * weeks;
   const sup = yearly * (superPct / 100);
   const adj = wagesAdj[e.id];
   const dollar = adj ? adj.dollar : 0;
   const pct = adj ? adj.pct : 0;
   const newHourly = hourly + dollar;
-  const newYearly = newHourly * divisor;
+  const newYearly = newHourly * hoursUsed * weeks;
   const newSuper = newYearly * (superPct / 100);
-  return { hourly, yearly, super: sup, total: yearly + sup, dollar, pct, newHourly, newYearly, newSuper, newTotal: newYearly + newSuper, change: (newYearly + newSuper) - (yearly + sup) };
+  return { hourly, avgHours, hoursUsed, weeksCounted: e.weeksCounted || 0, yearly, super: sup, total: yearly + sup, dollar, pct, newHourly, newYearly, newSuper, newTotal: newYearly + newSuper, change: (newYearly + newSuper) - (yearly + sup) };
 }
 const wagesRated = () => (wagesData || []).filter((e) => e.basis);
 
 const WAGES_COLUMNS = [
   { key: 'name', label: 'Team member', num: false },
   { key: 'hourly', label: 'Hourly rate', num: true },
+  { key: 'avgHours', label: 'Avg hrs / wk', num: true },
   { key: 'yearly', label: 'Yearly wage', num: true },
   { key: 'super', label: 'Super', num: true },
   { key: 'total', label: 'Total', num: true },
@@ -3918,8 +3933,79 @@ async function loadWages() {
     renderWages();
     const unrated = wagesData.filter((e) => !e.basis).length;
     setWagesStatus(unrated ? `${unrated} team member${unrated === 1 ? '' : 's'} could not be priced — see the notes below.` : '');
+    loadWagesHours();
   } catch (err) {
     setWagesStatus(`Failed to load: ${err.message}`, true);
+  }
+}
+
+// 12-month average hours. Xero only exposes hours on individual payslips, so
+// the server reads them in slices (saving what it has read) and this loops
+// until it reports done — a long first run, then near-instant afterwards.
+let wagesHoursRunning = false;
+function setWagesHoursStatus(msg, html) {
+  const el = document.getElementById('wagesHoursStatus');
+  if (html) el.innerHTML = html; else el.textContent = msg || '';
+}
+const wagesSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function loadWagesHours() {
+  if (wagesHoursRunning) return;
+  wagesHoursRunning = true;
+  try {
+    for (let round = 0; round < 300; round++) {
+      let key = null;
+      try { key = sessionStorage.getItem(WAGES_KEY_STORAGE); } catch (e) {}
+      if (!key || !wagesData) return;
+      const t0 = Date.now();
+      let res, data = {};
+      try {
+        res = await fetch('/.netlify/functions/xero-payroll-hours', { headers: { 'X-Wages-Key': key } });
+        const text = await res.text();
+        try { data = text ? JSON.parse(text) : {}; } catch (e) {}
+      } catch (err) {
+        setWagesHoursStatus(`Average hours: couldn't load (${err.message}).`);
+        return;
+      }
+      if (res.status === 401) return; // loadWages handles the key prompt
+      if (data.code === 'payroll_not_authorised') {
+        setWagesHoursStatus('', 'Average hours need extra Xero permissions (pay runs and payslips). <a href="/.netlify/functions/xero-connect" target="_blank" rel="noopener">Reconnect Xero</a> and approve them, then press Refresh.');
+        return;
+      }
+      if (!res.ok && !data.rateLimited) {
+        setWagesHoursStatus(`Average hours: couldn't load (${data.error || res.status}).`);
+        return;
+      }
+      if (data.hours) {
+        for (const e of wagesData) {
+          const h = data.hours[e.id];
+          e.avgWeeklyHours = h ? h.avgWeeklyHours : null;
+          e.weeksCounted = h ? h.weeksCounted : 0;
+        }
+      }
+      const pr = data.progress || {};
+      if (data.done) {
+        resortWages();
+        renderWages();
+        setWagesHoursStatus('Average hours come from payslips over the last 12 months — weeks with no hours are left out. Anyone without payslip hours uses the standard hours.');
+        return;
+      }
+      renderWages();
+      if (data.payItemsFailed) { setWagesHoursStatus("Average hours: couldn't read Xero's pay items — try Refresh."); return; }
+      if (data.rateLimited) {
+        setWagesHoursStatus('Xero is busy — pausing briefly, then carrying on…');
+        await wagesSleep(((data.retryAfter || 60) + 2) * 1000);
+        continue;
+      }
+      const left = Math.max(0, (pr.total || 0) - (pr.done || 0));
+      const mins = Math.max(1, Math.ceil((left * 1.3) / 60));
+      setWagesHoursStatus(pr.runsPending
+        ? `Reading pay runs from Xero… ${pr.runsPending} left. Average hours are filling in — you can keep using this tab.`
+        : `Reading payslips ${pr.done} of ${pr.total} (about ${mins} min left). This only happens once — it's saved afterwards. You can keep using this tab.`);
+      await wagesSleep(Math.max(1500, (data.calls || 0) * 1300 - (Date.now() - t0)));
+    }
+  } finally {
+    wagesHoursRunning = false;
   }
 }
 
@@ -3928,9 +4014,16 @@ function onWagesSettingInput() {
   const weeks = wagesNum(document.getElementById('wagesWeeks').value);
   const superPct = wagesNum(document.getElementById('wagesSuper').value);
   if (!(hours > 0) || !(weeks > 0) || superPct < 0) return; // ignore while mid-typing / invalid
-  wagesSettings = { hours, weeks, superPct };
+  wagesSettings = { ...wagesSettings, hours, weeks, superPct };
   try { localStorage.setItem(WAGES_SETTINGS_KEY, JSON.stringify(wagesSettings)); } catch (e) {}
   // Keep any scenario % <-> $ pairs consistent with the (unchanged) hourly rates.
+  renderWages();
+}
+
+function onWagesBasisChange() {
+  wagesSettings = { ...wagesSettings, basis: document.getElementById('wagesBasis').value === 'average' ? 'average' : 'standard' };
+  try { localStorage.setItem(WAGES_SETTINGS_KEY, JSON.stringify(wagesSettings)); } catch (e) {}
+  resortWages();
   renderWages();
 }
 
@@ -4015,6 +4108,7 @@ function renderWages() {
     const el = document.getElementById(id);
     if (document.activeElement !== el) el.value = val;
   }
+  document.getElementById('wagesBasis').value = wagesSettings.basis;
   document.getElementById('wagesScenarioBar').style.display = wagesScenarioOn ? 'flex' : 'none';
   document.getElementById('wagesScenarioBtn').classList.toggle('primary', wagesScenarioOn);
 
@@ -4023,7 +4117,7 @@ function renderWages() {
     `<th class="${c.num ? 'num ' : ''}sortable" onclick="setWagesSort('${c.key}')">${c.label}<span class="sort-arrow">${wagesSort.field === c.key ? (wagesSort.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`).join('') + '</tr>';
 
   const byId = new Map(wagesData.map((e) => [e.id, e]));
-  const tot = { yearly: 0, super: 0, total: 0, hourly: 0, newYearly: 0, newSuper: 0, newTotal: 0, newHourly: 0, dollar: 0, n: 0 };
+  const tot = { yearly: 0, super: 0, total: 0, hourly: 0, newYearly: 0, newSuper: 0, newTotal: 0, newHourly: 0, dollar: 0, n: 0, hoursSum: 0, hoursN: 0 };
   let html = '';
   for (const id of wagesOrder) {
     const e = byId.get(id);
@@ -4033,6 +4127,7 @@ function renderWages() {
       continue;
     }
     const c = wagesCalc(e);
+    if (c.avgHours) { tot.hoursSum += c.avgHours; tot.hoursN++; }
     tot.n++; tot.yearly += c.yearly; tot.super += c.super; tot.total += c.total; tot.hourly += c.hourly;
     tot.newYearly += c.newYearly; tot.newSuper += c.newSuper; tot.newTotal += c.newTotal; tot.newHourly += c.newHourly;
     const adj = wagesAdj[id];
@@ -4043,6 +4138,7 @@ function renderWages() {
     const cell = {
       name: `<td class="name-cell" style="cursor:default">${wagesEsc(e.name)}${tag}</td>`,
       hourly: `<td class="num">${wagesMoney(c.hourly)}</td>`,
+      avgHours: `<td class="num" title="${c.avgHours ? `Averaged over ${c.weeksCounted} weeks with hours` : 'No payslip hours found yet'}">${c.avgHours ? c.avgHours.toFixed(1) : '—'}</td>`,
       yearly: `<td class="num">${wagesMoney(c.yearly)}</td>`,
       super: `<td class="num">${wagesMoney(c.super)}</td>`,
       total: `<td class="num emph-cell">${wagesMoney(c.total)}</td>`,
@@ -4062,6 +4158,7 @@ function renderWages() {
   const totalsCell = {
     name: `<td>Total${tot.n ? ` <span class="wages-tag">${tot.n} people</span>` : ''}</td>`,
     hourly: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.hourly))}</td>`,
+    avgHours: `<td class="num">${tot.hoursN ? `<span class="wages-avg">avg</span> ${(tot.hoursSum / tot.hoursN).toFixed(1)}` : '—'}</td>`,
     yearly: `<td class="num">${wagesMoney(tot.yearly)}</td>`,
     super: `<td class="num">${wagesMoney(tot.super)}</td>`,
     total: `<td class="num">${wagesMoney(tot.total)}</td>`,

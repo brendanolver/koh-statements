@@ -1,55 +1,12 @@
-const crypto = require('crypto');
 const { getValidConnection } = require('./lib/xero-auth');
+const { checkKey, json, payrollGet, notAuthorised, mapWithConcurrency } = require('./lib/payroll');
 
-const PAYROLL_BASE = 'https://api.xero.com/payroll.xro/1.0';
 const DETAIL_CONCURRENCY = 5; // Xero allows 5 concurrent calls per org
 
-// Wages are personal information, so unlike xero-proxy.js this endpoint is
-// NOT open: every request must carry the WAGES_ACCESS_KEY (a Netlify env
-// var) in the X-Wages-Key header, checked here on the server. The page's own
-// password screen is client-side only and can't protect this. Only the few
-// fields the Wages tab needs are ever returned — the raw Xero employee record
-// (tax file number, bank accounts, address, date of birth…) never leaves this
-// function.
-function checkKey(headers) {
-  const expected = (process.env.WAGES_ACCESS_KEY || '').trim();
-  if (!expected) return 'not_configured';
-  const provided = String((headers && (headers['x-wages-key'] || headers['X-Wages-Key'])) || '');
-  // Hash both sides so timingSafeEqual gets equal-length buffers.
-  const a = crypto.createHash('sha256').update(provided).digest();
-  const b = crypto.createHash('sha256').update(expected).digest();
-  return crypto.timingSafeEqual(a, b) ? 'ok' : 'bad_key';
-}
-
-function json(statusCode, body) {
-  return { statusCode, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, body: JSON.stringify(body) };
-}
-
-async function payrollGet(connection, path, params) {
-  const qs = params ? `?${new URLSearchParams(params)}` : '';
-  for (let attempt = 1; ; attempt++) {
-    const resp = await fetch(`${PAYROLL_BASE}/${path}${qs}`, {
-      headers: {
-        Authorization: `Bearer ${connection.access_token}`,
-        'Xero-tenant-id': connection.tenant_id,
-        Accept: 'application/json',
-      },
-    });
-    const text = await resp.text();
-    let data = null;
-    if (text) { try { data = JSON.parse(text); } catch { data = null; } }
-    if (resp.status === 429 && attempt < 3) {
-      const wait = Math.min(8, Number(resp.headers.get('retry-after')) || 4);
-      await new Promise((r) => setTimeout(r, wait * 1000));
-      continue;
-    }
-    return { status: resp.status, data };
-  }
-}
-
-function notAuthorised(status) {
-  return status === 401 || status === 403;
-}
+// Only the few fields the Wages tab needs are ever returned — the raw Xero
+// employee record (tax file number, bank accounts, address, date of birth…)
+// never leaves this function. Access is gated by WAGES_ACCESS_KEY (see
+// lib/payroll.js).
 
 const num = (v) => {
   const n = Number(v);
@@ -81,18 +38,6 @@ function resolvePay(emp, earningsRates) {
     return { basis: null, note: er ? `Rate comes from earnings rate "${er.Name}" (not a fixed hourly rate)` : 'Earnings rate not found' };
   }
   return { basis: null, note: 'Unrecognised pay type' };
-}
-
-async function mapWithConcurrency(items, limit, worker) {
-  const results = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await worker(items[i]);
-    }
-  }));
-  return results;
 }
 
 exports.handler = async (event) => {
