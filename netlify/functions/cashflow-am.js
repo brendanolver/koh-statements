@@ -68,20 +68,32 @@ function compactOrder(o) {
   };
 }
 
-// Purchase orders: the exact field names of AM's purchase order records aren't
-// documented in any of the WNDRR apps, so this maps tolerantly and returns
-// `diagnostics` (field names actually seen) so the page can say "PO data
-// unrecognised" instead of silently guessing.
+// Purchase orders. Field names confirmed against the live AM account: an open PO
+// has amount_open / qty_open > 0 and a receiving_status other than "Received";
+// date_ex_factory is when the goods leave the factory (when the factory is
+// normally paid) and date_due is the warehouse arrival date. amount_* fields are
+// in the home currency (AUD); foreign_amount_* are in the PO's own currency.
+// qty_in_transit / qty_received are kept so we can tell goods that are already
+// shipped (and so already billed in Xero) from goods not yet shipped.
 function compactPurchaseOrder(p) {
-  const pick = (...keys) => { for (const k of keys) if (p[k] !== undefined && p[k] !== null && p[k] !== '') return p[k]; return null; };
-  const id = pick('purchase_order_id', 'po_id', 'order_id', 'id');
-  const vendor = pick('vendor_name', 'supplier_name', 'vendor', 'supplier', 'customer_name', 'name');
-  const due = isoOrNull(pick('date_due_internal', 'date_delivery_internal', 'date_expected_internal', 'date_start_internal', 'date_internal'));
-  const amount = num(pick('amount_open', 'balance', 'amount', 'amount_subtotal'));
-  const cur = pick('currency_name') || 'AUD';
-  const closed = String(pick('is_open') ?? '1') === '0' || String(pick('void') ?? '0') === '1';
-  if (id === null || !due || !(amount > 0) || closed) return null;
-  return { id: String(id), vendor: String(vendor || 'Supplier'), due, amount: Math.round(amount * 100) / 100, cur, po: pick('po_number', 'reference', 'customer_po') || '' };
+  const id = p.purchase_order_id;
+  if (id === undefined || id === null || id === '') return null;
+  const amountOpen = num(p.amount_open);
+  if (!(amountOpen > 0) || !(num(p.qty_open) > 0)) return null;
+  if (String(p.receiving_status || '').toLowerCase() === 'received') return null;
+  return {
+    id: String(id),
+    vendor: String(p.vendor_name || 'Supplier').trim(),
+    po: p.vendor_po || '',
+    cur: p.currency_name || 'AUD',
+    amount: Math.round(amountOpen * 100) / 100,
+    foreign: num(p.foreign_amount_open),
+    qty: num(p.qty), qtyOpen: num(p.qty_open), qtyRecv: num(p.qty_received), qtyTransit: num(p.qty_in_transit),
+    due: isoOrNull(p.date_ex_factory_internal) || isoOrNull(p.date_due_internal) || isoOrNull(p.date_internal),
+    arrive: isoOrNull(p.date_due_internal),
+    ordered: isoOrNull(p.date_internal),
+    status: p.receiving_status || '',
+  };
 }
 
 async function crawl(kind, cache, timeLeft) {
