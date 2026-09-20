@@ -51,4 +51,14 @@ function wagesHoursStore() {
   return namedStore('wages-hours');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore };
+// Cashflow tab: cached Apparel Magic open orders / Shopify daily sales
+// (filled in slices — see cashflow-am.js / cashflow-shopify.js) and the saved
+// manual forecast inputs.
+function cashflowCacheStore() {
+  return namedStore('cashflow-cache');
+}
+function cashflowInputsStore() {
+  return namedStore('cashflow-inputs');
+}
+
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore };
