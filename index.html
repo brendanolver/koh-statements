@@ -5731,6 +5731,9 @@ loadPlaceholderSeq();
 // ============================================================================
 const CF_ONLINE_CONTACT_RE = /ONLINE SALES|SHOPIFY|AFTERPAY|PAYPAL|KLARNA|STRIPE/i;
 const CF_MARKETING_RE = /FACEBOOK|FACEBK|\bMETA\b|GOOGLE|TIKTOK|KLAVIYO|SNAPCHAT|PINTEREST|INFLUENCER|AFFILIATE|MARKETING|ADVERT/i;
+// Accounts left out of the account list and the bank-cash total (their receipts and spend still count in the run-rates,
+// since online sales often land there before moving to ANZ).
+const CF_HIDDEN_ACCOUNT_RE = /paypal|pay au|clearing/i;
 const CF_HISTORY_WEEKS = 13;
 const CF_REFRESH_TTL_MS = 10 * 60 * 1000;
 const CF_VIEWS = [['weeks13', '13 weeks'], ['months6', '6 months'], ['months12', '12 months']];
@@ -5838,7 +5841,7 @@ async function cfLoadXeroCore() {
   // Bank accounts vs credit cards (Xero marks cards CREDITCARD and gives the last 4 digits as the
   // account number). "Cash today" is BANK cash only; each card's balance is what we OWE on it and
   // is paid on the statement due dates (see the Amex logic in the engine).
-  const accounts = accts.map((a) => ({
+  const accounts = accts.filter((a) => !CF_HIDDEN_ACCOUNT_RE.test(a.Name || '')).map((a) => ({
     id: a.AccountID, name: a.Name, type: a.BankAccountType || 'BANK', last4: String(a.BankAccountNumber || '').replace(/\D/g, '').slice(-4),
     closing: (summaryRows.find((r) => r.id === a.AccountID) || { closing: 0 }).closing,
   }));
