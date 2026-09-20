@@ -564,6 +564,8 @@
 #cashflowView .cfx-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 #cashflowView .cfx-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
 #cashflowView .cfx-status { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+#cashflowView .cfx-banner { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; background: #fff4f2; border: 1px solid #f3c7c3; color: #8a1f14; font-size: 13.5px; line-height: 1.5; }
+#cashflowView .cfx-banner b { font-weight: 700; }
 #cashflowView .cfx-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 #cashflowView .cfx-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #cashflowView .cfx-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
@@ -1382,6 +1384,8 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     </div>
     <button id="cfRefreshBtn" onclick="loadCashflowData(true)">Refresh</button>
   </div>
+
+  <div id="cfBanner" class="cfx-banner" style="display:none"></div>
 
   <div class="cfx-kpis" id="cfKpis"></div>
 
@@ -5734,9 +5738,14 @@ const cf = {
   hist: { weekly: null, monthly: null },
   src: {},               // per-source status text for the details panel
   result: null, chart: null, drill: null, saveTimer: null,
+  historyState: 'loading', // 'loading' | 'ok' | 'failed' — the warning banner only speaks once it has settled
 };
 
 const cfSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Slow-moving Xero history is cached for the browser session so reloading / refreshing the tab
+// doesn't re-spend Xero's 60-calls-a-minute allowance. (Nothing is cached on failure.)
+function cfCacheGet(key, ttlMs) { try { const v = JSON.parse(sessionStorage.getItem('cf_' + key) || 'null'); if (v && Date.now() - v.at < ttlMs) return v.data; } catch (e) {} return null; }
+function cfCacheSet(key, data) { try { sessionStorage.setItem('cf_' + key, JSON.stringify({ at: Date.now(), data })); } catch (e) {} }
 const cfToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne' }).format(new Date());
 const cfIso = (raw) => { const m = /\/Date\((-?\d+)/.exec(raw || ''); return m ? new Date(Number(m[1])).toISOString().slice(0, 10) : null; };
 const cfMoney = (n) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-AU');
@@ -5820,6 +5829,8 @@ async function cfLoadXeroCore() {
 // everything that is NOT a supplier bill payment: marketing, wages, tax, rent,
 // card spend. Bill payments are handled from Xero bills' due dates instead.
 async function cfLoadHistory() {
+  const cachedHistory = cfCacheGet('history_' + cf.xero.today, 15 * 60 * 1000);
+  if (cachedHistory) { cf.history = cachedHistory; return; }
   const { today, ids } = cf.xero;
   const from = CFE.util.addDays(today, -CF_HISTORY_WEEKS * 7);
   const [y, m, d] = from.split('-').map(Number);
@@ -5876,6 +5887,8 @@ async function cfLoadHistory() {
     receiptsPerWeek: receipts / CF_HISTORY_WEEKS, marketingPerWeek: marketing / CF_HISTORY_WEEKS, otherOutPerWeek: (spendTotal - marketing) / CF_HISTORY_WEEKS,
     topSpend: [...byContact.values()].sort((a, b) => b.amount - a.amount).slice(0, 12),
   };
+  // Only cache a complete picture — never a run where the supplier payments failed to load.
+  if (!cf.src.suppliers) cfCacheSet('history_' + today, cf.history);
 }
 
 // Closing balances for the chart's "actual" line — one BankSummary call per
@@ -5884,6 +5897,8 @@ async function cfEnsureHistory(view) {
   const kind = view === 'weeks13' ? 'weekly' : 'monthly';
   if (cf.hist[kind] || !cf.xero) return;
   const { today, ids } = cf.xero;
+  const cachedHist = cfCacheGet(`hist_${kind}_${today}`, 6 * 3600 * 1000);
+  if (cachedHist) { cf.hist[kind] = cachedHist; return; }
   const jobs = [];
   if (kind === 'weekly') {
     for (let k = 1; k <= 13; k++) { const to = CFE.util.addDays(today, -7 * k); jobs.push({ to, from: CFE.util.addDays(to, -6) }); }
@@ -5900,6 +5915,7 @@ async function cfEnsureHistory(view) {
     }
   }));
   cf.hist[kind] = out.sort((a, b) => (a.to < b.to ? -1 : 1));
+  if (jobs.length === out.length) cfCacheSet(`hist_${kind}_${today}`, cf.hist[kind]);
 }
 
 // ── Apparel Magic / Shopify ──────────────────────────────────────────────────
@@ -6049,6 +6065,18 @@ function cfRenderControls() {
 }
 function cfSetScen(s) { cf.scen = s; cf.drill = null; cfRenderMain(); }
 function cfSetView(v) { cf.view = v; cf.drill = null; cfRenderMain(); cfEnsureHistory(v).then(() => cfDrawChart()); }
+
+function cfRenderBanner() {
+  const el = document.getElementById('cfBanner');
+  const msgs = [];
+  if (cf.historyState === 'loading') { /* still working on it — say nothing yet */ }
+  else if (!cf.history) msgs.push('<b>Xero spending history didn\'t load.</b> Wages, marketing, tax and typical supplier payments are missing, so cash out is understated and the balance is overstated.');
+  else if (cf.src.suppliers) msgs.push(`<b>Supplier payment history didn't load</b> (${cfEsc(cf.src.suppliers)}). Stock beyond the bills and POs that exist today is missing, so cash from about October onward is overstated. Press Refresh in a minute.`);
+  const am = cf.am.status.orders;
+  if (am && am.state === 'error') msgs.push(`<b>Apparel Magic orders didn't load</b> (${cfEsc(am.message)}), so confirmed wholesale orders are missing.`);
+  el.innerHTML = msgs.join('<br>');
+  el.style.display = msgs.length ? 'block' : 'none';
+}
 
 function cfRenderConfidence() {
   const r = cf.result, s = r.scenarios.base;
@@ -6356,7 +6384,7 @@ function cfRenderDetail() {
 // ── Orchestration ────────────────────────────────────────────────────────────
 function cfRenderMain(skipInputs) {
   if (!cf.result) return;
-  cfRenderControls(); cfRenderKpis(); cfRenderConfidence(); cfRenderSummary(); cfRenderDrill(); cfRenderWatch(); cfRenderDetail();
+  cfRenderBanner(); cfRenderControls(); cfRenderKpis(); cfRenderConfidence(); cfRenderSummary(); cfRenderDrill(); cfRenderWatch(); cfRenderDetail();
   if (!skipInputs) cfRenderInputs();
   cfDrawChart();
   cfSetStatus();
@@ -6377,6 +6405,7 @@ async function loadCashflowData(force) {
     cf.am = { orders: null, pos: null, status: {} };
     cf.shopify = null;
     cf.history = null;
+    cf.historyState = 'loading';
     await cfLoadInputs();
     await cfLoadXeroCore();
     cfRecompute();
@@ -6384,7 +6413,7 @@ async function loadCashflowData(force) {
     cfRenderMain();
     // The rest arrive independently — each one re-renders the forecast when it lands.
     const later = [
-      cfLoadHistory().catch((e) => { cf.src.history = e.message; }).then(cfRefresh),
+      cfLoadHistory().then(() => { cf.historyState = 'ok'; }, (e) => { cf.src.history = e.message; cf.historyState = 'failed'; }).then(cfRefresh),
       cfLoadAm('orders').then(cfRefresh),
       cfLoadAm('purchase_orders').then(cfRefresh),
       cfLoadShopify().then(cfRefresh),
