@@ -88,6 +88,7 @@ function compactPurchaseOrder(p) {
     cur: p.currency_name || 'AUD',
     amount: Math.round(amountOpen * 100) / 100,
     foreign: num(p.foreign_amount_open),
+    rate: num(p.currency_rate),
     qty: num(p.qty), qtyOpen: num(p.qty_open), qtyRecv: num(p.qty_received), qtyTransit: num(p.qty_in_transit),
     due: isoOrNull(p.date_ex_factory_internal) || isoOrNull(p.date_due_internal) || isoOrNull(p.date_internal),
     arrive: isoOrNull(p.date_due_internal),
@@ -119,11 +120,7 @@ async function crawl(kind, cache, timeLeft) {
     const rows = data.response || [];
     pages++;
     if (kind === 'purchase_orders') {
-      if (!cache.sampleKeys && rows[0]) {
-        cache.sampleKeys = Object.keys(rows[0]).sort();
-        // TEMPORARY diagnostic (removed once PO field mapping is confirmed): non-personal scalar fields only.
-        cache.sample = Object.fromEntries(Object.entries(rows[0]).filter(([k, v]) => v !== null && typeof v !== 'object' && /id$|date|status|open|amount|qty|balance|currency|term|number|^po|closed|void|received|type/i.test(k) && !/address|email|phone|note/i.test(k)));
-      }
+      if (!cache.sampleKeys && rows[0]) cache.sampleKeys = Object.keys(rows[0]).sort();
       for (const r of rows) { const c = compactPurchaseOrder(r); if (c) cache.items.push(c); }
     } else {
       for (const r of rows) { const c = compactOrder(r); if (c) cache.items.push(c); }
@@ -172,7 +169,6 @@ exports.handler = async (event) => {
       items: cache.done ? cache.items : [],
       error: cache.error || null,
       sampleKeys: cache.sampleKeys || null,
-      sample: cache.sample || null,
     });
   } catch (err) {
     return json(500, { code: 'server_error', error: err.message });
