@@ -835,6 +835,27 @@ body.app-ui #billsView .drop { border-radius: 12px; border-color: var(--border);
 body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 
 }
+#drawingsView { max-width: 900px; margin: 24px auto 48px; padding: 0 20px; }
+#drawingsView .dw-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+#drawingsView .dw-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+#drawingsView .dw-status { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+#drawingsView .dw-controls { display: flex; gap: 10px; align-items: center; }
+#drawingsView select { padding: 8px 12px; font-size: 14px; font-weight: 600; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); }
+#drawingsView .dw-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+#drawingsView .dw-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+#drawingsView .dw-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+#drawingsView .dw-kpi-value { font-size: 27px; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+#drawingsView .dw-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 12px 22px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+#drawingsView table.dw-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+#drawingsView table.dw-table th { text-align: right; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+#drawingsView table.dw-table td { text-align: right; padding: 10px 12px; border-bottom: 1px solid #f1f1ee; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#drawingsView table.dw-table th:first-child, #drawingsView table.dw-table td:first-child { text-align: left; }
+#drawingsView table.dw-table td.dw-zero { color: #b5b9c0; }
+#drawingsView table.dw-table td.dw-tot { font-weight: 600; }
+#drawingsView table.dw-table tr.dw-total td { font-weight: 700; border-top: 1px solid var(--border); border-bottom: none; background: #fafaf8; }
+#drawingsView .dw-note { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+#drawingsView .dw-error { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; background: #fff4f2; border: 1px solid #f3c7c3; color: #8a1f14; font-size: 13.5px; line-height: 1.5; }
+@media (max-width: 640px) { #drawingsView .dw-kpis { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body class="app-ui">
@@ -870,6 +891,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
         <button class="tab-btn" data-tab="commission" onclick="switchTab('commission')">Commission</button>
         <button class="tab-btn" data-tab="wages" onclick="switchTab('wages')">Wages</button>
         <button class="tab-btn" data-tab="cashflow" onclick="switchTab('cashflow')">Cashflow</button>
+        <button class="tab-btn" data-tab="drawings" onclick="switchTab('drawings')">Drawings</button>
       </nav>
     </div>
   </header>
@@ -1442,6 +1464,23 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     <summary><span class="cfx-card-title" style="margin:0">Accounting detail &amp; data sources</span></summary>
     <div id="cfDetail"></div>
   </details>
+</div>
+
+<div id="drawingsView" style="display:none;">
+  <div class="dw-head">
+    <div>
+      <div class="dw-title">Drawings</div>
+      <div class="dw-status" id="dwStatus">Loading…</div>
+    </div>
+    <div class="dw-controls">
+      <select id="dwYear" onchange="dwSetYear(this.value)" aria-label="Year"></select>
+      <button id="dwRefreshBtn" onclick="loadDrawings(true)">Refresh</button>
+    </div>
+  </div>
+  <div id="dwError" class="dw-error" style="display:none"></div>
+  <div class="dw-kpis" id="dwKpis"></div>
+  <div class="dw-card"><table class="dw-table" id="dwTable"></table></div>
+  <div class="dw-note">Built from Xero bank transactions (spend money / receive money) coded to each drawings account, by transaction date. Receipts coded to a drawings account count as negative. Manual journals and bills coded to these accounts aren't included.</div>
 </div>
 <script>
 const AM_PROXY = '/.netlify/functions/am-proxy';
@@ -2421,6 +2460,7 @@ function switchTab(tab) {
   document.getElementById('commissionView').style.display = tab === 'commission' ? 'block' : 'none';
   document.getElementById('wagesView').style.display = tab === 'wages' ? 'block' : 'none';
   document.getElementById('cashflowView').style.display = tab === 'cashflow' ? 'block' : 'none';
+  document.getElementById('drawingsView').style.display = tab === 'drawings' ? 'block' : 'none';
   for (const btn of document.querySelectorAll('.tab-btn')) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   }
@@ -2431,6 +2471,7 @@ function switchTab(tab) {
   if (tab === 'cashflow' && typeof loadCashflowData === 'function') {
     loadCashflowData(); // TTL-cached — same pattern as the Bills COA/Contacts sync
   }
+  if (tab === 'drawings' && typeof loadDrawings === 'function') loadDrawings();
 }
 
 function openStatementFor(customerLike) {
@@ -6569,6 +6610,107 @@ async function loadCashflowData(force) {
   }
   cf.loading = false;
   btn.disabled = false;
+}
+
+// ── Drawings tab ─────────────────────────────────────────────────────────────
+const DW_ACCOUNTS = [{ code: '501', name: 'Drawings - Olver' }, { code: '502', name: 'Drawings - Kirby' }];
+const dw = { year: null, loading: false, data: {} };
+
+function dwInitYears() {
+  const sel = document.getElementById('dwYear');
+  if (sel.options.length) return;
+  const cur = Number(cfToday().slice(0, 4));
+  dw.year = cur;
+  for (let y = cur; y >= cur - 6; y--) sel.add(new Option(String(y), String(y)));
+}
+
+function dwSetYear(y) { dw.year = Number(y); loadDrawings(); }
+
+async function dwLoadAccountNames() {
+  if (dw.namesLoaded) return;
+  try {
+    const data = await cfXero({ path: 'Accounts', where: DW_ACCOUNTS.map((a) => `Code=="${a.code}"`).join(' || ') });
+    for (const acc of data.Accounts || []) {
+      const t = DW_ACCOUNTS.find((a) => a.code === acc.Code);
+      if (t && acc.Name) t.name = acc.Name;
+    }
+  } catch (e) { /* keep the default labels */ }
+  dw.namesLoaded = true;
+}
+
+async function dwFetchYear(year) {
+  const cached = cfCacheGet('drawings_' + year, 15 * 60 * 1000);
+  if (cached) return cached;
+  const where = `Status=="AUTHORISED" && Date>=DateTime(${year},1,1) && Date<=DateTime(${year},12,31)`;
+  const months = Array.from({ length: 12 }, () => ({ '501': 0, '502': 0 }));
+  const MAX_PAGES = 40;
+  let truncated = false, count = 0;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const data = await cfXero({ path: 'BankTransactions', where, page: String(page), pageSize: '1000' });
+    const rows = data.BankTransactions || [];
+    for (const t of rows) {
+      if (t.Type !== 'SPEND' && t.Type !== 'RECEIVE') continue;
+      const iso = cfIso(t.Date);
+      if (!iso || iso.slice(0, 4) !== String(year)) continue;
+      const sign = t.Type === 'SPEND' ? 1 : -1;
+      for (const li of t.LineItems || []) {
+        if (months[Number(iso.slice(5, 7)) - 1][li.AccountCode] === undefined) continue;
+        months[Number(iso.slice(5, 7)) - 1][li.AccountCode] += sign * (li.LineAmount || 0);
+        count++;
+      }
+    }
+    if (rows.length < 1000) break;
+    if (page === MAX_PAGES) truncated = true;
+  }
+  const out = { months, truncated, count };
+  if (!truncated) cfCacheSet('drawings_' + year, out);
+  return out;
+}
+
+function dwRender() {
+  const d = dw.data[dw.year];
+  if (!d) return;
+  const names = DW_ACCOUNTS.map((a) => `${a.code} - ${cfEsc(a.name)}`);
+  const tot = DW_ACCOUNTS.map((a) => d.months.reduce((n, m) => n + m[a.code], 0));
+  const grand = tot[0] + tot[1];
+  document.getElementById('dwKpis').innerHTML = [[names[0], tot[0]], [names[1], tot[1]], ['Total ' + dw.year, grand]]
+    .map(([l, v]) => `<div class="dw-kpi"><div class="dw-kpi-label">${l}</div><div class="dw-kpi-value">${cfMoney(v)}</div></div>`).join('');
+  const cell = (v, extra) => `<td class="${v === 0 ? 'dw-zero ' : ''}${extra || ''}">${v === 0 ? '–' : cfMoney(v)}</td>`;
+  const monthName = (i) => new Date(Date.UTC(dw.year, i, 1)).toLocaleDateString('en-AU', { month: 'long', timeZone: 'UTC' });
+  const rows = d.months.map((m, i) => `<tr><td>${monthName(i)}</td>${cell(m['501'])}${cell(m['502'])}${cell(m['501'] + m['502'], 'dw-tot')}</tr>`).join('');
+  document.getElementById('dwTable').innerHTML =
+    `<thead><tr><th>Month</th><th>${names[0]}</th><th>${names[1]}</th><th>Total</th></tr></thead><tbody>${rows}` +
+    `<tr class="dw-total"><td>${dw.year} total</td><td>${cfMoney(tot[0])}</td><td>${cfMoney(tot[1])}</td><td>${cfMoney(grand)}</td></tr></tbody>`;
+}
+
+async function loadDrawings(force) {
+  if (dw.loading) return;
+  dwInitYears();
+  const year = dw.year;
+  const status = document.getElementById('dwStatus');
+  const err = document.getElementById('dwError');
+  err.style.display = 'none';
+  if (!force && dw.data[year]) { dwRender(); status.textContent = `Updated ${dw.data[year].at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`; return; }
+  dw.loading = true;
+  const btn = document.getElementById('dwRefreshBtn');
+  btn.disabled = true;
+  status.textContent = `Loading ${year} from Xero…`;
+  try {
+    if (force) { try { sessionStorage.removeItem('cf_drawings_' + year); } catch (e) {} }
+    await dwLoadAccountNames();
+    const d = await dwFetchYear(year);
+    dw.data[year] = { ...d, at: new Date() };
+    if (dw.year === year) dwRender();
+    status.textContent = `Updated ${dw.data[year].at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`;
+    if (d.truncated) { err.textContent = 'Hit the page limit while reading Xero — figures for this year may be incomplete.'; err.style.display = 'block'; }
+  } catch (e) {
+    status.textContent = '';
+    err.textContent = `Failed to load drawings: ${e.message}`;
+    err.style.display = 'block';
+  }
+  dw.loading = false;
+  btn.disabled = false;
+  if (dw.year !== year) loadDrawings();
 }
 </script>
 </body>
