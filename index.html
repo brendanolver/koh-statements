@@ -839,8 +839,10 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #drawingsView .dw-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
 #drawingsView .dw-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
 #drawingsView .dw-status { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
-#drawingsView .dw-controls { display: flex; gap: 10px; align-items: center; }
-#drawingsView select { padding: 8px 12px; font-size: 14px; font-weight: 600; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); }
+#drawingsView .dw-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#drawingsView select, #drawingsView input[type=date] { padding: 8px 12px; font-size: 14px; font-weight: 600; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); font-family: inherit; }
+#drawingsView input[type=date] { font-weight: 500; }
+#drawingsView .dw-lbl { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 #drawingsView .dw-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 #drawingsView .dw-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #drawingsView .dw-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
@@ -1476,7 +1478,9 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <div class="dw-status" id="dwStatus">Loading…</div>
     </div>
     <div class="dw-controls">
-      <select id="dwYear" onchange="dwSetYear(this.value)" aria-label="Year"></select>
+      <select id="dwPeriod" onchange="dwChoosePeriod(this.value)" aria-label="Period"></select>
+      <span class="dw-lbl">From</span><input type="date" id="dwFrom" onchange="dwDatesChanged()">
+      <span class="dw-lbl">To</span><input type="date" id="dwTo" onchange="dwDatesChanged()">
       <button id="dwRefreshBtn" onclick="loadDrawings(true)">Refresh</button>
     </div>
   </div>
@@ -6618,17 +6622,57 @@ async function loadCashflowData(force) {
 
 // ── Drawings tab ─────────────────────────────────────────────────────────────
 const DW_ACCOUNTS = [{ code: '501', name: 'Drawings - Olver' }, { code: '502', name: 'Drawings - Kirby' }];
-const dw = { year: null, loading: false, data: {} };
+const dw = { from: null, to: null, short: '', presets: [], loading: false, data: {} };
+const dwPad = (n) => String(n).padStart(2, '0');
+const dwLastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate(); // m = 1-12
+const dwKey = () => dw.from + '_' + dw.to;
 
-function dwInitYears() {
-  const sel = document.getElementById('dwYear');
-  if (sel.options.length) return;
-  const cur = Number(cfToday().slice(0, 4));
-  dw.year = cur;
-  for (let y = cur; y >= cur - 6; y--) sel.add(new Option(String(y), String(y)));
+function dwBuildPresets() {
+  const today = cfToday();
+  const cy = Number(today.slice(0, 4)), cm = Number(today.slice(5, 7));
+  const curFy = cm >= 7 ? cy + 1 : cy;
+  const out = [];
+  for (let y = curFy; y > curFy - 7; y--) out.push({ id: 'fy' + y, group: 'Financial years (Jul – Jun)', label: `FY${y}  (Jul ${y - 1} – Jun ${y})`, short: 'FY' + y, from: `${y - 1}-07-01`, to: `${y}-06-30` });
+  for (let y = cy; y > cy - 7; y--) out.push({ id: 'cy' + y, group: 'Calendar years', label: String(y), short: String(y), from: `${y}-01-01`, to: `${y}-12-31` });
+  const start = new Date(Date.UTC(cy, cm - 1 - 11, 1));
+  out.push({ id: 'l12', group: 'Rolling', label: 'Last 12 months', short: 'Last 12 months', from: `${start.getUTCFullYear()}-${dwPad(start.getUTCMonth() + 1)}-01`, to: today });
+  return out;
 }
 
-function dwSetYear(y) { dw.year = Number(y); loadDrawings(); }
+function dwInit() {
+  const sel = document.getElementById('dwPeriod');
+  if (sel.options.length) return;
+  dw.presets = dwBuildPresets();
+  const groups = {};
+  for (const p of dw.presets) {
+    if (!groups[p.group]) { groups[p.group] = document.createElement('optgroup'); groups[p.group].label = p.group; sel.appendChild(groups[p.group]); }
+    groups[p.group].appendChild(new Option(p.label, p.id));
+  }
+  sel.add(new Option('Custom range…', 'custom'));
+  dwChoosePeriod('cy' + cfToday().slice(0, 4), true);
+}
+
+function dwChoosePeriod(id, skipLoad) {
+  const sel = document.getElementById('dwPeriod');
+  sel.value = id;
+  if (id !== 'custom') {
+    const p = dw.presets.find((x) => x.id === id);
+    dw.from = p.from; dw.to = p.to; dw.short = p.short;
+    document.getElementById('dwFrom').value = p.from;
+    document.getElementById('dwTo').value = p.to;
+  }
+  if (!skipLoad) loadDrawings();
+}
+
+function dwDatesChanged() {
+  const from = document.getElementById('dwFrom').value, to = document.getElementById('dwTo').value;
+  const err = document.getElementById('dwError');
+  if (!from || !to) return;
+  document.getElementById('dwPeriod').value = 'custom';
+  if (from > to) { err.textContent = 'The From date must be on or before the To date.'; err.style.display = 'block'; return; }
+  dw.from = from; dw.to = to; dw.short = 'Selected period';
+  loadDrawings();
+}
 
 async function dwLoadAccountNames() {
   if (dw.namesLoaded) return;
@@ -6642,86 +6686,112 @@ async function dwLoadAccountNames() {
   dw.namesLoaded = true;
 }
 
-async function dwFetchYear(year) {
-  const cached = cfCacheGet('drawings_' + year, 15 * 60 * 1000);
+function dwMonthKeys(from, to) {
+  const keys = [];
+  let y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7));
+  const endKey = to.slice(0, 7);
+  for (;;) {
+    const k = `${y}-${dwPad(m)}`;
+    keys.push(k);
+    if (k >= endKey) break;
+    if (++m > 12) { m = 1; y++; }
+  }
+  return keys;
+}
+
+async function dwFetchRange(from, to) {
+  const key = 'drawings_' + from + '_' + to;
+  const cached = cfCacheGet(key, 15 * 60 * 1000);
   if (cached) return cached;
-  const where = `Status=="AUTHORISED" && Date>=DateTime(${year},1,1) && Date<=DateTime(${year},12,31)`;
-  const months = Array.from({ length: 12 }, () => ({ '501': 0, '502': 0 }));
+  const dt = (iso) => `DateTime(${Number(iso.slice(0, 4))},${Number(iso.slice(5, 7))},${Number(iso.slice(8, 10))})`;
+  const where = `Status=="AUTHORISED" && Date>=${dt(from)} && Date<=${dt(to)}`;
+  const keys = dwMonthKeys(from, to);
+  const months = {};
+  for (const k of keys) months[k] = { '501': 0, '502': 0 };
   const MAX_PAGES = 40;
-  let truncated = false, count = 0;
+  let truncated = false;
   for (let page = 1; page <= MAX_PAGES; page++) {
     const data = await cfXero({ path: 'BankTransactions', where, page: String(page), pageSize: '1000' });
     const rows = data.BankTransactions || [];
     for (const t of rows) {
       if (t.Type !== 'SPEND' && t.Type !== 'RECEIVE') continue;
       const iso = cfIso(t.Date);
-      if (!iso || iso.slice(0, 4) !== String(year)) continue;
+      if (!iso || iso < from || iso > to) continue;
+      const bucket = months[iso.slice(0, 7)];
+      if (!bucket) continue;
       const sign = t.Type === 'SPEND' ? 1 : -1;
       for (const li of t.LineItems || []) {
-        if (months[Number(iso.slice(5, 7)) - 1][li.AccountCode] === undefined) continue;
-        months[Number(iso.slice(5, 7)) - 1][li.AccountCode] += sign * (li.LineAmount || 0);
-        count++;
+        if (bucket[li.AccountCode] === undefined) continue;
+        bucket[li.AccountCode] += sign * (li.LineAmount || 0);
       }
     }
     if (rows.length < 1000) break;
     if (page === MAX_PAGES) truncated = true;
   }
-  const out = { months, truncated, count };
-  if (!truncated) cfCacheSet('drawings_' + year, out);
+  const out = { from, to, keys, months, truncated };
+  if (!truncated) cfCacheSet(key, out);
   return out;
 }
 
 function dwRender() {
-  const d = dw.data[dw.year];
+  const d = dw.data[dwKey()];
   if (!d) return;
   const r2 = (n) => Math.round(n * 100) / 100;
   const short = (a) => a.name.replace(/^drawings?\s*[-–]?\s*/i, '') || a.code;
   const [A, B] = DW_ACCOUNTS;
   const names = DW_ACCOUNTS.map((a) => `${a.code} - ${cfEsc(a.name)}`);
-  const tot = DW_ACCOUNTS.map((a) => r2(d.months.reduce((n, m) => n + m[a.code], 0)));
+  const list = d.keys.map((k) => d.months[k]);
+  const tot = DW_ACCOUNTS.map((a) => r2(list.reduce((n, m) => n + m[a.code], 0)));
   const grand = r2(tot[0] + tot[1]);
   const diffTot = r2(tot[0] - tot[1]);
-  const whoLine = (diff) => diff === 0 ? 'Even' : `${cfEsc(short(diff > 0 ? A : B))} ahead by ${cfMoney(Math.abs(diff))}`;
   const kpi = (label, val, sub) => `<div class="dw-kpi"><div class="dw-kpi-label">${label}</div><div class="dw-kpi-value">${val}</div><div class="dw-kpi-sub">${sub || ''}</div></div>`;
+  const label = cfEsc(dw.short);
   document.getElementById('dwKpis').innerHTML =
-    kpi(names[0], cfMoney(tot[0])) + kpi(names[1], cfMoney(tot[1])) + kpi('Total ' + dw.year, cfMoney(grand)) +
+    kpi(names[0], cfMoney(tot[0])) + kpi(names[1], cfMoney(tot[1])) + kpi('Total ' + label, cfMoney(grand)) +
     kpi('Difference', cfMoney(diffTot), diffTot === 0 ? 'Even' : `${cfEsc(short(diffTot > 0 ? A : B))} has taken ${cfMoney(Math.abs(diffTot))} more`);
   const cell = (v, extra) => `<td class="${v === 0 ? 'dw-zero ' : ''}${extra || ''}">${v === 0 ? '–' : cfMoney(v)}</td>`;
-  const monthName = (i) => new Date(Date.UTC(dw.year, i, 1)).toLocaleDateString('en-AU', { month: 'long', timeZone: 'UTC' });
-  const curMonth = String(dw.year) === cfToday().slice(0, 4) ? Number(cfToday().slice(5, 7)) : 12;
+  const monthName = (k) => new Date(k + '-01T00:00:00Z').toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const nowKey = cfToday().slice(0, 7);
+  const lastKey = d.keys[d.keys.length - 1];
+  const partialFirst = d.from.slice(8) !== '01';
+  const partialLast = Number(d.to.slice(8)) !== dwLastDay(Number(d.to.slice(0, 4)), Number(d.to.slice(5, 7)));
   let running = 0;
-  const rows = d.months.map((m, i) => {
+  const rows = d.keys.map((k, i) => {
+    const m = d.months[k];
     const diff = r2(m['501'] - m['502']);
     running = r2(running + diff);
-    const runCell = i < curMonth ? cell(running, 'dw-tot') : '<td class="dw-zero">–</td>';
-    return `<tr><td>${monthName(i)}</td>${cell(m['501'])}${cell(m['502'])}${cell(r2(m['501'] + m['502']), 'dw-tot')}${cell(diff, 'dw-diff-sep')}${runCell}</tr>`;
+    const dm = (iso) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    const part = (i === 0 && partialFirst) ? ` <small>(from ${dm(d.from)})</small>` : (k === lastKey && partialLast) ? ` <small>(to ${dm(d.to)})</small>` : '';
+    const runCell = k <= nowKey ? `<td class="dw-tot">${cfMoney(running)}</td>` : '<td class="dw-zero">–</td>';
+    return `<tr><td>${monthName(k)}${part}</td>${cell(m['501'])}${cell(m['502'])}${cell(r2(m['501'] + m['502']), 'dw-tot')}${cell(diff, 'dw-diff-sep')}${runCell}</tr>`;
   }).join('');
   document.getElementById('dwTable').innerHTML =
     `<thead><tr><th>Month</th><th>${names[0]}</th><th>${names[1]}</th><th>Total</th><th class="dw-diff-sep">Difference</th><th>Running difference</th></tr></thead><tbody>${rows}` +
-    `<tr class="dw-total"><td>${dw.year} total</td><td>${cfMoney(tot[0])}</td><td>${cfMoney(tot[1])}</td><td>${cfMoney(grand)}</td><td class="dw-diff-sep">${cfMoney(diffTot)}</td><td>${cfMoney(diffTot)}</td></tr></tbody>`;
-  document.getElementById('dwWho').textContent = diffTot === 0 ? 'Both accounts are level for the year.' : `${short(diffTot > 0 ? A : B)} has taken more so far this year.`;
+    `<tr class="dw-total"><td>${label} total</td><td>${cfMoney(tot[0])}</td><td>${cfMoney(tot[1])}</td><td>${cfMoney(grand)}</td><td class="dw-diff-sep">${cfMoney(diffTot)}</td><td>${cfMoney(diffTot)}</td></tr></tbody>`;
+  document.getElementById('dwWho').textContent = diffTot === 0 ? 'Both accounts are level for this period.' : `${short(diffTot > 0 ? A : B)} has taken more in this period.`;
 }
 
 async function loadDrawings(force) {
   if (dw.loading) return;
-  dwInitYears();
-  const year = dw.year;
+  dwInit();
+  const key = dwKey();
   const status = document.getElementById('dwStatus');
   const err = document.getElementById('dwError');
   err.style.display = 'none';
-  if (!force && dw.data[year]) { dwRender(); status.textContent = `Updated ${dw.data[year].at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`; return; }
+  const stamp = (at) => `Updated ${at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`;
+  if (!force && dw.data[key]) { dwRender(); status.textContent = stamp(dw.data[key].at); return; }
   dw.loading = true;
   const btn = document.getElementById('dwRefreshBtn');
   btn.disabled = true;
-  status.textContent = `Loading ${year} from Xero…`;
+  status.textContent = 'Loading from Xero…';
   try {
-    if (force) { try { sessionStorage.removeItem('cf_drawings_' + year); } catch (e) {} }
+    if (force) { try { sessionStorage.removeItem('cf_drawings_' + dw.from + '_' + dw.to); } catch (e) {} }
     await dwLoadAccountNames();
-    const d = await dwFetchYear(year);
-    dw.data[year] = { ...d, at: new Date() };
-    if (dw.year === year) dwRender();
-    status.textContent = `Updated ${dw.data[year].at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`;
-    if (d.truncated) { err.textContent = 'Hit the page limit while reading Xero — figures for this year may be incomplete.'; err.style.display = 'block'; }
+    const d = await dwFetchRange(dw.from, dw.to);
+    dw.data[key] = { ...d, at: new Date() };
+    if (dwKey() === key) dwRender();
+    status.textContent = stamp(dw.data[key].at);
+    if (d.truncated) { err.textContent = 'Hit the page limit while reading Xero — figures for this period may be incomplete.'; err.style.display = 'block'; }
   } catch (e) {
     status.textContent = '';
     err.textContent = `Failed to load drawings: ${e.message}`;
@@ -6729,7 +6799,7 @@ async function loadDrawings(force) {
   }
   dw.loading = false;
   btn.disabled = false;
-  if (dw.year !== year) loadDrawings();
+  if (dwKey() !== key) loadDrawings();
 }
 </script>
 </body>
