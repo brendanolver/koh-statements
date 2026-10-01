@@ -835,13 +835,13 @@ body.app-ui #billsView .drop { border-radius: 12px; border-color: var(--border);
 body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 
 }
-#drawingsView { max-width: 900px; margin: 24px auto 48px; padding: 0 20px; }
+#drawingsView { max-width: 1040px; margin: 24px auto 48px; padding: 0 20px; }
 #drawingsView .dw-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
 #drawingsView .dw-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
 #drawingsView .dw-status { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 #drawingsView .dw-controls { display: flex; gap: 10px; align-items: center; }
 #drawingsView select { padding: 8px 12px; font-size: 14px; font-weight: 600; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); }
-#drawingsView .dw-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+#drawingsView .dw-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 #drawingsView .dw-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #drawingsView .dw-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
 #drawingsView .dw-kpi-value { font-size: 27px; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
@@ -855,6 +855,9 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #drawingsView table.dw-table tr.dw-total td { font-weight: 700; border-top: 1px solid var(--border); border-bottom: none; background: #fafaf8; }
 #drawingsView .dw-note { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
 #drawingsView .dw-error { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; background: #fff4f2; border: 1px solid #f3c7c3; color: #8a1f14; font-size: 13.5px; line-height: 1.5; }
+#drawingsView .dw-kpi-sub { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 15px; }
+#drawingsView td.dw-diff-sep, #drawingsView th.dw-diff-sep { border-left: 1px solid var(--border); }
+@media (max-width: 900px) { #drawingsView .dw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } #drawingsView .dw-card { overflow-x: auto; } }
 @media (max-width: 640px) { #drawingsView .dw-kpis { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -1480,6 +1483,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
   <div id="dwError" class="dw-error" style="display:none"></div>
   <div class="dw-kpis" id="dwKpis"></div>
   <div class="dw-card"><table class="dw-table" id="dwTable"></table></div>
+  <div class="dw-note"><strong id="dwWho"></strong> Difference = 501 minus 502, so a positive figure means the first account took more; running difference adds it up month by month.</div>
   <div class="dw-note">Built from Xero bank transactions (spend money / receive money) coded to each drawings account, by transaction date. Receipts coded to a drawings account count as negative. Manual journals and bills coded to these accounts aren't included.</div>
 </div>
 <script>
@@ -6670,17 +6674,32 @@ async function dwFetchYear(year) {
 function dwRender() {
   const d = dw.data[dw.year];
   if (!d) return;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const short = (a) => a.name.replace(/^drawings?\s*[-–]?\s*/i, '') || a.code;
+  const [A, B] = DW_ACCOUNTS;
   const names = DW_ACCOUNTS.map((a) => `${a.code} - ${cfEsc(a.name)}`);
-  const tot = DW_ACCOUNTS.map((a) => d.months.reduce((n, m) => n + m[a.code], 0));
-  const grand = tot[0] + tot[1];
-  document.getElementById('dwKpis').innerHTML = [[names[0], tot[0]], [names[1], tot[1]], ['Total ' + dw.year, grand]]
-    .map(([l, v]) => `<div class="dw-kpi"><div class="dw-kpi-label">${l}</div><div class="dw-kpi-value">${cfMoney(v)}</div></div>`).join('');
+  const tot = DW_ACCOUNTS.map((a) => r2(d.months.reduce((n, m) => n + m[a.code], 0)));
+  const grand = r2(tot[0] + tot[1]);
+  const diffTot = r2(tot[0] - tot[1]);
+  const whoLine = (diff) => diff === 0 ? 'Even' : `${cfEsc(short(diff > 0 ? A : B))} ahead by ${cfMoney(Math.abs(diff))}`;
+  const kpi = (label, val, sub) => `<div class="dw-kpi"><div class="dw-kpi-label">${label}</div><div class="dw-kpi-value">${val}</div><div class="dw-kpi-sub">${sub || ''}</div></div>`;
+  document.getElementById('dwKpis').innerHTML =
+    kpi(names[0], cfMoney(tot[0])) + kpi(names[1], cfMoney(tot[1])) + kpi('Total ' + dw.year, cfMoney(grand)) +
+    kpi('Difference', cfMoney(diffTot), diffTot === 0 ? 'Even' : `${cfEsc(short(diffTot > 0 ? A : B))} has taken ${cfMoney(Math.abs(diffTot))} more`);
   const cell = (v, extra) => `<td class="${v === 0 ? 'dw-zero ' : ''}${extra || ''}">${v === 0 ? '–' : cfMoney(v)}</td>`;
   const monthName = (i) => new Date(Date.UTC(dw.year, i, 1)).toLocaleDateString('en-AU', { month: 'long', timeZone: 'UTC' });
-  const rows = d.months.map((m, i) => `<tr><td>${monthName(i)}</td>${cell(m['501'])}${cell(m['502'])}${cell(m['501'] + m['502'], 'dw-tot')}</tr>`).join('');
+  const curMonth = String(dw.year) === cfToday().slice(0, 4) ? Number(cfToday().slice(5, 7)) : 12;
+  let running = 0;
+  const rows = d.months.map((m, i) => {
+    const diff = r2(m['501'] - m['502']);
+    running = r2(running + diff);
+    const runCell = i < curMonth ? cell(running, 'dw-tot') : '<td class="dw-zero">–</td>';
+    return `<tr><td>${monthName(i)}</td>${cell(m['501'])}${cell(m['502'])}${cell(r2(m['501'] + m['502']), 'dw-tot')}${cell(diff, 'dw-diff-sep')}${runCell}</tr>`;
+  }).join('');
   document.getElementById('dwTable').innerHTML =
-    `<thead><tr><th>Month</th><th>${names[0]}</th><th>${names[1]}</th><th>Total</th></tr></thead><tbody>${rows}` +
-    `<tr class="dw-total"><td>${dw.year} total</td><td>${cfMoney(tot[0])}</td><td>${cfMoney(tot[1])}</td><td>${cfMoney(grand)}</td></tr></tbody>`;
+    `<thead><tr><th>Month</th><th>${names[0]}</th><th>${names[1]}</th><th>Total</th><th class="dw-diff-sep">Difference</th><th>Running difference</th></tr></thead><tbody>${rows}` +
+    `<tr class="dw-total"><td>${dw.year} total</td><td>${cfMoney(tot[0])}</td><td>${cfMoney(tot[1])}</td><td>${cfMoney(grand)}</td><td class="dw-diff-sep">${cfMoney(diffTot)}</td><td>${cfMoney(diffTot)}</td></tr></tbody>`;
+  document.getElementById('dwWho').textContent = diffTot === 0 ? 'Both accounts are level for the year.' : `${short(diffTot > 0 ? A : B)} has taken more so far this year.`;
 }
 
 async function loadDrawings(force) {
