@@ -61,4 +61,9 @@ function cashflowInputsStore() {
   return namedStore('cashflow-inputs');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore };
+// Snapshot of the Xero-derived debtors rows served by debtors-feed.js.
+function debtorsFeedStore() {
+  return namedStore('debtors-feed');
+}
+
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, debtorsFeedStore };
