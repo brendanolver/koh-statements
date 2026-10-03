@@ -835,7 +835,7 @@ body.app-ui #billsView .drop { border-radius: 12px; border-color: var(--border);
 body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 
 }
-#drawingsView { max-width: 1040px; margin: 24px auto 48px; padding: 0 20px; }
+#drawingsView { max-width: 1120px; margin: 24px auto 48px; padding: 0 20px; }
 #drawingsView .dw-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
 #drawingsView .dw-title { font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
 #drawingsView .dw-status { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
@@ -843,10 +843,10 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #drawingsView select, #drawingsView input[type=date] { padding: 8px 12px; font-size: 14px; font-weight: 600; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: var(--ink); font-family: inherit; }
 #drawingsView input[type=date] { font-weight: 500; }
 #drawingsView .dw-lbl { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
-#drawingsView .dw-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+#drawingsView .dw-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 #drawingsView .dw-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #drawingsView .dw-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
-#drawingsView .dw-kpi-value { font-size: 27px; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+#drawingsView .dw-kpi-value { font-size: 25px; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
 #drawingsView .dw-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 12px 22px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #drawingsView table.dw-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 #drawingsView table.dw-table th { text-align: right; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -1489,6 +1489,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
   <div class="dw-card"><table class="dw-table" id="dwTable"></table></div>
   <div class="dw-note"><strong id="dwWho"></strong> Difference = 501 minus 502, so a positive figure means the first account took more; running difference adds it up month by month.</div>
   <div class="dw-note">Built from Xero bank transactions (spend money / receive money) coded to each drawings account, by transaction date. Receipts coded to a drawings account count as negative. Manual journals and bills coded to these accounts aren't included.</div>
+  <div class="dw-note" id="dwIncNote"></div>
 </div>
 <script>
 const AM_PROXY = '/.netlify/functions/am-proxy';
@@ -5768,6 +5769,7 @@ function resetAll(){
 loadPlaceholderSeq();
 </script>
 
+<script src="drawings-history.js"></script>
 <script src="cashflow-engine.js"></script>
 <script>
 // ============================================================================
@@ -6622,7 +6624,10 @@ async function loadCashflowData(force) {
 
 // ── Drawings tab ─────────────────────────────────────────────────────────────
 const DW_ACCOUNTS = [{ code: '501', name: 'Drawings - Olver' }, { code: '502', name: 'Drawings - Kirby' }];
-const dw = { from: null, to: null, short: '', presets: [], loading: false, data: {} };
+const dw = { from: null, to: null, short: '', presets: [], loading: false, data: {},
+  // Since-inception history (all months, cached in this browser; see drawings-history.js)
+  inc: null, incState: 'idle', incProgress: { done: 0, total: 0 }, incError: '', incRun: null };
+const DW_INC_KEY = 'dw_inception_v1';
 const dwPad = (n) => String(n).padStart(2, '0');
 const dwLastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate(); // m = 1-12
 const dwKey = () => dw.from + '_' + dw.to;
@@ -6699,9 +6704,9 @@ function dwMonthKeys(from, to) {
   return keys;
 }
 
-async function dwFetchRange(from, to) {
+async function dwFetchRange(from, to, noCache) {
   const key = 'drawings_' + from + '_' + to;
-  const cached = cfCacheGet(key, 15 * 60 * 1000);
+  const cached = noCache ? null : cfCacheGet(key, 15 * 60 * 1000);
   if (cached) return cached;
   const dt = (iso) => `DateTime(${Number(iso.slice(0, 4))},${Number(iso.slice(5, 7))},${Number(iso.slice(8, 10))})`;
   const where = `Status=="AUTHORISED" && Date>=${dt(from)} && Date<=${dt(to)}`;
@@ -6729,7 +6734,7 @@ async function dwFetchRange(from, to) {
     if (page === MAX_PAGES) truncated = true;
   }
   const out = { from, to, keys, months, truncated };
-  if (!truncated) cfCacheSet(key, out);
+  if (!truncated && !noCache) cfCacheSet(key, out);
   return out;
 }
 
@@ -6746,15 +6751,36 @@ function dwRender() {
   const diffTot = r2(tot[0] - tot[1]);
   const kpi = (label, val, sub) => `<div class="dw-kpi"><div class="dw-kpi-label">${label}</div><div class="dw-kpi-value">${val}</div><div class="dw-kpi-sub">${sub || ''}</div></div>`;
   const label = cfEsc(dw.short);
-  document.getElementById('dwKpis').innerHTML =
-    kpi(names[0], cfMoney(tot[0])) + kpi(names[1], cfMoney(tot[1])) + kpi('Total ' + label, cfMoney(grand)) +
-    kpi('Difference', cfMoney(diffTot), diffTot === 0 ? 'Even' : `${cfEsc(short(diffTot > 0 ? A : B))} has taken ${cfMoney(Math.abs(diffTot))} more`);
-  const cell = (v, extra) => `<td class="${v === 0 ? 'dw-zero ' : ''}${extra || ''}">${v === 0 ? '–' : cfMoney(v)}</td>`;
   const monthName = (k) => new Date(k + '-01T00:00:00Z').toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   const nowKey = cfToday().slice(0, 7);
   const lastKey = d.keys[d.keys.length - 1];
   const partialFirst = d.from.slice(8) !== '01';
   const partialLast = Number(d.to.slice(8)) !== dwLastDay(Number(d.to.slice(0, 4)), Number(d.to.slice(5, 7)));
+  // Since inception = running total of (501 - 502) from the first month of activity in Xero, carried
+  // across periods. A month's figure is cumulative to the END of that month — except a period's last
+  // month when the period stops part-way through it, which is exact to the To date.
+  const incMonths = dw.incState === 'ok' && dw.inc ? dw.inc.months : null;
+  const incAt = (k) => {
+    if (!incMonths) return null;
+    const toDateExact = k === lastKey && partialLast && d.from <= k + '-01';
+    return r2(DWH.cumBefore(incMonths, k) + DWH.diffOf(toDateExact ? d.months[k] : incMonths[k]));
+  };
+  const asAtKey = [...d.keys].reverse().find((k) => k <= nowKey) || nowKey;
+  const incEnd = incMonths ? incAt(asAtKey) : null;
+  let incKpi;
+  if (incMonths) {
+    const first = DWH.firstActiveMonth(incMonths);
+    incKpi = kpi('Difference since inception', cfMoney(incEnd), incEnd === 0 ? 'Even' : `${cfEsc(short(incEnd > 0 ? A : B))} has taken ${cfMoney(Math.abs(incEnd))} more${first ? ` · since ${monthName(first)}` : ''}`);
+  } else if (dw.incState === 'error') {
+    incKpi = kpi('Difference since inception', '–', 'Couldn\'t read all history — press Refresh to retry');
+  } else {
+    const p = dw.incProgress;
+    incKpi = kpi('Difference since inception', '…', p.total > 1 ? `Reading Xero history (${p.done} of ${p.total} years) — first time only` : 'Reading Xero history…');
+  }
+  document.getElementById('dwKpis').innerHTML =
+    kpi(names[0], cfMoney(tot[0])) + kpi(names[1], cfMoney(tot[1])) + kpi('Total ' + label, cfMoney(grand)) +
+    kpi('Difference', cfMoney(diffTot), diffTot === 0 ? 'Even' : `${cfEsc(short(diffTot > 0 ? A : B))} has taken ${cfMoney(Math.abs(diffTot))} more`) + incKpi;
+  const cell = (v, extra) => `<td class="${v === 0 ? 'dw-zero ' : ''}${extra || ''}">${v === 0 ? '–' : cfMoney(v)}</td>`;
   let running = 0;
   const rows = d.keys.map((k, i) => {
     const m = d.months[k];
@@ -6763,12 +6789,96 @@ function dwRender() {
     const dm = (iso) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
     const part = (i === 0 && partialFirst) ? ` <small>(from ${dm(d.from)})</small>` : (k === lastKey && partialLast) ? ` <small>(to ${dm(d.to)})</small>` : '';
     const runCell = k <= nowKey ? `<td class="dw-tot">${cfMoney(running)}</td>` : '<td class="dw-zero">–</td>';
-    return `<tr><td>${monthName(k)}${part}</td>${cell(m['501'])}${cell(m['502'])}${cell(r2(m['501'] + m['502']), 'dw-tot')}${cell(diff, 'dw-diff-sep')}${runCell}</tr>`;
+    const incCell = k > nowKey ? '<td class="dw-zero">–</td>' : incMonths ? `<td class="dw-tot">${cfMoney(incAt(k))}</td>` : `<td class="dw-zero">${dw.incState === 'error' ? '–' : '…'}</td>`;
+    return `<tr><td>${monthName(k)}${part}</td>${cell(m['501'])}${cell(m['502'])}${cell(r2(m['501'] + m['502']), 'dw-tot')}${cell(diff, 'dw-diff-sep')}${runCell}${incCell}</tr>`;
   }).join('');
   document.getElementById('dwTable').innerHTML =
-    `<thead><tr><th>Month</th><th>${names[0]}</th><th>${names[1]}</th><th>Total</th><th class="dw-diff-sep">Difference</th><th>Running difference</th></tr></thead><tbody>${rows}` +
-    `<tr class="dw-total"><td>${label} total</td><td>${cfMoney(tot[0])}</td><td>${cfMoney(tot[1])}</td><td>${cfMoney(grand)}</td><td class="dw-diff-sep">${cfMoney(diffTot)}</td><td>${cfMoney(diffTot)}</td></tr></tbody>`;
+    `<thead><tr><th>Month</th><th>${names[0]}</th><th>${names[1]}</th><th>Total</th><th class="dw-diff-sep">Difference</th><th>Running difference</th><th>Since inception</th></tr></thead><tbody>${rows}` +
+    `<tr class="dw-total"><td>${label} total</td><td>${cfMoney(tot[0])}</td><td>${cfMoney(tot[1])}</td><td>${cfMoney(grand)}</td><td class="dw-diff-sep">${cfMoney(diffTot)}</td><td>${cfMoney(diffTot)}</td><td>${incMonths ? cfMoney(incEnd) : dw.incState === 'error' ? '–' : '…'}</td></tr></tbody>`;
+  const first2 = incMonths && DWH.firstActiveMonth(incMonths);
+  document.getElementById('dwIncNote').innerHTML = incMonths
+    ? `<strong>Since inception</strong> adds up the difference (501 minus 502) month by month from the first drawings in Xero${first2 ? ` (${monthName(first2)})` : ''}, carried across periods — so it keeps counting when you change the period. It reads every bank transaction once and keeps the monthly totals in this browser; each visit only re-reads the last two months. <a href="#" onclick="dwRebuildInception(); return false;">Re-read all history</a> if older transactions have been changed in Xero.`
+    : '';
   document.getElementById('dwWho').textContent = diffTot === 0 ? 'Both accounts are level for this period.' : `${short(diffTot > 0 ? A : B)} has taken more in this period.`;
+}
+
+// ── Since inception: read all history once, cache monthly totals in this browser ──
+function dwIncCacheLoad() {
+  try {
+    const c = JSON.parse(localStorage.getItem(DW_INC_KEY) || 'null');
+    if (c && c.readThrough && c.months && typeof c.months === 'object') return c;
+  } catch (e) {}
+  return null;
+}
+function dwIncCacheSave(c) { try { localStorage.setItem(DW_INC_KEY, JSON.stringify(c)); } catch (e) { /* storage full / blocked: it just re-reads next time */ } }
+async function dwEarliestDate() {
+  const data = await cfXero({ path: 'BankTransactions', where: 'Status=="AUTHORISED"', order: 'Date ASC', pageSize: '1', page: '1' });
+  const t = (data.BankTransactions || [])[0];
+  return t ? cfIso(t.Date) : null;
+}
+function dwRenderIfReady() { if (dw.data[dwKey()]) dwRender(); }
+function dwRebuildInception() {
+  if (dw.incRun) return;
+  if (!window.confirm('Re-read every bank transaction in Xero since the start (about 35 requests, roughly a minute)? You only need this if old transactions were changed.')) return;
+  dwLoadInception({ full: true });
+}
+function dwLoadInception(opts) {
+  opts = opts || {};
+  if (dw.incRun) return dw.incRun;
+  dw.incRun = (async () => {
+    dw.incState = 'loading'; dw.incError = ''; dw.incProgress = { done: 0, total: 0 };
+    dwRenderIfReady();
+    try {
+      const today = cfToday();
+      const cache = opts.full ? null : dwIncCacheLoad();
+      const earliest = cache ? null : await dwEarliestDate();
+      const plan = DWH.planRead(cache, today, earliest);
+      const windows = DWH.splitYears(plan.from, today);
+      dw.incProgress.total = windows.length;
+      const fresh = new Array(windows.length).fill(null);
+      const done = windows.map(() => false);
+      let next = 0, failed = null;
+      const persist = () => {
+        // Save only the unbroken run of finished windows, and only months old enough to be final.
+        const end = DWH.contiguousEnd(windows, done);
+        const rt = DWH.newReadThrough(end, plan.safe, cache && cache.readThrough);
+        if (!rt) return;
+        let months = { ...plan.keep };
+        for (let i = 0; i < windows.length && done[i]; i++) months = DWH.merge(months, fresh[i]);
+        const final = {};
+        for (const [k, v] of Object.entries(months)) if (k <= rt) final[k] = v;
+        dwIncCacheSave({ readThrough: rt, months: final, savedAt: Date.now() });
+      };
+      const worker = async () => {
+        while (!failed) {
+          const i = next++;
+          if (i >= windows.length) return;
+          try {
+            const d = await dwFetchRange(windows[i].from, windows[i].to, true);
+            if (d.truncated) throw new Error(`Hit the page limit reading ${windows[i].from.slice(0, 4)}`);
+            fresh[i] = d.months; done[i] = true;
+            dw.incProgress.done++;
+            persist();
+            dwRenderIfReady();
+          } catch (e) { failed = e; }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      if (failed) throw failed;
+      let months = { ...plan.keep };
+      for (const f of fresh) months = DWH.merge(months, f);
+      dw.inc = { months, at: new Date() };
+      dw.incState = 'ok';
+    } catch (e) {
+      dw.incState = 'error'; dw.incError = e.message;
+      const err = document.getElementById('dwError');
+      err.textContent = `Couldn't read all drawings history: ${String(e.message).replace(/[.\s]+$/, '')}. What was read is saved, so Refresh carries on from there.`;
+      err.style.display = 'block';
+    }
+    dw.incRun = null;
+    dwRenderIfReady();
+  })();
+  return dw.incRun;
 }
 
 async function loadDrawings(force) {
@@ -6791,6 +6901,7 @@ async function loadDrawings(force) {
     dw.data[key] = { ...d, at: new Date() };
     if (dwKey() === key) dwRender();
     status.textContent = stamp(dw.data[key].at);
+    if (dw.incState === 'idle' || dw.incState === 'error' || force) dwLoadInception({ noCache: !!force });
     if (d.truncated) { err.textContent = 'Hit the page limit while reading Xero — figures for this period may be incomplete.'; err.style.display = 'block'; }
   } catch (e) {
     status.textContent = '';
