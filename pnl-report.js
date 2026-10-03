@@ -135,7 +135,14 @@
       const base = c || p;
       const pm = new Map(((p && p.rows) || []).map((r) => [lineKey(r), r]));
       const rows = [];
-      for (const r of (c && c.rows) || []) { const m = pm.get(lineKey(r)); pm.delete(lineKey(r)); rows.push({ name: r.name, id: r.id, values: [first(r)], prior: first(m) }); }
+      // pair by Xero account first, then (for anything left) by name — covers a report whose lines carry no account id
+      const take = (r) => {
+        let k = lineKey(r), m = pm.get(k);
+        if (!m) { k = [...pm.keys()].find((x) => pm.get(x).name.toLowerCase() === r.name.toLowerCase()); m = k ? pm.get(k) : undefined; }
+        if (m) pm.delete(k);
+        return m;
+      };
+      for (const r of (c && c.rows) || []) { const m = take(r); rows.push({ name: r.name, id: r.id, values: [first(r)], prior: first(m) }); }
       for (const r of pm.values()) rows.push({ name: r.name, id: r.id, values: [0], prior: first(r) });
       const sc = c && c.summary, sp = p && p.summary;
       const summary = sc || sp ? { name: (sc || sp).name, values: [first(sc)], prior: first(sp) } : null;
@@ -153,6 +160,24 @@
   }
   const pctChange = (v, p) => (p ? Math.round(((v - p) / Math.abs(p)) * 1000) / 10 : null);
 
-  root.PNL = { parseReport, headline, monthRange, requestFor, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, num, r2 };
+  // ---- opening / closing stock ----
+  // Xero lists these as ordinary lines inside Cost of Sales (Closing Stock comes through negative), and Total Cost of
+  // Sales / Gross Profit / Net Profit include them. The page can hide the lines; the totals are never changed.
+  const STOCK_RE = /^(opening|closing)\s+(stock|inventory)\b/i;
+  const isStockRow = (name) => STOCK_RE.test(String(name || '').trim());
+  // What the hidden lines add up to across all columns of the report (or merged comparison): { opening, closing, net, found }.
+  function stockTotals(sections) {
+    const t = { opening: 0, closing: 0, found: 0 };
+    for (const sec of sections) for (const r of sec.rows) {
+      if (!isStockRow(r.name)) continue;
+      const v = r2((r.values || []).reduce((a, b) => a + b, 0));
+      if (/^opening/i.test(r.name.trim())) t.opening = r2(t.opening + v); else t.closing = r2(t.closing + v);
+      t.found++;
+    }
+    t.net = r2(t.opening + t.closing);
+    return t;
+  }
+
+  root.PNL = { parseReport, headline, monthRange, requestFor, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);

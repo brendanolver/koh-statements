@@ -1558,6 +1558,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <span class="pl-lbl">To</span><input type="date" id="plTo" onchange="plDatesChanged()">
       <div class="pl-seg"><button id="plModeTotal" onclick="plSetMode('total')">Total</button><button id="plModeMonth" onclick="plSetMode('month')">By month</button></div>
       <label class="pl-cmp" id="plCmpWrap"><input type="checkbox" id="plCmp" onchange="plSetCompare(this.checked)"> Compare to previous year</label>
+      <label class="pl-cmp"><input type="checkbox" id="plStock" onchange="plSetShowStock(this.checked)"> Show opening &amp; closing stock</label>
       <button id="plRefreshBtn" onclick="loadPnl(true)">Refresh</button>
     </div>
   </div>
@@ -6995,7 +6996,7 @@ async function loadDrawings(force) {
 // Xero's own Profit & Loss report (accrual basis), parsed by pnl-report.js. 'Total' = one column for
 // the whole period; 'By month' = one column per whole calendar month (Xero compares up to 12 at once).
 // One Xero call per view, cached for the browser session for 10 minutes.
-const pl = { from: null, to: null, short: '', mode: 'total', compare: false, presets: [], loading: false, data: {}, needsAuth: false };
+const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, presets: [], loading: false, data: {}, needsAuth: false };
 const plComparing = () => pl.compare && pl.mode === 'total'; // the tick box only applies to the Total view
 const plKey = () => `${pl.mode}_${pl.from}_${pl.to}${plComparing() ? '_cmp' : ''}`;
 
@@ -7039,6 +7040,8 @@ function plDatesChanged() {
 }
 function plSetMode(mode) { pl.mode = mode; loadPnl(); }
 function plSetCompare(on) { pl.compare = !!on; loadPnl(); }
+// Display only — the report is already loaded, so this never calls Xero.
+function plSetShowStock(on) { pl.showStock = !!on; plRender(); }
 
 // One Xero call per report; each is cached for the session by its own dates, so a period seen on its own is
 // reused when it turns up as the "previous year" of another. Returns the parsed report, or null when Xero
@@ -7105,6 +7108,7 @@ function plRender() {
   document.getElementById('plModeMonth').classList.toggle('on', pl.mode === 'month');
   document.getElementById('plCmpWrap').style.display = pl.mode === 'total' ? '' : 'none';
   document.getElementById('plCmp').checked = pl.compare;
+  document.getElementById('plStock').checked = pl.showStock;
   const kpis = document.getElementById('plKpis'), table = document.getElementById('plTable'), note = document.getElementById('plNote');
   const err = document.getElementById('plError');
   if (pl.needsAuth) {
@@ -7159,11 +7163,16 @@ function plRender() {
   };
   const span = month ? cols.length + 2 : cmp ? 6 : 3;
   let body = '';
-  for (const sec of (cmp ? cmp.rep.sections : rep.sections)) {
+  const shownSections = cmp ? cmp.rep.sections : rep.sections;
+  // Opening / closing stock lines are hidden unless ticked. Only the lines are hidden: Xero's Total Cost of Sales,
+  // Gross Profit and Net Profit still include them (so they match Xero), and the note below says by how much.
+  const stock = PNL.stockTotals(shownSections);
+  const hideStock = !pl.showStock && stock.found > 0;
+  for (const sec of shownSections) {
     const costSec = /cost of (sales|goods)|direct costs?|expenses/i.test(sec.title);
     if (sec.title) {
       body += `<tr class="pl-sec"><td colspan="${span}">${cfEsc(sec.title.replace(/^less\s+/i, ''))}</td></tr>`;
-      for (const r of sec.rows) body += `<tr class="pl-line"><td>${cfEsc(r.name)}</td>${cells(r, costSec)}</tr>`;
+      for (const r of sec.rows) { if (hideStock && PNL.isStockRow(r.name)) continue; body += `<tr class="pl-line"><td>${cfEsc(r.name)}</td>${cells(r, costSec)}</tr>`; }
       if (sec.summary) body += `<tr class="pl-sum"><td>${cfEsc(sec.summary.name)}</td>${cells(sec.summary, costSec)}</tr>`;
     } else {
       for (const r of sec.rows) body += `<tr class="pl-hl"><td>${cfEsc(r.name)}</td>${cells(r, false)}</tr>`;
@@ -7176,6 +7185,7 @@ function plRender() {
     const mr = PNL.monthRange(pl.from, pl.to, cfToday());
     notes.push('By-month figures are whole calendar months' + (mr.capped ? `, showing the latest 12 of ${mr.total} in this period` : '') + '.');
   }
+  if (hideStock) notes.push(`Opening stock (${cfMoney(stock.opening)}) and closing stock (${cfMoney(stock.closing)}) are hidden. They are still inside Cost of Sales — a net ${cfMoney(stock.net)} — so the totals, gross profit and net profit still match Xero. Tick \u201cShow opening & closing stock\u201d to see them.`);
   if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);
   else if (plComparing()) notes.push('No previous-year figures came back from Xero for those dates.');
   if (rep.assumedOrder) notes.push('Xero\'s column headings couldn\'t be read, so the columns are assumed to run newest to oldest — check the totals against Xero.');

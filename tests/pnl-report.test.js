@@ -108,4 +108,32 @@ test('percentage change: sign-correct, relative to the size of last year, blank 
   assert.strictEqual(P.pctChange(110, 100), 10); assert.strictEqual(P.pctChange(90, 100), -10); assert.strictEqual(P.pctChange(50, 0), null);
   assert.strictEqual(P.pctChange(-50, -100), 50, 'a loss that halves is +50% better'); assert.strictEqual(P.pctChange(100, -100), 200);
 });
+test('opening and closing stock lines are recognised by name (and only those)', () => {
+  for (const ok of ['Opening Stock', 'Closing Stock', 'opening stock', ' Closing Stock ', 'Opening Inventory']) assert.strictEqual(P.isStockRow(ok), true, ok);
+  for (const no of ['Cost of Goods Sold', 'Stock Adjustments', 'Freight & Courier', 'Stockholding costs', 'Closing balance', '']) assert.strictEqual(P.isStockRow(no), false, no);
+});
+test('stock totals: opening + closing (closing is negative in Xero) = the net stock movement inside Cost of Sales', () => {
+  // the shape of the real report: Opening 581,930.52 / COGS / Freight / Closing -583,206.82, Total Cost of Sales 5,554,843.31
+  const cos = [['Opening Stock', [581930.52]], ['Cost of Goods Sold', [4546837.53]], ['Freight & Courier', [1009282.08]], ['Closing Stock', [-583206.82]]];
+  const r = P.parseReport(mk(['30 Sep 26'], [['Sales', [11274985.36]]], cos, [['Rent', [1]]]));
+  const st = P.stockTotals(r.sections);
+  assert.deepStrictEqual(st, { opening: 581930.52, closing: -583206.82, found: 2, net: -1276.3 });
+  assert.ok(Math.abs(r.sections[1].summary.values[0] - 5554843.31) < 0.005, 'Xero\'s Total Cost of Sales still includes the stock lines');
+  assert.strictEqual(P.stockTotals(P.parseReport(mk(['x'], [['S', [1]]], [['COGS', [1]]], [['R', [1]]])).sections).found, 0);
+});
+test('stock totals add across month columns, and work on the merged comparison shape too', () => {
+  const r = P.parseReport(mk(['30 Sep 2026', '31 Aug 2026'], [['S', [5, 5]]], [['Opening Stock', [100, 90]], ['Closing Stock', [-110, -100]]], [['R', [1, 1]]]));
+  assert.deepStrictEqual(P.stockTotals(r.sections), { opening: 190, closing: -210, found: 2, net: -20 });
+  const c = P.compareReports(P.parseReport(mk(['x'], [['S', [5]]], [['Opening Stock', [100]], ['Closing Stock', [-110]]], [['R', [1]]])), P.parseReport(mk(['x'], [['S', [5]]], [['Opening Stock', [80]], ['Closing Stock', [-90]]], [['R', [1]]])));
+  assert.deepStrictEqual(P.stockTotals(c.sections), { opening: 100, closing: -110, found: 2, net: -10 }, 'this period only (values), not the prior-year figures');
+});
+test('compare: lines still pair by name when only one side carries Xero account ids', () => {
+  const withIds = P.parseReport(mk(['x'], [['Sales', [100]]], [['Opening Stock', [10]]], [['Rent', [5]]]));
+  const noIds = P.parseReport(mk(['x'], [['Sales', [80]]], [['Opening Stock', [8]]], [['Rent', [4]]]));
+  for (const s of noIds.sections) for (const r of s.rows) r.id = null;
+  for (const s of withIds.sections) for (const r of s.rows) r.id = 'acct-' + r.name;
+  const c = P.compareReports(withIds, noIds);
+  assert.deepStrictEqual(c.sections.find((s) => s.title === 'Less Cost of Sales').rows.map((r) => [r.name, r.values[0], r.prior]), [['Opening Stock', 10, 8]]);
+  assert.strictEqual(c.sections[0].rows.length, 1, 'no duplicate Sales line');
+});
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);
