@@ -108,6 +108,13 @@
     return q;
   }
 
-  root.PNL = { parseReport, headline, monthRange, requestFor, monthOfLabel, num, r2 };
+  // The last 12 COMPLETED months: the current (part-finished) month is left out, so it is always
+  // 12 whole months ending on the last day of last month.
+  function last12Completed(todayIso) {
+    const cur = monthKey(todayIso);
+    return { from: `${addMonths(cur, -12)}-01`, to: lastDay(addMonths(cur, -1)) };
+  }
+
+  root.PNL = { parseReport, headline, monthRange, requestFor, monthOfLabel, last12Completed, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -70,4 +70,11 @@ test('request: total = the plain range; month = latest month as base + (n-1) ear
   assert.deepStrictEqual(P.requestFor('month', '2026-01-01', '2026-12-31', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-10-01', toDate: '2026-10-31', periods: '9', timeframe: 'MONTH' });
   assert.strictEqual(P.requestFor('month', '2027-01-01', '2027-12-31', t), null);
 });
+test('last 12 completed months = 12 whole months ending last month (never the part-finished current one)', () => {
+  assert.deepStrictEqual(P.last12Completed('2026-10-03'), { from: '2025-10-01', to: '2026-09-30' });
+  assert.deepStrictEqual(P.last12Completed('2026-10-31'), { from: '2025-10-01', to: '2026-09-30' });
+  assert.deepStrictEqual(P.last12Completed('2026-01-01'), { from: '2025-01-01', to: '2025-12-31' }, 'crosses the year boundary');
+  assert.deepStrictEqual(P.last12Completed('2024-03-15'), { from: '2023-03-01', to: '2024-02-29' }, 'leap-year February');
+  const r = P.last12Completed('2026-10-03'); assert.strictEqual(P.monthRange(r.from, r.to, '2026-10-03').months.length, 12);
+});
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

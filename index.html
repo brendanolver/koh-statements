@@ -6993,7 +6993,13 @@ const plKey = () => `${pl.mode}_${pl.from}_${pl.to}`;
 function plInit() {
   const sel = document.getElementById('plPeriod');
   if (sel.options.length) return;
-  pl.presets = dwBuildPresets(); // the same periods as Drawings: financial years (Jul–Jun), calendar years, last 12 months
+  // The same periods as Drawings (financial years Jul–Jun, calendar years), except the rolling year is the
+  // last 12 COMPLETED months — a part-finished month would skew every comparison.
+  pl.presets = dwBuildPresets().map((p) => {
+    if (p.id !== 'l12') return p;
+    const r = PNL.last12Completed(cfToday());
+    return { ...p, label: 'Last 12 completed months', short: 'Last 12 months', from: r.from, to: r.to };
+  });
   const groups = {};
   for (const p of pl.presets) {
     if (!groups[p.group]) { groups[p.group] = document.createElement('optgroup'); groups[p.group].label = p.group; sel.appendChild(groups[p.group]); }
