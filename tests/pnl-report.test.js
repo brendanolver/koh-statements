@@ -77,4 +77,35 @@ test('last 12 completed months = 12 whole months ending last month (never the pa
   assert.deepStrictEqual(P.last12Completed('2024-03-15'), { from: '2023-03-01', to: '2024-02-29' }, 'leap-year February');
   const r = P.last12Completed('2026-10-03'); assert.strictEqual(P.monthRange(r.from, r.to, '2026-10-03').months.length, 12);
 });
+test('previous year = the same dates a year earlier; month-end periods stay month-end (incl. leap years)', () => {
+  assert.deepStrictEqual(P.priorYear('2025-07-01', '2026-06-30'), { from: '2024-07-01', to: '2025-06-30' });
+  assert.deepStrictEqual(P.priorYear('2025-10-01', '2026-09-30'), { from: '2024-10-01', to: '2025-09-30' });
+  assert.deepStrictEqual(P.priorYear('2027-03-01', '2028-02-29'), { from: '2026-03-01', to: '2027-02-28' }, 'a leap-year month end maps to the 28th');
+  assert.deepStrictEqual(P.priorYear('2025-03-01', '2026-02-28'), { from: '2024-03-01', to: '2025-02-28' });
+  assert.deepStrictEqual(P.priorYear('2024-02-29', '2024-05-15'), { from: '2023-02-28', to: '2023-05-15' }, 'a mid-month custom range just moves back a year');
+});
+test('compare: lines are matched by account, sections by title; lines in only one year show 0 in the other', () => {
+  const cur = P.parseReport(mk(['x'], [['Sales - Online', [100]], ['Sales - Wholesale', [50]]], [['COGS', [60]]], [['Wages', [20]], ['New Software', [5]]]));
+  const prv = P.parseReport(mk(['x'], [['Sales - Online', [80]], ['Old Channel', [10]]], [['COGS', [50]]], [['Wages', [18]], ['Rent', [4]]]));
+  const c = P.compareReports(cur, prv);
+  const inc = c.sections[0]; assert.strictEqual(inc.title, 'Income');
+  assert.deepStrictEqual(inc.rows.map((r) => [r.name, r.values[0], r.prior]), [['Sales - Online', 100, 80], ['Sales - Wholesale', 50, 0], ['Old Channel', 0, 10]]);
+  assert.deepStrictEqual([inc.summary.values[0], inc.summary.prior], [150, 90]);
+  const ex = c.sections.find((s) => s.title === 'Less Operating Expenses'); assert.deepStrictEqual(ex.rows.map((r) => [r.name, r.values[0], r.prior]), [['Wages', 20, 18], ['New Software', 5, 0], ['Rent', 0, 4]]);
+  const net = c.sections.find((s) => !s.title && s.rows[0].name === 'Net Profit').rows[0]; assert.deepStrictEqual([net.values[0], net.prior], [150 - 60 - 25, 90 - 50 - 22]);
+  const gp = c.sections.find((s) => !s.title && s.rows[0].name === 'Gross Profit').rows[0]; assert.deepStrictEqual([gp.values[0], gp.prior], [90, 40]);
+  assert.strictEqual(c.compare, true);
+});
+test('compare: a section that only existed last year is kept (before the profit lines); no prior data = all zeros', () => {
+  const cur = P.parseReport(mk(['x'], [['Sales', [100]]], [], [['Wages', [20]]]));
+  const prv = P.parseReport(mk(['x'], [['Sales', [90]]], [['COGS', [30]]], [['Wages', [20]]]));
+  const c = P.compareReports(cur, prv); const titles = c.sections.map((s) => s.title);
+  assert.ok(titles.indexOf('Less Cost of Sales') > -1 && titles.indexOf('Less Cost of Sales') < titles.indexOf(''), 'COS section placed before the untitled profit sections: ' + JSON.stringify(titles));
+  assert.deepStrictEqual(c.sections.find((s) => s.title === 'Less Cost of Sales').rows[0], { name: 'COGS', id: null, values: [0], prior: 30 });
+  const none = P.compareReports(cur, { columns: [], sections: [] }); assert.strictEqual(none.sections[0].rows[0].prior, 0);
+});
+test('percentage change: sign-correct, relative to the size of last year, blank when last year was zero', () => {
+  assert.strictEqual(P.pctChange(110, 100), 10); assert.strictEqual(P.pctChange(90, 100), -10); assert.strictEqual(P.pctChange(50, 0), null);
+  assert.strictEqual(P.pctChange(-50, -100), 50, 'a loss that halves is +50% better'); assert.strictEqual(P.pctChange(100, -100), 200);
+});
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

@@ -870,6 +870,13 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #pnlView .pl-seg { display: inline-flex; padding: 3px; gap: 2px; background: #f1f1ee; border-radius: 10px; }
 #pnlView .pl-seg button { border: none; background: transparent; padding: 6px 14px; font-size: 13px; font-weight: 500; color: var(--muted); border-radius: 8px; cursor: pointer; }
 #pnlView .pl-seg button.on { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+#pnlView .pl-cmp { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--ink); cursor: pointer; user-select: none; }
+#pnlView .pl-cmp input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+#pnlView table.pl-table td.pl-prior, #pnlView table.pl-table th.pl-prior { border-left: 1px solid var(--border); }
+#pnlView table.pl-table td.pl-up { color: #1a7a3c; }
+#pnlView table.pl-table td.pl-down { color: #d0021b; }
+#pnlView .pl-kpi-sub .pl-up { color: #1a7a3c; font-weight: 600; }
+#pnlView .pl-kpi-sub .pl-down { color: #d0021b; font-weight: 600; }
 #pnlView .pl-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 #pnlView .pl-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #pnlView .pl-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
@@ -1550,6 +1557,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <span class="pl-lbl">From</span><input type="date" id="plFrom" onchange="plDatesChanged()">
       <span class="pl-lbl">To</span><input type="date" id="plTo" onchange="plDatesChanged()">
       <div class="pl-seg"><button id="plModeTotal" onclick="plSetMode('total')">Total</button><button id="plModeMonth" onclick="plSetMode('month')">By month</button></div>
+      <label class="pl-cmp" id="plCmpWrap"><input type="checkbox" id="plCmp" onchange="plSetCompare(this.checked)"> Compare to previous year</label>
       <button id="plRefreshBtn" onclick="loadPnl(true)">Refresh</button>
     </div>
   </div>
@@ -6987,8 +6995,9 @@ async function loadDrawings(force) {
 // Xero's own Profit & Loss report (accrual basis), parsed by pnl-report.js. 'Total' = one column for
 // the whole period; 'By month' = one column per whole calendar month (Xero compares up to 12 at once).
 // One Xero call per view, cached for the browser session for 10 minutes.
-const pl = { from: null, to: null, short: '', mode: 'total', presets: [], loading: false, data: {}, needsAuth: false };
-const plKey = () => `${pl.mode}_${pl.from}_${pl.to}`;
+const pl = { from: null, to: null, short: '', mode: 'total', compare: false, presets: [], loading: false, data: {}, needsAuth: false };
+const plComparing = () => pl.compare && pl.mode === 'total'; // the tick box only applies to the Total view
+const plKey = () => `${pl.mode}_${pl.from}_${pl.to}${plComparing() ? '_cmp' : ''}`;
 
 function plInit() {
   const sel = document.getElementById('plPeriod');
@@ -7029,6 +7038,25 @@ function plDatesChanged() {
   loadPnl();
 }
 function plSetMode(mode) { pl.mode = mode; loadPnl(); }
+function plSetCompare(on) { pl.compare = !!on; loadPnl(); }
+
+// One Xero call per report; each is cached for the session by its own dates, so a period seen on its own is
+// reused when it turns up as the "previous year" of another. Returns the parsed report, or null when Xero
+// hasn't been given permission yet (401/403).
+async function plFetchReport(mode, from, to, force) {
+  const request = PNL.requestFor(mode, from, to, cfToday());
+  if (!request) return { empty: true };
+  const ck = `pnl_${mode}_${from}_${to}`;
+  const cached = force ? null : cfCacheGet(ck, 10 * 60 * 1000);
+  if (cached) return { report: cached };
+  const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${new URLSearchParams(request)}`);
+  if (res.status === 401 || res.status === 403) return { noPermission: true };
+  if (!res.ok) throw new Error(data.Detail || data.Message || data.error || `Xero returned ${res.status}`);
+  const report = PNL.parseReport(data);
+  if (!report) throw new Error('Xero returned something that is not a Profit & Loss report');
+  cfCacheSet(ck, report);
+  return { report };
+}
 
 async function loadPnl(force) {
   if (pl.loading) return;
@@ -7039,28 +7067,31 @@ async function loadPnl(force) {
   err.style.display = 'none';
   const stamp = (at) => `Updated ${at.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })} · Xero, accrual basis`;
   if (!force && pl.data[key]) { pl.needsAuth = false; plRender(); status.textContent = stamp(pl.data[key].at); return; }
-  const request = PNL.requestFor(pl.mode, pl.from, pl.to, cfToday());
-  if (!request) { pl.data[key] = { report: null, at: new Date(), future: true }; pl.needsAuth = false; plRender(); status.textContent = ''; return; }
   pl.loading = true;
   const btn = document.getElementById('plRefreshBtn');
   btn.disabled = true;
   status.textContent = 'Loading from Xero…';
   try {
-    let report = force ? null : cfCacheGet('pnl_' + key, 10 * 60 * 1000);
-    if (!report) {
-      const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${new URLSearchParams(request)}`);
-      if (res.status === 401 || res.status === 403) { pl.needsAuth = true; pl.loading = false; btn.disabled = false; status.textContent = ''; plRender(); return; }
-      if (!res.ok) throw new Error(data.Detail || data.Message || data.error || `Xero returned ${res.status}`);
-      report = PNL.parseReport(data);
-      if (!report) throw new Error('Xero returned something that is not a Profit & Loss report');
-      cfCacheSet('pnl_' + key, report);
+    pl.needsAuth = false; // start clean: a "reconnect Xero" message from an earlier attempt must not outlive a retry
+    const cur = await plFetchReport(pl.mode, pl.from, pl.to, force);
+    if (cur.empty) { pl.data[key] = { report: null, at: new Date(), future: true }; }
+    else if (cur.noPermission) { pl.needsAuth = true; }
+    else {
+      let prior = null, priorRange = null;
+      if (plComparing()) {
+        priorRange = PNL.priorYear(pl.from, pl.to);
+        const pr = await plFetchReport('total', priorRange.from, priorRange.to, force);
+        if (pr.noPermission) pl.needsAuth = true;
+        else prior = pr.report || null;
+      }
+      if (!pl.needsAuth) pl.data[key] = { report: cur.report, prior, priorRange, at: new Date() };
     }
-    pl.needsAuth = false;
-    pl.data[key] = { report, at: new Date() };
     if (plKey() === key) plRender();
-    status.textContent = stamp(pl.data[key].at);
+    status.textContent = pl.data[key] && !pl.needsAuth ? stamp(pl.data[key].at) : '';
   } catch (e) {
     status.textContent = '';
+    // Don't leave another period's figures sitting under the error.
+    document.getElementById('plKpis').innerHTML = ''; document.getElementById('plTable').innerHTML = ''; document.getElementById('plNote').innerHTML = '';
     err.textContent = `Failed to load the Profit & Loss: ${e.message}`;
     err.style.display = 'block';
   }
@@ -7072,6 +7103,8 @@ async function loadPnl(force) {
 function plRender() {
   document.getElementById('plModeTotal').classList.toggle('on', pl.mode === 'total');
   document.getElementById('plModeMonth').classList.toggle('on', pl.mode === 'month');
+  document.getElementById('plCmpWrap').style.display = pl.mode === 'total' ? '' : 'none';
+  document.getElementById('plCmp').checked = pl.compare;
   const kpis = document.getElementById('plKpis'), table = document.getElementById('plTable'), note = document.getElementById('plNote');
   const err = document.getElementById('plError');
   if (pl.needsAuth) {
@@ -7090,30 +7123,50 @@ function plRender() {
   const kpi = (label, val, sub, neg) => `<div class="pl-kpi"><div class="pl-kpi-label">${label}</div><div class="pl-kpi-value${neg ? ' pl-neg' : ''}">${val === null ? '–' : cfMoney(val)}</div><div class="pl-kpi-sub">${sub || ''}</div></div>`;
   const label = cfEsc(pl.short);
   const gp = pct(hd.grossProfit, hd.income);
+  // Previous-year comparison (Total view + tick box only): this period vs the same dates a year earlier.
+  const cmp = plComparing() && d.prior ? { rep: PNL.compareReports(rep, d.prior), prior: PNL.headline(d.prior, 0), range: d.priorRange } : null;
+  const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n);
+  const vsPrev = (v, p, upIsGood) => {
+    if (!cmp || v === null || p === null) return '';
+    const c = PNL.pctChange(v, p);
+    if (c === null) return `<br>no figure for the previous year`;
+    const good = c === 0 ? null : (c > 0) === upIsGood;
+    return `<br><span class="${good === null ? '' : good ? 'pl-up' : 'pl-down'}">${signed(c)}%</span> vs ${cfMoney(p)} previous year`;
+  };
   kpis.innerHTML =
-    kpi('Income', hd.income, label) +
-    kpi('Gross profit', hd.grossProfit, gp === null ? '' : `${gp}% of income`, hd.grossProfit !== null && hd.grossProfit < 0) +
-    kpi('Net profit', hd.netProfit, pct(hd.netProfit, hd.income) === null ? '' : `${pct(hd.netProfit, hd.income)}% net margin`, hd.netProfit !== null && hd.netProfit < 0) +
-    kpi('Operating expenses', hd.opex, hd.cost !== null ? `plus ${cfMoney(hd.cost)} cost of sales` : '');
+    kpi('Income', hd.income, label + vsPrev(hd.income, cmp && cmp.prior.income, true)) +
+    kpi('Gross profit', hd.grossProfit, (gp === null ? '' : `${gp}% of income`) + vsPrev(hd.grossProfit, cmp && cmp.prior.grossProfit, true), hd.grossProfit !== null && hd.grossProfit < 0) +
+    kpi('Net profit', hd.netProfit, (pct(hd.netProfit, hd.income) === null ? '' : `${pct(hd.netProfit, hd.income)}% net margin`) + vsPrev(hd.netProfit, cmp && cmp.prior.netProfit, true), hd.netProfit !== null && hd.netProfit < 0) +
+    kpi('Operating expenses', hd.opex, (hd.cost !== null ? `plus ${cfMoney(hd.cost)} cost of sales` : '') + vsPrev(hd.opex, cmp && cmp.prior.opex, false));
   // table
   const cols = rep.columns;
-  const colHead = month ? cols.map((c) => `<th>${c.month ? cfEsc(cfMonthLabel(c.month)) : cfEsc(c.label)}</th>`).join('') + '<th class="pl-total">Total</th>' : '<th class="pl-total">Total</th><th>% of income</th>';
+  const rng = (r) => `${cfDateLabel(r.from)} ${r.from.slice(0, 4)} – ${cfDateLabel(r.to)} ${r.to.slice(0, 4)}`;
+  const colHead = month ? cols.map((c) => `<th>${c.month ? cfEsc(cfMonthLabel(c.month)) : cfEsc(c.label)}</th>`).join('') + '<th class="pl-total">Total</th>'
+    : '<th class="pl-total">Total</th><th>% of income</th>' + (cmp ? `<th class="pl-prior" title="${cfEsc(rng(cmp.range))}">Previous year</th><th>Change</th><th>Change %</th>` : '');
   const money = (v) => `<td class="${Math.abs(v) < 0.5 ? 'pl-zero' : ''}">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}</td>`;
-  const cells = (row) => {
+  // `downIsGood` is for cost sections: spending less than last year is the good direction there.
+  const cells = (row, downIsGood) => {
     const vals = cols.map((_, i) => row.values[i] || 0);
     if (month) return vals.map(money).join('') + `<td class="pl-total">${cfMoney(PNL.r2(vals.reduce((a, b) => a + b, 0)))}</td>`;
     const v = vals[0] || 0, p = pct(v, hd.income);
-    return `<td class="pl-total">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}</td><td class="pl-pct">${p === null || Math.abs(v) < 0.5 ? '' : p + '%'}</td>`;
+    let out = `<td class="pl-total">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}</td><td class="pl-pct">${p === null || Math.abs(v) < 0.5 ? '' : p + '%'}</td>`;
+    if (cmp) {
+      const pv = row.prior || 0, ch = PNL.r2(v - pv), pc = PNL.pctChange(v, pv);
+      const cls = Math.abs(ch) < 0.5 ? '' : (ch > 0) === !downIsGood ? 'pl-up' : 'pl-down';
+      out += `<td class="pl-prior${Math.abs(pv) < 0.5 ? ' pl-zero' : ''}">${Math.abs(pv) < 0.5 ? '–' : cfMoney(pv)}</td><td class="${cls}">${Math.abs(ch) < 0.5 ? '–' : (ch > 0 ? '+' : '') + cfMoney(ch)}</td><td class="${cls}">${pc === null || Math.abs(ch) < 0.5 ? '' : (pc > 0 ? '+' : '') + pc + '%'}</td>`;
+    }
+    return out;
   };
-  const span = month ? cols.length + 2 : 3;
+  const span = month ? cols.length + 2 : cmp ? 6 : 3;
   let body = '';
-  for (const sec of rep.sections) {
+  for (const sec of (cmp ? cmp.rep.sections : rep.sections)) {
+    const costSec = /cost of (sales|goods)|direct costs?|expenses/i.test(sec.title);
     if (sec.title) {
       body += `<tr class="pl-sec"><td colspan="${span}">${cfEsc(sec.title.replace(/^less\s+/i, ''))}</td></tr>`;
-      for (const r of sec.rows) body += `<tr class="pl-line"><td>${cfEsc(r.name)}</td>${cells(r)}</tr>`;
-      if (sec.summary) body += `<tr class="pl-sum"><td>${cfEsc(sec.summary.name)}</td>${cells(sec.summary)}</tr>`;
+      for (const r of sec.rows) body += `<tr class="pl-line"><td>${cfEsc(r.name)}</td>${cells(r, costSec)}</tr>`;
+      if (sec.summary) body += `<tr class="pl-sum"><td>${cfEsc(sec.summary.name)}</td>${cells(sec.summary, costSec)}</tr>`;
     } else {
-      for (const r of sec.rows) body += `<tr class="pl-hl"><td>${cfEsc(r.name)}</td>${cells(r)}</tr>`;
+      for (const r of sec.rows) body += `<tr class="pl-hl"><td>${cfEsc(r.name)}</td>${cells(r, false)}</tr>`;
     }
   }
   table.className = 'pl-table' + (month ? ' pl-month' : '');
@@ -7123,6 +7176,8 @@ function plRender() {
     const mr = PNL.monthRange(pl.from, pl.to, cfToday());
     notes.push('By-month figures are whole calendar months' + (mr.capped ? `, showing the latest 12 of ${mr.total} in this period` : '') + '.');
   }
+  if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);
+  else if (plComparing()) notes.push('No previous-year figures came back from Xero for those dates.');
   if (rep.assumedOrder) notes.push('Xero\'s column headings couldn\'t be read, so the columns are assumed to run newest to oldest — check the totals against Xero.');
   notes.push('Straight from Xero\'s Profit & Loss report (accrual basis), so it matches Xero\'s own report for the same dates. Expenses are shown as positive amounts.');
   note.innerHTML = notes.map(cfEsc).join('<br>');

@@ -115,6 +115,44 @@
     return { from: `${addMonths(cur, -12)}-01`, to: lastDay(addMonths(cur, -1)) };
   }
 
-  root.PNL = { parseReport, headline, monthRange, requestFor, monthOfLabel, last12Completed, num, r2 };
+  // ---- compare with the previous year ----
+  const shiftYear = (iso, delta) => { const mk = `${Number(iso.slice(0, 4)) + delta}-${iso.slice(5, 7)}`; return `${mk}-${pad(Math.min(Number(iso.slice(8)), Number(lastDay(mk).slice(8))))}`; };
+  // The same period one year earlier. A period ending on the last day of a month ends on the last day of
+  // that month a year earlier (so 29 Feb 2028 -> 28 Feb 2027), otherwise the day simply moves back a year.
+  function priorYear(from, to) {
+    const toEnd = to === lastDay(monthKey(to));
+    return { from: shiftYear(from, -1), to: toEnd ? lastDay(addMonths(monthKey(to), -12)) : shiftYear(to, -1) };
+  }
+
+  // Lines up two single-column reports (this period and the earlier one): sections by title, lines by Xero
+  // account (else by name). A line that only exists in one of them shows 0 in the other. Each merged line is
+  // { name, id, values:[this period], prior }, and every summary row and Gross/Net Profit line is merged too.
+  function compareReports(cur, prior) {
+    const first = (r) => (r && r.values && r.values[0]) || 0;
+    const lineKey = (r) => (r.id ? 'id:' + r.id : 'n:' + r.name.toLowerCase());
+    const secKey = (sec) => (sec.title ? 't:' + sec.title.toLowerCase() : 'u:' + ((sec.rows[0] && sec.rows[0].name) || '').toLowerCase());
+    const mergeSection = (c, p) => {
+      const base = c || p;
+      const pm = new Map(((p && p.rows) || []).map((r) => [lineKey(r), r]));
+      const rows = [];
+      for (const r of (c && c.rows) || []) { const m = pm.get(lineKey(r)); pm.delete(lineKey(r)); rows.push({ name: r.name, id: r.id, values: [first(r)], prior: first(m) }); }
+      for (const r of pm.values()) rows.push({ name: r.name, id: r.id, values: [0], prior: first(r) });
+      const sc = c && c.summary, sp = p && p.summary;
+      const summary = sc || sp ? { name: (sc || sp).name, values: [first(sc)], prior: first(sp) } : null;
+      return { title: base.title, rows, summary };
+    };
+    const pMap = new Map(((prior && prior.sections) || []).map((sec) => [secKey(sec), sec]));
+    const out = [];
+    for (const sec of cur.sections) { const k = secKey(sec); out.push(mergeSection(sec, pMap.get(k))); pMap.delete(k); }
+    for (const sec of pMap.values()) {
+      const m = mergeSection(null, sec);
+      const at = sec.title ? out.findIndex((x) => !x.title) : -1; // a section only last year goes before the Gross/Net Profit lines
+      if (at < 0) out.push(m); else out.splice(at, 0, m);
+    }
+    return { columns: cur.columns, sections: out, compare: true };
+  }
+  const pctChange = (v, p) => (p ? Math.round(((v - p) / Math.abs(p)) * 1000) / 10 : null);
+
+  root.PNL = { parseReport, headline, monthRange, requestFor, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);
