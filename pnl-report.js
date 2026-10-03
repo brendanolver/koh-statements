@@ -102,6 +102,10 @@
     if (mode !== 'month' && mode !== 'quarter') return { path: 'Reports/ProfitAndLoss', fromDate: from, toDate: to };
     // Quarters are built from the same monthly report (see toQuarters), asking for just the months they cover.
     const months = mode === 'quarter' ? quarterRange(from, to, todayIso).quarters.flatMap((q) => q.months) : monthRange(from, to, todayIso).months;
+    return requestForMonths(months);
+  }
+  // The monthly report for a list of consecutive months: the latest as the base period plus the (n-1) before it.
+  function requestForMonths(months) {
     if (!months.length) return null;
     const last = months[months.length - 1];
     const q = { path: 'Reports/ProfitAndLoss', fromDate: `${last}-01`, toDate: lastDay(last) };
@@ -144,6 +148,10 @@
     for (const q of all) q.partial = q.months.length < 3;
     return { quarters: all.slice(-4), capped: all.length > 4, total: all.length };
   }
+  // The same quarters one year earlier, month for month — so a quarter still in progress is compared with the same
+  // months of last year, not with a quarter that was complete.
+  const priorQuarters = (quarters) => quarters.map((q) => { const start = addMonths(q.start, -12); return { ...q, start, months: q.months.map((m) => addMonths(m, -12)), ...quarterLabel(start) }; });
+
   // Turns the monthly report (one column per month, oldest first) into one column per quarter by adding the months.
   function toQuarters(report, quarters) {
     const months = quarters.flatMap((q) => q.months);
@@ -171,9 +179,14 @@
   // account (else by name). A line that only exists in one of them shows 0 in the other. Each merged line is
   // { name, id, values:[this period], prior }, and every summary row and Gross/Net Profit line is merged too.
   function compareReports(cur, prior) {
-    const first = (r) => (r && r.values && r.values[0]) || 0;
+    // One column (a whole period) or several (quarters): every line carries its values and its previous-year values
+    // per column. `prior` stays as the first previous-year value for the single-column case.
+    const n = Math.max(1, (cur.columns || []).length);
+    const vec = (r) => { const v = (r && r.values) || []; return Array.from({ length: n }, (_, i) => v[i] || 0); };
+    const zeros = () => Array.from({ length: n }, () => 0);
     const lineKey = (r) => (r.id ? 'id:' + r.id : 'n:' + r.name.toLowerCase());
     const secKey = (sec) => (sec.title ? 't:' + sec.title.toLowerCase() : 'u:' + ((sec.rows[0] && sec.rows[0].name) || '').toLowerCase());
+    const pair = (name, id, values, priorValues) => ({ name, id, values, priorValues, prior: priorValues[0] });
     const mergeSection = (c, p) => {
       const base = c || p;
       const pm = new Map(((p && p.rows) || []).map((r) => [lineKey(r), r]));
@@ -185,10 +198,10 @@
         if (m) pm.delete(k);
         return m;
       };
-      for (const r of (c && c.rows) || []) { const m = take(r); rows.push({ name: r.name, id: r.id, values: [first(r)], prior: first(m) }); }
-      for (const r of pm.values()) rows.push({ name: r.name, id: r.id, values: [0], prior: first(r) });
+      for (const r of (c && c.rows) || []) rows.push(pair(r.name, r.id, vec(r), vec(take(r))));
+      for (const r of pm.values()) rows.push(pair(r.name, r.id, zeros(), vec(r)));
       const sc = c && c.summary, sp = p && p.summary;
-      const summary = sc || sp ? { name: (sc || sp).name, values: [first(sc)], prior: first(sp) } : null;
+      const summary = sc || sp ? pair((sc || sp).name, null, vec(sc), vec(sp)) : null;
       return { title: base.title, rows, summary };
     };
     const pMap = new Map(((prior && prior.sections) || []).map((sec) => [secKey(sec), sec]));
@@ -221,6 +234,6 @@
     return t;
   }
 
-  root.PNL = { parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, requestFor, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
+  root.PNL = { parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, requestForMonths, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);

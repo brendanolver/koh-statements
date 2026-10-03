@@ -101,7 +101,7 @@ test('compare: a section that only existed last year is kept (before the profit 
   const prv = P.parseReport(mk(['x'], [['Sales', [90]]], [['COGS', [30]]], [['Wages', [20]]]));
   const c = P.compareReports(cur, prv); const titles = c.sections.map((s) => s.title);
   assert.ok(titles.indexOf('Less Cost of Sales') > -1 && titles.indexOf('Less Cost of Sales') < titles.indexOf(''), 'COS section placed before the untitled profit sections: ' + JSON.stringify(titles));
-  assert.deepStrictEqual(c.sections.find((s) => s.title === 'Less Cost of Sales').rows[0], { name: 'COGS', id: null, values: [0], prior: 30 });
+  assert.deepStrictEqual(c.sections.find((s) => s.title === 'Less Cost of Sales').rows[0], { name: 'COGS', id: null, values: [0], priorValues: [30], prior: 30 });
   const none = P.compareReports(cur, { columns: [], sections: [] }); assert.strictEqual(none.sections[0].rows[0].prior, 0);
 });
 test('percentage change: sign-correct, relative to the size of last year, blank when last year was zero', () => {
@@ -175,5 +175,26 @@ test('a part-finished quarter is flagged and still totals correctly', () => {
   const rep = P.parseReport(mk(['31 Oct 2026', '30 Sep 2026', '31 Aug 2026', '31 Jul 2026'], [['Sales', [40, 30, 20, 10]]], [['C', [0, 0, 0, 0]]], [['R', [0, 0, 0, 0]]]));
   const qs = P.quarterRange('2026-07-01', '2026-12-31', '2026-10-20').quarters;
   const q = P.toQuarters(rep, qs); assert.deepStrictEqual(q.columns.map((c) => [c.sub, c.partial]), [['Jul–Sep 26', false], ['Oct–Dec 26', true]]); assert.deepStrictEqual(q.sections[0].rows[0].values, [60, 40]);
+});
+test('quarters a year earlier are the same months shifted back 12 (a quarter in progress compares like-for-like)', () => {
+  const now = P.quarterRange('2026-01-01', '2026-12-31', '2026-10-20').quarters;
+  const prv = P.priorQuarters(now);
+  assert.deepStrictEqual(prv.map((q) => q.sub), ['Jan–Mar 25', 'Apr–Jun 25', 'Jul–Sep 25', 'Oct–Dec 25']);
+  assert.deepStrictEqual(prv[3].months, ['2025-10'], 'only October of last year, to match October so far');
+  assert.deepStrictEqual(P.requestForMonths(prv.flatMap((q) => q.months)), { path: 'Reports/ProfitAndLoss', fromDate: '2025-10-01', toDate: '2025-10-31', periods: '9', timeframe: 'MONTH' });
+  assert.strictEqual(P.requestForMonths([]), null); assert.deepStrictEqual(P.requestForMonths(['2025-10']), { path: 'Reports/ProfitAndLoss', fromDate: '2025-10-01', toDate: '2025-10-31' });
+});
+test('compare across several columns: every quarter keeps its own previous-year value; totals reconcile', () => {
+  const qs = P.quarterRange('2025-07-01', '2026-06-30', '2026-10-03').quarters;
+  const monthsNow = qs.flatMap((q) => q.months), monthsPrev = P.priorQuarters(qs).flatMap((q) => q.months);
+  const mkMonthly = (months, base) => P.parseReport(mk(months.slice().reverse().map((m) => '28 ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(m.slice(5)) - 1] + ' ' + m.slice(0, 4)), [['Sales', months.map((m, i) => base + i).reverse()]], [['COGS', months.map(() => 1).reverse()]], [['Rent', months.map(() => 1).reverse()]]));
+  const cur = P.toQuarters(mkMonthly(monthsNow, 100), qs), prv = P.toQuarters(mkMonthly(monthsPrev, 90), P.priorQuarters(qs));
+  const c = P.compareReports(cur, prv); const sales = c.sections[0].rows[0];
+  assert.deepStrictEqual(sales.values, [303, 312, 321, 330].map((x, i) => 3 * 100 + 9 * i + 3), 'this year per quarter: 3 months of 100+i');
+  assert.deepStrictEqual(sales.priorValues, [0, 1, 2, 3].map((i) => 3 * 90 + 9 * i + 3), 'previous year per quarter');
+  const tot = (a) => a.reduce((x, y) => x + y, 0);
+  assert.strictEqual(tot(sales.values), P.headline(cur, 'sum').income); assert.strictEqual(tot(sales.priorValues), P.headline(prv, 'sum').income);
+  assert.strictEqual(c.sections[0].summary.priorValues.length, 4); assert.strictEqual(c.columns.length, 4);
+  const net = c.sections.find((s) => !s.title && s.rows[0].name === 'Net Profit').rows[0]; assert.strictEqual(tot(net.priorValues), P.headline(prv, 'sum').netProfit);
 });
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

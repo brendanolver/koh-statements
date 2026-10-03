@@ -873,6 +873,9 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #pnlView .pl-cmp { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--ink); cursor: pointer; user-select: none; }
 #pnlView .pl-cmp input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 #pnlView table.pl-table td.pl-prior, #pnlView table.pl-table th.pl-prior { border-left: 1px solid var(--border); }
+#pnlView .pl-pv { margin-top: 2px; font-size: 11px; font-weight: 500; color: var(--muted); }
+#pnlView .pl-pv .pl-up { color: #1a7a3c; font-weight: 600; }
+#pnlView .pl-pv .pl-down { color: #d0021b; font-weight: 600; }
 #pnlView table.pl-table td.pl-up { color: #1a7a3c; }
 #pnlView table.pl-table td.pl-down { color: #d0021b; }
 #pnlView .pl-kpi-sub .pl-up { color: #1a7a3c; font-weight: 600; }
@@ -6998,7 +7001,7 @@ async function loadDrawings(force) {
 // the whole period; 'By month' = one column per whole calendar month (Xero compares up to 12 at once).
 // One Xero call per view, cached for the browser session for 10 minutes.
 const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, presets: [], loading: false, data: {}, needsAuth: false };
-const plComparing = () => pl.compare && pl.mode === 'total'; // the tick box only applies to the Total view
+const plComparing = () => pl.compare && (pl.mode === 'total' || pl.mode === 'quarter'); // the tick box applies to Total and By quarter, not By month
 const plKey = () => `${pl.mode}_${pl.from}_${pl.to}${plComparing() ? '_cmp' : ''}`;
 
 function plInit() {
@@ -7047,12 +7050,9 @@ function plSetShowStock(on) { pl.showStock = !!on; plRender(); }
 // One Xero call per report; each is cached for the session by its own dates, so a period seen on its own is
 // reused when it turns up as the "previous year" of another. Returns the parsed report, or null when Xero
 // hasn't been given permission yet (401/403).
-async function plFetchReport(mode, from, to, force) {
-  const request = PNL.requestFor(mode, from, to, cfToday());
-  if (!request) return { empty: true };
+async function plFetchRequest(request, finish, force) {
   // Cached by what is actually asked of Xero, so By month and By quarter over the same dates share one report.
   const ck = 'pnl_' + [request.fromDate, request.toDate, request.periods || 0].join('_');
-  const finish = (report) => (mode === 'quarter' ? PNL.toQuarters(report, PNL.quarterRange(from, to, cfToday()).quarters) : report);
   const cached = force ? null : cfCacheGet(ck, 10 * 60 * 1000);
   if (cached) return { report: finish(cached) };
   const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${new URLSearchParams(request)}`);
@@ -7062,6 +7062,22 @@ async function plFetchReport(mode, from, to, force) {
   if (!report) throw new Error('Xero returned something that is not a Profit & Loss report');
   cfCacheSet(ck, report);
   return { report: finish(report) };
+}
+async function plFetchReport(mode, from, to, force) {
+  const request = PNL.requestFor(mode, from, to, cfToday());
+  if (!request) return { empty: true };
+  const finish = (report) => (mode === 'quarter' ? PNL.toQuarters(report, PNL.quarterRange(from, to, cfToday()).quarters) : report);
+  return plFetchRequest(request, finish, force);
+}
+// The same quarters a year earlier, month for month, as one monthly report added up into quarters.
+async function plFetchPriorQuarters(from, to, force) {
+  const pq = PNL.priorQuarters(PNL.quarterRange(from, to, cfToday()).quarters);
+  const months = pq.flatMap((x) => x.months);
+  const request = PNL.requestForMonths(months);
+  if (!request) return { empty: true };
+  const range = { from: months[0] + '-01', to: PNL.lastDay(months[months.length - 1]) };
+  const r = await plFetchRequest(request, (report) => PNL.toQuarters(report, pq), force);
+  return { ...r, range };
 }
 
 async function loadPnl(force) {
@@ -7085,8 +7101,9 @@ async function loadPnl(force) {
     else {
       let prior = null, priorRange = null;
       if (plComparing()) {
-        priorRange = PNL.priorYear(pl.from, pl.to);
-        const pr = await plFetchReport('total', priorRange.from, priorRange.to, force);
+        let pr;
+        if (pl.mode === 'quarter') { pr = await plFetchPriorQuarters(pl.from, pl.to, force); priorRange = pr.range; }
+        else { priorRange = PNL.priorYear(pl.from, pl.to); pr = await plFetchReport('total', priorRange.from, priorRange.to, force); }
         if (pr.noPermission) pl.needsAuth = true;
         else prior = pr.report || null;
       }
@@ -7110,7 +7127,7 @@ function plRender() {
   document.getElementById('plModeTotal').classList.toggle('on', pl.mode === 'total');
   document.getElementById('plModeMonth').classList.toggle('on', pl.mode === 'month');
   document.getElementById('plModeQuarter').classList.toggle('on', pl.mode === 'quarter');
-  document.getElementById('plCmpWrap').style.display = pl.mode === 'total' ? '' : 'none';
+  document.getElementById('plCmpWrap').style.display = pl.mode === 'month' ? 'none' : '';
   document.getElementById('plCmp').checked = pl.compare;
   document.getElementById('plStock').checked = pl.showStock;
   const kpis = document.getElementById('plKpis'), table = document.getElementById('plTable'), note = document.getElementById('plNote');
@@ -7133,7 +7150,7 @@ function plRender() {
   const label = cfEsc(pl.short);
   const gp = pct(hd.grossProfit, hd.income);
   // Previous-year comparison (Total view + tick box only): this period vs the same dates a year earlier.
-  const cmp = plComparing() && d.prior ? { rep: PNL.compareReports(rep, d.prior), prior: PNL.headline(d.prior, 0), range: d.priorRange } : null;
+  const cmp = plComparing() && d.prior ? { rep: PNL.compareReports(rep, d.prior), prior: PNL.headline(d.prior, month ? 'sum' : 0), range: d.priorRange } : null;
   const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n);
   const vsPrev = (v, p, upIsGood) => {
     if (!cmp || v === null || p === null) return '';
@@ -7156,6 +7173,18 @@ function plRender() {
   // `downIsGood` is for cost sections: spending less than last year is the good direction there.
   const cells = (row, downIsGood) => {
     const vals = cols.map((_, i) => row.values[i] || 0);
+    if (quarter && cmp) {
+      // each quarter: this year's figure, with last year's same months and the % change underneath
+      const pvals = cols.map((_, i) => (row.priorValues && row.priorValues[i]) || 0);
+      const sum = (a) => PNL.r2(a.reduce((x, y) => x + y, 0));
+      const qcell = (v, pv, isTotal) => {
+        const ch = PNL.r2(v - pv), pc = PNL.pctChange(v, pv);
+        const cls = Math.abs(ch) < 0.5 ? '' : (ch > 0) === !downIsGood ? 'pl-up' : 'pl-down';
+        const sub = Math.abs(v) < 0.5 && Math.abs(pv) < 0.5 ? '' : `<div class="pl-pv">prev ${Math.abs(pv) < 0.5 ? '–' : cfMoney(pv)}${pc === null || Math.abs(ch) < 0.5 ? '' : ` <span class="${cls}">${pc > 0 ? '+' : ''}${pc}%</span>`}</div>`;
+        return `<td class="${isTotal ? 'pl-total' : ''}${Math.abs(v) < 0.5 ? ' pl-zero' : ''}">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}${sub}</td>`;
+      };
+      return vals.map((v, i) => qcell(v, pvals[i], false)).join('') + qcell(sum(vals), sum(pvals), true);
+    }
     if (month) return vals.map(money).join('') + `<td class="pl-total">${cfMoney(PNL.r2(vals.reduce((a, b) => a + b, 0)))}</td>`;
     const v = vals[0] || 0, p = pct(v, hd.income);
     let out = `<td class="pl-total">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}</td><td class="pl-pct">${p === null || Math.abs(v) < 0.5 ? '' : p + '%'}</td>`;
@@ -7195,7 +7224,8 @@ function plRender() {
     notes.push('By-quarter figures add up Xero\'s monthly figures into financial-year quarters (Jul–Sep = Q1, Oct–Dec = Q2, Jan–Mar = Q3, Apr–Jun = Q4)' + (qr.capped ? `, showing the latest 4 of ${qr.total} in this period` : '') + '. Periods that start or end part-way through a quarter are widened to whole quarters.' + (qr.quarters.some((q) => q.partial) ? ' The quarter in progress covers the months so far.' : ''));
   }
   if (hideStock) notes.push(`Opening stock (${cfMoney(stock.opening)}) and closing stock (${cfMoney(stock.closing)}) are hidden. They are still inside Cost of Sales — a net ${cfMoney(stock.net)} — so the totals, gross profit and net profit still match Xero. Tick \u201cShow opening & closing stock\u201d to see them.`);
-  if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);
+  if (cmp && quarter) notes.push(`Under each figure is the same months a year earlier (${rng(cmp.range)}) and the % change; a quarter in progress is compared with the same months so far last year. Green is better than last year (more income or profit, less cost); red is worse.`);
+  else if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);
   else if (plComparing()) notes.push('No previous-year figures came back from Xero for those dates.');
   if (rep.assumedOrder) notes.push('Xero\'s column headings couldn\'t be read, so the columns are assumed to run newest to oldest — check the totals against Xero.');
   notes.push('Straight from Xero\'s Profit & Loss report (accrual basis), so it matches Xero\'s own report for the same dates. Expenses are shown as positive amounts.');
