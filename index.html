@@ -898,6 +898,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #pnlView table.pl-table tr.pl-hl td { font-weight: 700; background: #f4f4f0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 #pnlView table.pl-table tr.pl-hl td:first-child { background: #f4f4f0; }
 #pnlView table.pl-table td.pl-total, #pnlView table.pl-table th.pl-total { border-left: 1px solid var(--border); font-weight: 700; }
+#pnlView table.pl-table th small { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
 #pnlView table.pl-month { font-size: 13px; }
 #pnlView table.pl-month td, #pnlView table.pl-month th { padding-left: 7px; padding-right: 7px; }
 #pnlView table.pl-month td:first-child, #pnlView table.pl-month th:first-child { min-width: 170px; padding-left: 12px; }
@@ -1556,7 +1557,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <select id="plPeriod" onchange="plChoosePeriod(this.value)" aria-label="Period"></select>
       <span class="pl-lbl">From</span><input type="date" id="plFrom" onchange="plDatesChanged()">
       <span class="pl-lbl">To</span><input type="date" id="plTo" onchange="plDatesChanged()">
-      <div class="pl-seg"><button id="plModeTotal" onclick="plSetMode('total')">Total</button><button id="plModeMonth" onclick="plSetMode('month')">By month</button></div>
+      <div class="pl-seg"><button id="plModeTotal" onclick="plSetMode('total')">Total</button><button id="plModeMonth" onclick="plSetMode('month')">By month</button><button id="plModeQuarter" onclick="plSetMode('quarter')">By quarter</button></div>
       <label class="pl-cmp" id="plCmpWrap"><input type="checkbox" id="plCmp" onchange="plSetCompare(this.checked)"> Compare to previous year</label>
       <label class="pl-cmp"><input type="checkbox" id="plStock" onchange="plSetShowStock(this.checked)"> Show opening &amp; closing stock</label>
       <button id="plRefreshBtn" onclick="loadPnl(true)">Refresh</button>
@@ -7049,16 +7050,18 @@ function plSetShowStock(on) { pl.showStock = !!on; plRender(); }
 async function plFetchReport(mode, from, to, force) {
   const request = PNL.requestFor(mode, from, to, cfToday());
   if (!request) return { empty: true };
-  const ck = `pnl_${mode}_${from}_${to}`;
+  // Cached by what is actually asked of Xero, so By month and By quarter over the same dates share one report.
+  const ck = 'pnl_' + [request.fromDate, request.toDate, request.periods || 0].join('_');
+  const finish = (report) => (mode === 'quarter' ? PNL.toQuarters(report, PNL.quarterRange(from, to, cfToday()).quarters) : report);
   const cached = force ? null : cfCacheGet(ck, 10 * 60 * 1000);
-  if (cached) return { report: cached };
+  if (cached) return { report: finish(cached) };
   const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${new URLSearchParams(request)}`);
   if (res.status === 401 || res.status === 403) return { noPermission: true };
   if (!res.ok) throw new Error(data.Detail || data.Message || data.error || `Xero returned ${res.status}`);
   const report = PNL.parseReport(data);
   if (!report) throw new Error('Xero returned something that is not a Profit & Loss report');
   cfCacheSet(ck, report);
-  return { report };
+  return { report: finish(report) };
 }
 
 async function loadPnl(force) {
@@ -7106,6 +7109,7 @@ async function loadPnl(force) {
 function plRender() {
   document.getElementById('plModeTotal').classList.toggle('on', pl.mode === 'total');
   document.getElementById('plModeMonth').classList.toggle('on', pl.mode === 'month');
+  document.getElementById('plModeQuarter').classList.toggle('on', pl.mode === 'quarter');
   document.getElementById('plCmpWrap').style.display = pl.mode === 'total' ? '' : 'none';
   document.getElementById('plCmp').checked = pl.compare;
   document.getElementById('plStock').checked = pl.showStock;
@@ -7121,7 +7125,8 @@ function plRender() {
   if (!d) return;
   if (d.future || !d.report) { kpis.innerHTML = ''; table.innerHTML = '<tbody><tr><td class="pl-empty">This period is in the future — there is nothing to report yet.</td></tr></tbody>'; note.innerHTML = ''; return; }
   const rep = d.report;
-  const month = pl.mode === 'month' && rep.columns.length > 0;
+  const quarter = pl.mode === 'quarter' && rep.columns.length > 0;
+  const month = (pl.mode === 'month' || quarter) && rep.columns.length > 0; // any view with one column per period (+ a Total)
   const hd = PNL.headline(rep, month ? 'sum' : 0);
   const pct = (v, base) => (v === null || !base ? null : Math.round((v / base) * 1000) / 10);
   const kpi = (label, val, sub, neg) => `<div class="pl-kpi"><div class="pl-kpi-label">${label}</div><div class="pl-kpi-value${neg ? ' pl-neg' : ''}">${val === null ? '–' : cfMoney(val)}</div><div class="pl-kpi-sub">${sub || ''}</div></div>`;
@@ -7145,7 +7150,7 @@ function plRender() {
   // table
   const cols = rep.columns;
   const rng = (r) => `${cfDateLabel(r.from)} ${r.from.slice(0, 4)} – ${cfDateLabel(r.to)} ${r.to.slice(0, 4)}`;
-  const colHead = month ? cols.map((c) => `<th>${c.month ? cfEsc(cfMonthLabel(c.month)) : cfEsc(c.label)}</th>`).join('') + '<th class="pl-total">Total</th>'
+  const colHead = month ? cols.map((c) => (quarter ? `<th title="${cfEsc(c.sub)}${c.partial ? ' — quarter in progress' : ''}">${cfEsc(c.label)}${c.partial ? ' <small>so far</small>' : ''}<small>${cfEsc(c.sub)}</small></th>` : `<th>${c.month ? cfEsc(cfMonthLabel(c.month)) : cfEsc(c.label)}</th>`)).join('') + '<th class="pl-total">Total</th>'
     : '<th class="pl-total">Total</th><th>% of income</th>' + (cmp ? `<th class="pl-prior" title="${cfEsc(rng(cmp.range))}">Previous year</th><th>Change</th><th>Change %</th>` : '');
   const money = (v) => `<td class="${Math.abs(v) < 0.5 ? 'pl-zero' : ''}">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}</td>`;
   // `downIsGood` is for cost sections: spending less than last year is the good direction there.
@@ -7178,12 +7183,16 @@ function plRender() {
       for (const r of sec.rows) body += `<tr class="pl-hl"><td>${cfEsc(r.name)}</td>${cells(r, false)}</tr>`;
     }
   }
-  table.className = 'pl-table' + (month ? ' pl-month' : '');
+  table.className = 'pl-table' + (month && !quarter ? ' pl-month' : '');
   table.innerHTML = `<thead><tr><th></th>${colHead}</tr></thead><tbody>${body || `<tr><td class="pl-empty" colspan="${span}">No activity in this period.</td></tr>`}</tbody>`;
   const notes = [];
   if (pl.mode === 'month') {
     const mr = PNL.monthRange(pl.from, pl.to, cfToday());
     notes.push('By-month figures are whole calendar months' + (mr.capped ? `, showing the latest 12 of ${mr.total} in this period` : '') + '.');
+  }
+  if (quarter) {
+    const qr = PNL.quarterRange(pl.from, pl.to, cfToday());
+    notes.push('By-quarter figures add up Xero\'s monthly figures into financial-year quarters (Jul–Sep = Q1, Oct–Dec = Q2, Jan–Mar = Q3, Apr–Jun = Q4)' + (qr.capped ? `, showing the latest 4 of ${qr.total} in this period` : '') + '. Periods that start or end part-way through a quarter are widened to whole quarters.' + (qr.quarters.some((q) => q.partial) ? ' The quarter in progress covers the months so far.' : ''));
   }
   if (hideStock) notes.push(`Opening stock (${cfMoney(stock.opening)}) and closing stock (${cfMoney(stock.closing)}) are hidden. They are still inside Cost of Sales — a net ${cfMoney(stock.net)} — so the totals, gross profit and net profit still match Xero. Tick \u201cShow opening & closing stock\u201d to see them.`);
   if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);

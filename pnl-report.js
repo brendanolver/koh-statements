@@ -99,8 +99,9 @@
   // Query for Reports/ProfitAndLoss. 'total' = one column for the whole range; 'month' = one column per
   // month: the latest month as the base period and (n-1) earlier months compared (timeframe=MONTH).
   function requestFor(mode, from, to, todayIso) {
-    if (mode !== 'month') return { path: 'Reports/ProfitAndLoss', fromDate: from, toDate: to };
-    const { months } = monthRange(from, to, todayIso);
+    if (mode !== 'month' && mode !== 'quarter') return { path: 'Reports/ProfitAndLoss', fromDate: from, toDate: to };
+    // Quarters are built from the same monthly report (see toQuarters), asking for just the months they cover.
+    const months = mode === 'quarter' ? quarterRange(from, to, todayIso).quarters.flatMap((q) => q.months) : monthRange(from, to, todayIso).months;
     if (!months.length) return null;
     const last = months[months.length - 1];
     const q = { path: 'Reports/ProfitAndLoss', fromDate: `${last}-01`, toDate: lastDay(last) };
@@ -113,6 +114,48 @@
   function last12Completed(todayIso) {
     const cur = monthKey(todayIso);
     return { from: `${addMonths(cur, -12)}-01`, to: lastDay(addMonths(cur, -1)) };
+  }
+
+  // ---- quarters ----
+  // Quarters are calendar quarters (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec). With a Jul–Jun financial year those are
+  // exactly the financial-year quarters: Jul–Sep = Q1, Oct–Dec = Q2, Jan–Mar = Q3, Apr–Jun = Q4.
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const quarterStart = (mk) => { const m = Number(mk.slice(5, 7)); return `${mk.slice(0, 4)}-${pad(m - ((m - 1) % 3))}`; };
+  function quarterLabel(startMk) {
+    const y = Number(startMk.slice(0, 4)), m = Number(startMk.slice(5, 7));
+    const fy = m >= 7 ? y + 1 : y, qn = Math.floor((m >= 7 ? m - 7 : m + 5) / 3) + 1;
+    return { label: `Q${qn} FY${String(fy).slice(2)}`, sub: `${MON[m - 1]}–${MON[m + 1]} ${String(y).slice(2)}` };
+  }
+  // The quarters shown for a range: the range snapped OUT to whole quarters, stopping at the current month (the
+  // quarter in progress is shown part-finished), and at most the latest 4 (Xero compares up to 12 months at once).
+  function quarterRange(from, to, todayIso) {
+    const cur = monthKey(todayIso);
+    const toQuarterEnd = addMonths(quarterStart(monthKey(to)), 2); // widened out to the end of the quarter containing `to`…
+    const lastKey = toQuarterEnd < cur ? toQuarterEnd : cur;       // …but never past the current month
+    const first = quarterStart(monthKey(from));
+    if (first > lastKey) return { quarters: [], capped: false, total: 0 };
+    const all = [];
+    for (let k = first; k <= lastKey; k = addMonths(k, 1)) {
+      const qs = quarterStart(k);
+      let q = all[all.length - 1];
+      if (!q || q.start !== qs) { q = { start: qs, months: [], ...quarterLabel(qs) }; all.push(q); }
+      q.months.push(k);
+    }
+    for (const q of all) q.partial = q.months.length < 3;
+    return { quarters: all.slice(-4), capped: all.length > 4, total: all.length };
+  }
+  // Turns the monthly report (one column per month, oldest first) into one column per quarter by adding the months.
+  function toQuarters(report, quarters) {
+    const months = quarters.flatMap((q) => q.months);
+    const colMonth = report.columns.map((c, i) => c.month || months[i]);
+    const groups = quarters.map((q) => colMonth.map((m, i) => (q.months.includes(m) ? i : -1)).filter((i) => i >= 0));
+    const agg = (vals) => groups.map((g) => r2(g.reduce((a, i) => a + (vals[i] || 0), 0)));
+    const sections = report.sections.map((sec) => ({
+      title: sec.title,
+      rows: sec.rows.map((r) => ({ ...r, values: agg(r.values) })),
+      summary: sec.summary ? { ...sec.summary, values: agg(sec.summary.values) } : null,
+    }));
+    return { columns: quarters.map((q) => ({ label: q.label, sub: q.sub, month: q.start, partial: q.partial })), sections, assumedOrder: report.assumedOrder };
   }
 
   // ---- compare with the previous year ----
@@ -178,6 +221,6 @@
     return t;
   }
 
-  root.PNL = { parseReport, headline, monthRange, requestFor, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
+  root.PNL = { parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, requestFor, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);

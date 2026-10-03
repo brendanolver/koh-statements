@@ -136,4 +136,44 @@ test('compare: lines still pair by name when only one side carries Xero account 
   assert.deepStrictEqual(c.sections.find((s) => s.title === 'Less Cost of Sales').rows.map((r) => [r.name, r.values[0], r.prior]), [['Opening Stock', 10, 8]]);
   assert.strictEqual(c.sections[0].rows.length, 1, 'no duplicate Sales line');
 });
+test('quarter labels follow a Jul–Jun financial year', () => {
+  assert.deepStrictEqual(P.quarterLabel('2026-07'), { label: 'Q1 FY27', sub: 'Jul–Sep 26' }); assert.deepStrictEqual(P.quarterLabel('2026-10'), { label: 'Q2 FY27', sub: 'Oct–Dec 26' });
+  assert.deepStrictEqual(P.quarterLabel('2027-01'), { label: 'Q3 FY27', sub: 'Jan–Mar 27' }); assert.deepStrictEqual(P.quarterLabel('2027-04'), { label: 'Q4 FY27', sub: 'Apr–Jun 27' });
+});
+test('quarters for a range: snapped out to whole quarters, stop at the current month, at most the latest 4', () => {
+  const t = '2026-10-03', q = (f, to) => P.quarterRange(f, to, t);
+  const fy = q('2025-07-01', '2026-06-30'); assert.deepStrictEqual(fy.quarters.map((x) => x.label), ['Q1 FY26', 'Q2 FY26', 'Q3 FY26', 'Q4 FY26']); assert.ok(fy.quarters.every((x) => x.months.length === 3 && !x.partial));
+  const l12 = q('2025-10-01', '2026-09-30'); assert.deepStrictEqual(l12.quarters.map((x) => x.sub), ['Oct–Dec 25', 'Jan–Mar 26', 'Apr–Jun 26', 'Jul–Sep 26']);
+  const cy = q('2026-01-01', '2026-12-31'); assert.deepStrictEqual(cy.quarters.map((x) => [x.sub, x.months.length, x.partial]), [['Jan–Mar 26', 3, false], ['Apr–Jun 26', 3, false], ['Jul–Sep 26', 3, false], ['Oct–Dec 26', 1, true]], 'October only so far: part-finished');
+  const mid = q('2026-02-10', '2026-04-20'); assert.deepStrictEqual(mid.quarters.map((x) => [x.sub, x.months.length, x.partial]), [['Jan–Mar 26', 3, false], ['Apr–Jun 26', 3, false]], 'a mid-quarter range widens to whole quarters at BOTH ends; a finished quarter is never "part-finished"');
+  assert.deepStrictEqual(q('2026-08-15', '2026-09-10').quarters.map((x) => [x.sub, x.months.length]), [['Jul–Sep 26', 3]]);
+  assert.deepStrictEqual(q('2026-10-01', '2026-10-31').quarters.map((x) => [x.sub, x.months.length, x.partial]), [['Oct–Dec 26', 1, true]], 'only the quarter in progress is partial');
+  const long = q('2018-01-01', '2026-10-03'); assert.strictEqual(long.quarters.length, 4); assert.strictEqual(long.capped, true); assert.strictEqual(long.quarters[0].sub, 'Jan–Mar 26'); assert.ok(long.total > 30);
+  assert.deepStrictEqual(q('2027-01-01', '2027-12-31').quarters, []);
+});
+test('quarter request = the monthly report covering exactly those months', () => {
+  const t = '2026-10-03';
+  assert.deepStrictEqual(P.requestFor('quarter', '2025-07-01', '2026-06-30', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-06-01', toDate: '2026-06-30', periods: '11', timeframe: 'MONTH' });
+  assert.deepStrictEqual(P.requestFor('quarter', '2026-01-01', '2026-12-31', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-10-01', toDate: '2026-10-31', periods: '9', timeframe: 'MONTH' });
+  assert.deepStrictEqual(P.requestFor('quarter', '2026-10-01', '2026-12-31', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-10-01', toDate: '2026-10-31' }, 'one month so far, no comparison periods');
+  assert.strictEqual(P.requestFor('quarter', '2027-01-01', '2027-12-31', t), null);
+  assert.deepStrictEqual(P.requestFor('quarter', '2025-07-01', '2026-06-30', t), P.requestFor('month', '2025-07-01', '2026-06-30', t), 'a full FY asks Xero the same thing as By month, so the cached report is shared');
+});
+test('months add up into quarters; nothing is lost; rows, summaries and profit lines all aggregate', () => {
+  const hdr = ['31 Dec 2025', '30 Nov 2025', '31 Oct 2025', '30 Sep 2025', '31 Aug 2025', '31 Jul 2025']; // newest first, as Xero sends them
+  const rep = P.parseReport(mk(hdr, [['Sales', [60, 50, 40, 30, 20, 10]]], [['COGS', [6, 5, 4, 3, 2, 1]]], [['Rent', [1, 1, 1, 1, 1, 1]]]));
+  const qs = P.quarterRange('2025-07-01', '2025-12-31', '2026-01-15').quarters;
+  const q = P.toQuarters(rep, qs);
+  assert.deepStrictEqual(q.columns.map((c) => c.label), ['Q1 FY26', 'Q2 FY26']);
+  assert.deepStrictEqual(q.sections[0].rows[0].values, [60, 150], 'Sales: Jul–Sep = 10+20+30, Oct–Dec = 40+50+60');
+  assert.deepStrictEqual(q.sections[0].summary.values, [60, 150]);
+  const h0 = P.headline(q, 0), h1 = P.headline(q, 1); assert.deepStrictEqual([h0.income, h0.cost, h0.grossProfit, h0.netProfit], [60, 6, 54, 51]); assert.deepStrictEqual([h1.income, h1.netProfit], [150, 150 - 15 - 3]);
+  assert.strictEqual(P.headline(q, 'sum').income, 210); assert.strictEqual(P.headline(rep, 'sum').income, 210, 'the quarter total equals the monthly total');
+  assert.strictEqual(P.headline(q, 'sum').netProfit, P.headline(rep, 'sum').netProfit);
+});
+test('a part-finished quarter is flagged and still totals correctly', () => {
+  const rep = P.parseReport(mk(['31 Oct 2026', '30 Sep 2026', '31 Aug 2026', '31 Jul 2026'], [['Sales', [40, 30, 20, 10]]], [['C', [0, 0, 0, 0]]], [['R', [0, 0, 0, 0]]]));
+  const qs = P.quarterRange('2026-07-01', '2026-12-31', '2026-10-20').quarters;
+  const q = P.toQuarters(rep, qs); assert.deepStrictEqual(q.columns.map((c) => [c.sub, c.partial]), [['Jul–Sep 26', false], ['Oct–Dec 26', true]]); assert.deepStrictEqual(q.sections[0].rows[0].values, [60, 40]);
+});
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);
