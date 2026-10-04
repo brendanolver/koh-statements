@@ -189,6 +189,9 @@
     margin: 24px auto;
     padding: 0 16px;
   }
+  /* The Debtors table has a column per ageing bucket plus Stock on Hold, Total and an action column — it needs the
+     same room as the customers panel, or Total scrolls out of sight. Screen only: print keeps its own page layout. */
+  @media screen { #debtorsView.debtors-panel { max-width: 1500px; } }
   .debtors-header {
     display: flex;
     align-items: center;
