@@ -880,6 +880,12 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #pnlView table.pl-table td.pl-down { color: #d0021b; }
 #pnlView .pl-kpi-sub .pl-up { color: #1a7a3c; font-weight: 600; }
 #pnlView .pl-kpi-sub .pl-down { color: #d0021b; font-weight: 600; }
+#pnlView .pl-cogs { display: inline-flex; align-items: center; gap: 6px; }
+#pnlView .pl-cogs input { width: 66px; padding: 7px 9px; font-size: 14px; font-weight: 600; text-align: right; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; }
+#pnlView .pl-cogs small { font-size: 11.5px; color: var(--muted); }
+#pnlView .pl-basis { margin-bottom: 14px; padding: 10px 14px; border-radius: 12px; background: #eef5f2; border: 1px solid #cfe3da; color: #0c4a3b; font-size: 13px; line-height: 1.5; }
+#pnlView .pl-basis.warn { background: #fff8e6; border-color: #f0dba8; color: #7a5a00; }
+#pnlView table.pl-table tr.pl-model td { font-style: italic; }
 #pnlView .pl-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 #pnlView .pl-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
 #pnlView .pl-kpi-label { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
@@ -1562,11 +1568,14 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <span class="pl-lbl">To</span><input type="date" id="plTo" onchange="plDatesChanged()">
       <div class="pl-seg"><button id="plModeTotal" onclick="plSetMode('total')">Total</button><button id="plModeMonth" onclick="plSetMode('month')">By month</button><button id="plModeQuarter" onclick="plSetMode('quarter')">By quarter</button></div>
       <label class="pl-cmp" id="plCmpWrap"><input type="checkbox" id="plCmp" onchange="plSetCompare(this.checked)"> Compare to previous year</label>
-      <label class="pl-cmp"><input type="checkbox" id="plStock" onchange="plSetShowStock(this.checked)"> Show opening &amp; closing stock</label>
+      <label class="pl-cmp" id="plStockWrap"><input type="checkbox" id="plStock" onchange="plSetShowStock(this.checked)"> Show opening &amp; closing stock</label>
+      <label class="pl-cmp"><input type="checkbox" id="plTrading" onchange="plSetTrading(this.checked)"> Trading P&amp;L</label>
+      <span class="pl-cogs" id="plCogsWrap" style="display:none"><input type="text" inputmode="decimal" id="plCogsPct" oninput="plSetCogs(this.value)" placeholder="%" aria-label="Cost of goods as a percentage of income"><span class="pl-lbl">% COGS</span><small id="plCogsHint"></small></span>
       <button id="plRefreshBtn" onclick="loadPnl(true)">Refresh</button>
     </div>
   </div>
   <div id="plError" class="pl-error" style="display:none"></div>
+  <div id="plBasis" class="pl-basis" style="display:none"></div>
   <div class="pl-kpis" id="plKpis"></div>
   <div class="pl-card" id="plCard"><table class="pl-table" id="plTable"></table></div>
   <div class="pl-note" id="plNote"></div>
@@ -7000,7 +7009,8 @@ async function loadDrawings(force) {
 // Xero's own Profit & Loss report (accrual basis), parsed by pnl-report.js. 'Total' = one column for
 // the whole period; 'By month' = one column per whole calendar month (Xero compares up to 12 at once).
 // One Xero call per view, cached for the browser session for 10 minutes.
-const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, presets: [], loading: false, data: {}, needsAuth: false };
+const PL_COGS_KEY = 'pl_cogs_pct';
+const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, trading: false, cogsPct: (() => { try { return localStorage.getItem(PL_COGS_KEY) || ''; } catch (e) { return ''; } })(), presets: [], loading: false, data: {}, needsAuth: false };
 const plComparing = () => pl.compare && (pl.mode === 'total' || pl.mode === 'quarter'); // the tick box applies to Total and By quarter, not By month
 const plKey = () => `${pl.mode}_${pl.from}_${pl.to}${plComparing() ? '_cmp' : ''}`;
 
@@ -7046,6 +7056,19 @@ function plSetMode(mode) { pl.mode = mode; loadPnl(); }
 function plSetCompare(on) { pl.compare = !!on; loadPnl(); }
 // Display only — the report is already loaded, so this never calls Xero.
 function plSetShowStock(on) { pl.showStock = !!on; plRender(); }
+// Trading P&L is also display-only: it re-works the report that is already loaded (no Xero call).
+function plSetTrading(on) {
+  pl.trading = !!on;
+  const box = document.getElementById('plCogsPct');
+  box.value = pl.cogsPct;
+  plRender();
+  if (pl.trading && pl.cogsPct === '') box.focus();
+}
+function plSetCogs(v) {
+  pl.cogsPct = String(v).trim().replace('%', '');
+  try { localStorage.setItem(PL_COGS_KEY, pl.cogsPct); } catch (e) { /* not saved — just forgotten on reload */ }
+  plRender();
+}
 
 // One Xero call per report; each is cached for the session by its own dates, so a period seen on its own is
 // reused when it turns up as the "previous year" of another. Returns the parsed report, or null when Xero
@@ -7141,7 +7164,28 @@ function plRender() {
   const d = pl.data[plKey()];
   if (!d) return;
   if (d.future || !d.report) { kpis.innerHTML = ''; table.innerHTML = '<tbody><tr><td class="pl-empty">This period is in the future — there is nothing to report yet.</td></tr></tbody>'; note.innerHTML = ''; return; }
-  const rep = d.report;
+  let rep = d.report, priorRep = d.prior, trade = null;
+  // Trading P&L: product cost lines replaced by the chosen % of income (see pnl-report.js). Display only.
+  document.getElementById('plCogsWrap').style.display = pl.trading ? 'inline-flex' : 'none';
+  const basis = document.getElementById('plBasis');
+  basis.style.display = 'none';
+  if (pl.trading) {
+    const pct = pl.cogsPct === '' ? null : Number(pl.cogsPct);
+    const t = PNL.tradingView(d.report, pct);
+    document.getElementById('plCogsHint').textContent = t.info.found ? `actual ${t.info.actualPct}% for this view` : '';
+    if (t.applied) {
+      trade = t; rep = t.report;
+      if (d.prior) priorRep = PNL.tradingView(d.prior, pct).report; // the previous year is restated at the same %
+      const diff = t.totalDelta;
+      basis.className = 'pl-basis';
+      basis.innerHTML = `<b>Trading P&amp;L</b> — cost of goods modelled at ${cfEsc(String(Math.round(t.pct * 100) / 100))}% of income (actual ${t.info.actualPct}%). Net profit is ${cfMoney(Math.abs(diff))} ${diff >= 0 ? 'higher' : 'lower'} than Xero's actual.`;
+    } else {
+      basis.className = 'pl-basis warn';
+      basis.innerHTML = t.info.found ? `Enter a % COGS to see the Trading P&amp;L — for this view the actual cost of goods is ${t.info.actualPct}% of income. Showing Xero's actual figures until then.` : `Trading P&amp;L needs Opening Stock / Cost of Goods Sold lines in Cost of Sales, and none were found here — showing Xero's actual figures.`;
+    }
+    basis.style.display = 'block';
+  }
+  document.getElementById('plStockWrap').style.display = trade ? 'none' : ''; // no stock lines to show once they're replaced
   const quarter = pl.mode === 'quarter' && rep.columns.length > 0;
   const month = (pl.mode === 'month' || quarter) && rep.columns.length > 0; // any view with one column per period (+ a Total)
   const hd = PNL.headline(rep, month ? 'sum' : 0);
@@ -7150,7 +7194,7 @@ function plRender() {
   const label = cfEsc(pl.short);
   const gp = pct(hd.grossProfit, hd.income);
   // Previous-year comparison (Total view + tick box only): this period vs the same dates a year earlier.
-  const cmp = plComparing() && d.prior ? { rep: PNL.compareReports(rep, d.prior), prior: PNL.headline(d.prior, month ? 'sum' : 0), range: d.priorRange } : null;
+  const cmp = plComparing() && priorRep ? { rep: PNL.compareReports(rep, priorRep), prior: PNL.headline(priorRep, month ? 'sum' : 0), range: d.priorRange } : null;
   const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n);
   const vsPrev = (v, p, upIsGood) => {
     if (!cmp || v === null || p === null) return '';
@@ -7206,7 +7250,7 @@ function plRender() {
     const costSec = /cost of (sales|goods)|direct costs?|expenses/i.test(sec.title);
     if (sec.title) {
       body += `<tr class="pl-sec"><td colspan="${span}">${cfEsc(sec.title.replace(/^less\s+/i, ''))}</td></tr>`;
-      for (const r of sec.rows) { if (hideStock && PNL.isStockRow(r.name)) continue; body += `<tr class="pl-line"><td>${cfEsc(r.name)}</td>${cells(r, costSec)}</tr>`; }
+      for (const r of sec.rows) { if (hideStock && PNL.isStockRow(r.name)) continue; body += `<tr class="pl-line${r.modelled ? ' pl-model' : ''}"><td>${cfEsc(r.name)}</td>${cells(r, costSec)}</tr>`; }
       if (sec.summary) body += `<tr class="pl-sum"><td>${cfEsc(sec.summary.name)}</td>${cells(sec.summary, costSec)}</tr>`;
     } else {
       for (const r of sec.rows) body += `<tr class="pl-hl"><td>${cfEsc(r.name)}</td>${cells(r, false)}</tr>`;
@@ -7228,7 +7272,8 @@ function plRender() {
   else if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);
   else if (plComparing()) notes.push('No previous-year figures came back from Xero for those dates.');
   if (rep.assumedOrder) notes.push('Xero\'s column headings couldn\'t be read, so the columns are assumed to run newest to oldest — check the totals against Xero.');
-  notes.push('Straight from Xero\'s Profit & Loss report (accrual basis), so it matches Xero\'s own report for the same dates. Expenses are shown as positive amounts.');
+  if (trade) notes.push(`Trading P&L: Opening Stock, Cost of Goods Sold and Closing Stock are replaced by ${Math.round(trade.pct * 100) / 100}% of Total Income, so gross and net profit follow sales rather than when stock was bought. Freight & courier and any other cost-of-sales lines, and all expenses, are actual from Xero. Untick Trading P&L for Xero's own figures.`);
+  notes.push(trade ? 'Everything else is straight from Xero\'s Profit & Loss report (accrual basis). Expenses are shown as positive amounts.' : 'Straight from Xero\'s Profit & Loss report (accrual basis), so it matches Xero\'s own report for the same dates. Expenses are shown as positive amounts.');
   note.innerHTML = notes.map(cfEsc).join('<br>');
 }
 </script>

@@ -198,7 +198,7 @@
         if (m) pm.delete(k);
         return m;
       };
-      for (const r of (c && c.rows) || []) rows.push(pair(r.name, r.id, vec(r), vec(take(r))));
+      for (const r of (c && c.rows) || []) { const o = pair(r.name, r.id, vec(r), vec(take(r))); if (r.modelled) o.modelled = true; rows.push(o); }
       for (const r of pm.values()) rows.push(pair(r.name, r.id, zeros(), vec(r)));
       const sc = c && c.summary, sp = p && p.summary;
       const summary = sc || sp ? pair((sc || sp).name, null, vec(sc), vec(sp)) : null;
@@ -234,6 +234,55 @@
     return t;
   }
 
-  root.PNL = { parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, requestForMonths, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
+  // ---- trading P&L ----
+  // Stock lands in lumps (a big shipment hits one month's purchases; the following months sell it with almost no
+  // purchases), so each month's actual gross and net profit swing. The trading view replaces the PRODUCT cost lines
+  // — Opening Stock, Cost of Goods Sold / Purchases, Closing Stock — with a chosen % of Total Income, so profit moves
+  // with sales. Other Cost of Sales lines (e.g. Freight & Courier) stay actual, and so does everything below Gross
+  // Profit. Gross Profit and Net Profit move by exactly the amount the goods cost moved.
+  const GOODS_RE = /^(opening|closing)\s+(stock|inventory)\b|^cost of goods\b|^purchases\b/i;
+  const isGoodsRow = (name) => GOODS_RE.test(String(name || '').trim());
+  const colCount = (rep) => Math.max(1, (rep.columns || []).length, ...rep.sections.flatMap((sec) => [...sec.rows, sec.summary].filter(Boolean).map((r) => r.values.length)));
+
+  // The actual goods cost and income per column, and the % it works out to. { found:false } if the report has no
+  // Income section or no recognisable goods lines inside Cost of Sales.
+  function goodsInfo(report) {
+    const n = colCount(report);
+    const incSec = report.sections.find((x) => x.title && INCOME_RE.test(x.title));
+    const cosSec = report.sections.find((x) => x.title && COS_RE.test(x.title));
+    const goods = cosSec ? cosSec.rows.filter((r) => isGoodsRow(r.name)) : [];
+    if (!incSec || !cosSec || !goods.length) return { found: false };
+    const income = Array.from({ length: n }, (_, i) => lineTotal(incSec, i));
+    const actual = Array.from({ length: n }, (_, i) => r2(goods.reduce((a, r) => a + (r.values[i] || 0), 0)));
+    const sum = (a) => r2(a.reduce((x, y) => x + y, 0));
+    return { found: true, n, income, actual, totalIncome: sum(income), totalActual: sum(actual), actualPct: sum(income) ? r2((sum(actual) / sum(income)) * 100) : null, cosSec, incSec };
+  }
+
+  // Returns { applied, report, ... }. With no valid % (or nothing to replace) the report comes back unchanged.
+  function tradingView(report, pct) {
+    const info = goodsInfo(report);
+    const p = Number(pct);
+    if (!info.found || pct === null || pct === undefined || pct === '' || !Number.isFinite(p) || p < 0 || p > 100) return { applied: false, report, info };
+    const modelled = info.income.map((v) => r2((v * p) / 100));
+    const delta = info.actual.map((a, i) => r2(a - modelled[i])); // positive = the model's cost is lower, so profit is higher
+    const label = `Cost of goods (${Math.round(p * 100) / 100}% of income)`;
+    const sections = report.sections.map((sec) => {
+      if (sec === info.cosSec) {
+        const rows = []; let placed = false;
+        for (const r of sec.rows) {
+          if (!isGoodsRow(r.name)) { rows.push(r); continue; }
+          if (!placed) { rows.push({ name: label, id: null, values: modelled.slice(), modelled: true }); placed = true; }
+        }
+        const summary = sec.summary ? { ...sec.summary, values: Array.from({ length: info.n }, (_, i) => r2((sec.summary.values[i] || 0) - info.actual[i] + modelled[i])) } : null;
+        return { ...sec, rows, summary };
+      }
+      if (!sec.title) return { ...sec, rows: sec.rows.map((r) => (GROSS_RE.test(r.name) || NET_RE.test(r.name) ? { ...r, values: Array.from({ length: info.n }, (_, i) => r2((r.values[i] || 0) + delta[i])) } : r)) };
+      return sec;
+    });
+    const sum = (a) => r2(a.reduce((x, y) => x + y, 0));
+    return { applied: true, report: { ...report, sections }, info, pct: p, modelled, delta, totalModelled: sum(modelled), totalDelta: sum(delta) };
+  }
+
+  root.PNL = { goodsInfo, tradingView, isGoodsRow, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, requestForMonths, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);
