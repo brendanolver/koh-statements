@@ -908,9 +908,9 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #pnlView table.pl-table tr.pl-hl td:first-child { background: #f4f4f0; }
 #pnlView table.pl-table td.pl-total, #pnlView table.pl-table th.pl-total { border-left: 1px solid var(--border); font-weight: 700; }
 #pnlView table.pl-table th small { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
-#pnlView table.pl-month { font-size: 13px; }
-#pnlView table.pl-month td, #pnlView table.pl-month th { padding-left: 7px; padding-right: 7px; }
-#pnlView table.pl-month td:first-child, #pnlView table.pl-month th:first-child { min-width: 170px; padding-left: 12px; }
+#pnlView table.pl-month { font-size: 12.5px; }
+#pnlView table.pl-month td, #pnlView table.pl-month th { padding-left: 5px; padding-right: 5px; }
+#pnlView table.pl-month td:first-child, #pnlView table.pl-month th:first-child { min-width: 150px; padding-left: 10px; }
 #pnlView table.pl-month tr.pl-line td:first-child { padding-left: 24px; }
 /* In month view the Total stays pinned on the right while the months scroll. */
 #pnlView table.pl-month td.pl-total, #pnlView table.pl-month th.pl-total { position: sticky; right: 0; background: #fff; z-index: 1; box-shadow: -1px 0 0 var(--border); border-left: none; }
@@ -7074,8 +7074,8 @@ function plSetCogs(v) {
 // reused when it turns up as the "previous year" of another. Returns the parsed report, or null when Xero
 // hasn't been given permission yet (401/403).
 async function plFetchRequest(request, finish, force) {
-  // Cached by what is actually asked of Xero, so By month and By quarter over the same dates share one report.
-  const ck = 'pnl_' + [request.fromDate, request.toDate, request.periods || 0].join('_');
+  // Cached by what is actually asked of Xero ('pnl2_' = the version that anchors monthly columns correctly).
+  const ck = 'pnl2_' + [request.fromDate, request.toDate, request.periods || 0].join('_');
   const cached = force ? null : cfCacheGet(ck, 10 * 60 * 1000);
   if (cached) return { report: finish(cached) };
   const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${new URLSearchParams(request)}`);
@@ -7086,21 +7086,35 @@ async function plFetchRequest(request, finish, force) {
   cfCacheSet(ck, report);
   return { report: finish(report) };
 }
+// One column per month. Xero steps comparison columns back keeping the base END DAY, so the plan always anchors on a
+// 31-day month (and fetches the oldest month alone when 12 months would need 13 columns) — see monthlyPlan in
+// pnl-report.js. Typically one Xero call; two for a full 12 months ending in a 30-day month.
+async function plFetchMonths(months, force) {
+  const plan = PNL.monthlyPlan(months);
+  if (!plan.length) return { empty: true };
+  let merged = null;
+  for (const step of plan) {
+    const r = await plFetchRequest(step.request, (rep) => PNL.keepMonths(rep, step.keep), force);
+    if (r.noPermission) return r;
+    merged = merged ? PNL.mergeColumns(merged, r.report) : r.report;
+  }
+  return { report: merged };
+}
 async function plFetchReport(mode, from, to, force) {
-  const request = PNL.requestFor(mode, from, to, cfToday());
-  if (!request) return { empty: true };
-  const finish = (report) => (mode === 'quarter' ? PNL.toQuarters(report, PNL.quarterRange(from, to, cfToday()).quarters) : report);
-  return plFetchRequest(request, finish, force);
+  if (mode === 'total') return plFetchRequest(PNL.requestFor('total', from, to), (r) => r, force);
+  const r = await plFetchMonths(PNL.monthsFor(mode, from, to, cfToday()), force);
+  if (r.empty || r.noPermission) return r;
+  return { report: mode === 'quarter' ? PNL.toQuarters(r.report, PNL.quarterRange(from, to, cfToday()).quarters) : r.report };
 }
 // The same quarters a year earlier, month for month, as one monthly report added up into quarters.
 async function plFetchPriorQuarters(from, to, force) {
   const pq = PNL.priorQuarters(PNL.quarterRange(from, to, cfToday()).quarters);
   const months = pq.flatMap((x) => x.months);
-  const request = PNL.requestForMonths(months);
-  if (!request) return { empty: true };
+  if (!months.length) return { empty: true };
   const range = { from: months[0] + '-01', to: PNL.lastDay(months[months.length - 1]) };
-  const r = await plFetchRequest(request, (report) => PNL.toQuarters(report, pq), force);
-  return { ...r, range };
+  const r = await plFetchMonths(months, force);
+  if (r.empty || r.noPermission) return r;
+  return { report: PNL.toQuarters(r.report, pq), range };
 }
 
 async function loadPnl(force) {

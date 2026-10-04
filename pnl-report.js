@@ -17,12 +17,13 @@
   const r2 = (n) => Math.round(n * 100) / 100;
   const num = (v) => { const n = parseFloat(String(v === undefined || v === null ? '' : v).replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
 
-  // "30 Sep 2026", "Sep 2026", "1 September 2026" -> '2026-09'. (Day-of-month is ignored.)
+  // "30 Sep 26" (what Xero's report actually sends), "30 Sep 2026", "Sep 2026", "1 September 2026" -> '2026-09'.
+  // (Day-of-month is ignored; a two-digit year means 20xx.)
   function monthOfLabel(label) {
-    const m = /([A-Za-z]{3,9})\.?\s+(\d{4})/.exec(String(label || ''));
+    const m = /([A-Za-z]{3,9})\.?\s+(\d{4}|\d{2})\b/.exec(String(label || ''));
     if (!m) return null;
     const i = MONTHS.indexOf(m[1].slice(0, 3).toLowerCase());
-    return i < 0 ? null : `${m[2]}-${pad(i + 1)}`;
+    return i < 0 ? null : `${m[2].length === 2 ? '20' + m[2] : m[2]}-${pad(i + 1)}`;
   }
 
   function parseSection(row) {
@@ -96,21 +97,66 @@
     return { months: all.slice(-12), capped: all.length > 12, total: all.length };
   }
 
-  // Query for Reports/ProfitAndLoss. 'total' = one column for the whole range; 'month' = one column per
-  // month: the latest month as the base period and (n-1) earlier months compared (timeframe=MONTH).
-  function requestFor(mode, from, to, todayIso) {
-    if (mode !== 'month' && mode !== 'quarter') return { path: 'Reports/ProfitAndLoss', fromDate: from, toDate: to };
-    // Quarters are built from the same monthly report (see toQuarters), asking for just the months they cover.
-    const months = mode === 'quarter' ? quarterRange(from, to, todayIso).quarters.flatMap((q) => q.months) : monthRange(from, to, todayIso).months;
-    return requestForMonths(months);
+  // Query for the 'total' view: one column for the whole range. (By month / By quarter use monthlyPlan below.)
+  function requestFor(mode, from, to) {
+    return { path: 'Reports/ProfitAndLoss', fromDate: from, toDate: to };
   }
-  // The monthly report for a list of consecutive months: the latest as the base period plus the (n-1) before it.
-  function requestForMonths(months) {
-    if (!months.length) return null;
+  // The consecutive months a By month / By quarter view needs. Quarters are built from the same monthly report
+  // (see toQuarters), asking for just the months they cover.
+  function monthsFor(mode, from, to, todayIso) {
+    return mode === 'quarter' ? quarterRange(from, to, todayIso).quarters.flatMap((q) => q.months) : monthRange(from, to, todayIso).months;
+  }
+
+  // ---- monthly columns from Xero ----
+  // Xero builds comparison columns by stepping the base period back k months and KEEPING THE BASE END DAY (clamped to
+  // the month's length). From a base ending on the 30th, every 31-day month loses its 31st; from 28 Feb every column
+  // stops on the 28th. (Seen on the live report: columns labelled "30 Jul 26", "30 May 26"… and the months added up
+  // 1.9% short of the Total view.) Only a base ending on the 31st gives true month ends — so the base is always a
+  // 31-day month: the last month itself if it has 31 days, otherwise the next one (its extra column is dropped).
+  // Xero allows at most 11 comparison periods (12 columns), so a full 12 months ending in a 30-day month needs the
+  // oldest month fetched on its own. Returns the requests to make, oldest first, each with the months to keep.
+  const daysIn = (mk) => Number(lastDay(mk).slice(8));
+  const monthsBetween = (a, b) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7));
+  function monthlyPlan(months) {
+    if (!months.length) return [];
     const last = months[months.length - 1];
-    const q = { path: 'Reports/ProfitAndLoss', fromDate: `${last}-01`, toDate: lastDay(last) };
-    if (months.length > 1) { q.periods = String(months.length - 1); q.timeframe = 'MONTH'; }
-    return q;
+    const base = daysIn(last) === 31 ? last : addMonths(last, 1);
+    const oldestReach = addMonths(base, -11);
+    const covered = months.filter((m) => m >= oldestReach), rest = months.filter((m) => m < oldestReach);
+    const span = monthsBetween(covered[0], base); // comparison periods needed to reach the oldest covered month
+    const main = { path: 'Reports/ProfitAndLoss', fromDate: `${base}-01`, toDate: lastDay(base) };
+    if (span > 0) { main.periods = String(span); main.timeframe = 'MONTH'; }
+    const singles = rest.map((m) => ({ request: { path: 'Reports/ProfitAndLoss', fromDate: `${m}-01`, toDate: lastDay(m) }, keep: [m] }));
+    return [...singles, { request: main, keep: covered }];
+  }
+  // Keeps only the wanted months' columns (dropping the extra base-month column). Falls back to dropping the newest
+  // columns when Xero's headings couldn't be read.
+  function keepMonths(report, months) {
+    const cols = report.columns;
+    if (cols.length && cols.every((c) => c.month)) {
+      const idx = cols.map((c, i) => (months.includes(c.month) ? i : -1)).filter((i) => i >= 0);
+      return pickColumns(report, idx);
+    }
+    return pickColumns(report, cols.map((_, i) => i).slice(0, months.length));
+  }
+  function pickColumns(report, idx) {
+    const pick = (vals) => idx.map((i) => (vals[i] === undefined ? 0 : vals[i]));
+    return {
+      columns: idx.map((i) => report.columns[i]),
+      sections: report.sections.map((sec) => ({ title: sec.title, rows: sec.rows.map((r) => ({ ...r, values: pick(r.values) })), summary: sec.summary ? { ...sec.summary, values: pick(sec.summary.values) } : null })),
+      assumedOrder: report.assumedOrder,
+    };
+  }
+  // Joins two monthly reports side by side: `older` columns first, then `newer`. Lines are matched by account / name.
+  function mergeColumns(older, newer) {
+    const no = older.columns.length;
+    const c = compareReports(newer, older); // values = newer columns; priorValues = older columns (padded to the newer count)
+    const sections = c.sections.map((sec) => ({
+      title: sec.title,
+      rows: sec.rows.map((r) => ({ name: r.name, id: r.id, values: r.priorValues.slice(0, no).concat(r.values) })),
+      summary: sec.summary ? { name: sec.summary.name, values: sec.summary.priorValues.slice(0, no).concat(sec.summary.values) } : null,
+    }));
+    return { columns: older.columns.concat(newer.columns), sections, assumedOrder: older.assumedOrder || newer.assumedOrder };
   }
 
   // The last 12 COMPLETED months: the current (part-finished) month is left out, so it is always
@@ -283,6 +329,6 @@
     return { applied: true, report: { ...report, sections }, info, pct: p, modelled, delta, totalModelled: sum(modelled), totalDelta: sum(delta) };
   }
 
-  root.PNL = { goodsInfo, tradingView, isGoodsRow, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, requestForMonths, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
+  root.PNL = { goodsInfo, tradingView, isGoodsRow, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, monthsFor, monthlyPlan, keepMonths, mergeColumns, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);

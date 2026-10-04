@@ -21,6 +21,13 @@ const mk = (hdr, inc, cos, opx) => {
   ] }] };
 };
 
+test('Xero\'s real two-digit-year headings are understood (so columns are ordered by date, not guessed)', () => {
+  assert.strictEqual(P.monthOfLabel('30 Sep 26'), '2026-09'); assert.strictEqual(P.monthOfLabel('28 Feb 26'), '2026-02'); assert.strictEqual(P.monthOfLabel('31 Dec 25'), '2025-12');
+  const hdr = ['31 Oct 26', '30 Sep 26', '31 Aug 26'];
+  const r = P.parseReport(mk(hdr, [['Sales', [3, 2, 1]]], [['C', [0, 0, 0]]], [['R', [0, 0, 0]]]));
+  assert.deepStrictEqual(r.columns.map((c) => c.month), ['2026-08', '2026-09', '2026-10']); assert.strictEqual(r.assumedOrder, false, 'headings were read, nothing was assumed');
+  assert.deepStrictEqual(r.sections[0].rows[0].values, [1, 2, 3]);
+});
 test('month labels are read from Xero header text', () => {
   assert.strictEqual(P.monthOfLabel('30 Sep 2026'), '2026-09'); assert.strictEqual(P.monthOfLabel('Sep 2026'), '2026-09'); assert.strictEqual(P.monthOfLabel('1 September 2026'), '2026-09'); assert.strictEqual(P.monthOfLabel('Total'), null);
 });
@@ -62,13 +69,8 @@ test('by-month range snaps to whole months, stops at the current month, caps at 
   const long = P.monthRange('2020-01-01', '2026-10-03', t); assert.strictEqual(long.months.length, 12); assert.strictEqual(long.capped, true); assert.strictEqual(long.months[0], '2025-11');
   assert.deepStrictEqual(P.monthRange('2027-01-01', '2027-12-31', t).months, []);
 });
-test('request: total = the plain range; month = latest month as base + (n-1) earlier months', () => {
-  const t = '2026-10-03';
-  assert.deepStrictEqual(P.requestFor('total', '2025-07-01', '2026-06-30', t), { path: 'Reports/ProfitAndLoss', fromDate: '2025-07-01', toDate: '2026-06-30' });
-  assert.deepStrictEqual(P.requestFor('month', '2025-07-01', '2026-06-30', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-06-01', toDate: '2026-06-30', periods: '11', timeframe: 'MONTH' });
-  assert.deepStrictEqual(P.requestFor('month', '2026-09-01', '2026-09-30', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-09-01', toDate: '2026-09-30' }, 'a single month needs no comparison periods');
-  assert.deepStrictEqual(P.requestFor('month', '2026-01-01', '2026-12-31', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-10-01', toDate: '2026-10-31', periods: '9', timeframe: 'MONTH' });
-  assert.strictEqual(P.requestFor('month', '2027-01-01', '2027-12-31', t), null);
+test('Total view asks Xero for the plain range', () => {
+  assert.deepStrictEqual(P.requestFor('total', '2025-07-01', '2026-06-30'), { path: 'Reports/ProfitAndLoss', fromDate: '2025-07-01', toDate: '2026-06-30' });
 });
 test('last 12 completed months = 12 whole months ending last month (never the part-finished current one)', () => {
   assert.deepStrictEqual(P.last12Completed('2026-10-03'), { from: '2025-10-01', to: '2026-09-30' });
@@ -151,13 +153,67 @@ test('quarters for a range: snapped out to whole quarters, stop at the current m
   const long = q('2018-01-01', '2026-10-03'); assert.strictEqual(long.quarters.length, 4); assert.strictEqual(long.capped, true); assert.strictEqual(long.quarters[0].sub, 'Jan–Mar 26'); assert.ok(long.total > 30);
   assert.deepStrictEqual(q('2027-01-01', '2027-12-31').quarters, []);
 });
-test('quarter request = the monthly report covering exactly those months', () => {
+test('monthly plan: always anchored on a 31-day month (Xero keeps the base END DAY when stepping back)', () => {
+  const R = (fromDate, toDate, periods) => ({ path: 'Reports/ProfitAndLoss', fromDate, toDate, ...(periods ? { periods: String(periods), timeframe: 'MONTH' } : {}) });
+  const mons = (a, b) => { const o = []; for (let k = a; k <= b; k = P.monthRange(k + '-01', k + '-28', '2099-01-01').months.length ? (() => { const [y, m] = k.split('-').map(Number); const d = new Date(Date.UTC(y, m, 1)); return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); })() : '9999') o.push(k); return o; };
+  // last month already has 31 days: anchor on it, one request
+  const jan = P.monthlyPlan(mons('2026-01', '2026-10')); assert.deepStrictEqual(jan.map((s) => s.request), [R('2026-10-01', '2026-10-31', 9)]); assert.strictEqual(jan[0].keep.length, 10);
+  // last month has 30 days: anchor on the NEXT month (31 days) and drop its column
+  const sep = P.monthlyPlan(mons('2025-11', '2026-09')); assert.deepStrictEqual(sep.map((s) => s.request), [R('2026-10-01', '2026-10-31', 11)]); assert.deepStrictEqual([sep[0].keep[0], sep[0].keep[10]], ['2025-11', '2026-09']);
+  // a full 12 months ending in a 30-day month: 13 columns would be needed but Xero allows 12, so the oldest month is its own request
+  const fy = P.monthlyPlan(mons('2025-07', '2026-06')); assert.deepStrictEqual(fy.map((s) => s.request), [R('2025-07-01', '2025-07-31'), R('2026-07-01', '2026-07-31', 11)]);
+  assert.deepStrictEqual(fy.map((s) => s.keep.length), [1, 11]); assert.strictEqual(fy[0].keep[0], '2025-07'); assert.strictEqual(fy[1].keep[0], '2025-08');
+  const l12 = P.monthlyPlan(mons('2025-10', '2026-09')); assert.deepStrictEqual(l12.map((s) => s.request), [R('2025-10-01', '2025-10-31'), R('2026-10-01', '2026-10-31', 11)]);
+  // February (28 days) -> anchor on March; single months
+  assert.deepStrictEqual(P.monthlyPlan(['2026-02']).map((s) => s.request), [R('2026-03-01', '2026-03-31', 1)]); assert.deepStrictEqual(P.monthlyPlan(['2026-09']).map((s) => s.request), [R('2026-10-01', '2026-10-31', 1)]);
+  assert.deepStrictEqual(P.monthlyPlan(['2026-10']).map((s) => s.request), [R('2026-10-01', '2026-10-31')]); assert.deepStrictEqual(P.monthlyPlan([]), []);
+  // a request never asks for more than Xero's 11 comparison periods
+  for (const last of ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12']) for (const n of [1, 5, 11, 12]) {
+    const ms = []; let k = last; for (let i = 0; i < n; i++) { ms.unshift(k); const [y, m] = k.split('-').map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); k = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); }
+    const plan = P.monthlyPlan(ms); assert.ok(plan.every((s) => Number(s.request.periods || 0) <= 11), last + ' n=' + n); assert.deepStrictEqual(plan.flatMap((s) => s.keep), ms, 'every wanted month is covered exactly once, in order');
+  }
+});
+test('monthsFor: By quarter over a full FY wants the same months as By month', () => {
   const t = '2026-10-03';
-  assert.deepStrictEqual(P.requestFor('quarter', '2025-07-01', '2026-06-30', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-06-01', toDate: '2026-06-30', periods: '11', timeframe: 'MONTH' });
-  assert.deepStrictEqual(P.requestFor('quarter', '2026-01-01', '2026-12-31', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-10-01', toDate: '2026-10-31', periods: '9', timeframe: 'MONTH' });
-  assert.deepStrictEqual(P.requestFor('quarter', '2026-10-01', '2026-12-31', t), { path: 'Reports/ProfitAndLoss', fromDate: '2026-10-01', toDate: '2026-10-31' }, 'one month so far, no comparison periods');
-  assert.strictEqual(P.requestFor('quarter', '2027-01-01', '2027-12-31', t), null);
-  assert.deepStrictEqual(P.requestFor('quarter', '2025-07-01', '2026-06-30', t), P.requestFor('month', '2025-07-01', '2026-06-30', t), 'a full FY asks Xero the same thing as By month, so the cached report is shared');
+  assert.deepStrictEqual(P.monthsFor('quarter', '2025-07-01', '2026-06-30', t), P.monthsFor('month', '2025-07-01', '2026-06-30', t));
+  assert.deepStrictEqual(P.monthsFor('quarter', '2026-01-01', '2026-12-31', t).slice(-1), ['2026-10']); assert.deepStrictEqual(P.monthsFor('month', '2027-01-01', '2027-12-31', t), []);
+});
+test('simulated Xero (end day kept when stepping back): the plan reproduces the true monthly figures; the old single-request approach lost the 31sts', () => {
+  const dim = (mk) => Number(P.lastDay ? P.lastDay(mk).slice(8) : 30);
+  const addM = (mk, n) => { const [y, m] = mk.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); };
+  const perDay = (mk) => 1000 + Number(mk.slice(5)) * 10; // income per day in that month
+  const truth = (mk) => perDay(mk) * dim(mk);
+  const MONN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  // what Xero returns for { fromDate, toDate, periods }: base month then k months back, each ending on min(base end day, month length)
+  const xero = (req) => {
+    const base = req.fromDate.slice(0, 7), endDay = Number(req.toDate.slice(8)), k = Number(req.periods || 0), cols = [];
+    for (let i = 0; i <= k; i++) { const mk = addM(base, -i), end = Math.min(endDay, dim(mk)); cols.push({ mk, label: `${String(end).padStart(2, '0')} ${MONN[Number(mk.slice(5)) - 1]} ${mk.slice(0, 4)}`, v: perDay(mk) * end }); }
+    return mk2report(cols);
+  };
+  const mk2report = (cols) => P.parseReport({ Reports: [{ Rows: [{ RowType: 'Header', Cells: [cell(''), ...cols.map((c) => cell(c.label))] }, { RowType: 'Section', Title: 'Income', Rows: [line('Sales', cols.map((c) => c.v)), sum('Total Income', cols.map((c) => c.v))] }] }] });
+  const run = (months) => P.monthlyPlan(months).map((step) => P.keepMonths(xero(step.request), step.keep)).reduce((a, b) => (a ? P.mergeColumns(a, b) : b), null);
+  const cases = [['2025-07', '2026-06'], ['2025-10', '2026-09'], ['2025-11', '2026-09'], ['2026-01', '2026-10'], ['2026-02', '2026-02'], ['2025-03', '2026-02']];
+  for (const [a, b] of cases) {
+    const months = []; for (let k = a; k <= b; k = addM(k, 1)) months.push(k);
+    const rep = run(months);
+    assert.deepStrictEqual(rep.columns.map((c) => c.month), months, `${a}..${b}: columns are exactly the wanted months, oldest first`);
+    assert.deepStrictEqual(rep.sections[0].rows[0].values, months.map(truth), `${a}..${b}: every month is the FULL month`);
+    assert.strictEqual(P.headline(rep, 'sum').income, months.reduce((s, m) => s + truth(m), 0), 'and the months add up to the true total');
+  }
+  // the naive request (base = the last month, 30 days) loses the 31st of every 31-day month — the bug this plan fixes
+  const naive = xero({ path: 'x', fromDate: '2026-09-01', toDate: '2026-09-30', periods: '11' });
+  const naiveSum = naive.sections[0].rows[0].values.reduce((a, b) => a + b, 0), trueSum = P.monthsFor('month', '2025-10-01', '2026-09-30', '2026-10-03').reduce((s, m) => s + truth(m), 0);
+  assert.ok(naiveSum < trueSum, `naive ${naiveSum} < true ${trueSum}`);
+});
+test('keepMonths / mergeColumns: dropping the extra column and joining reports keep every line aligned', () => {
+  const rep = P.parseReport(mk(['31 Oct 2026', '30 Sep 2026', '31 Aug 2026'], [['Sales', [3, 2, 1]], ['Only recent', [9, 0, 0]]], [['COGS', [30, 20, 10]]], [['Rent', [5, 5, 5]]]));
+  const kept = P.keepMonths(rep, ['2026-08', '2026-09']); assert.deepStrictEqual(kept.columns.map((c) => c.month), ['2026-08', '2026-09']); assert.deepStrictEqual(kept.sections[0].rows[0].values, [1, 2]);
+  const single = P.parseReport(mk(['31 Jul 2026'], [['Sales', [7]], ['Old line', [4]]], [['COGS', [70]]], [['Rent', [5]]]));
+  const merged = P.mergeColumns(single, kept);
+  assert.deepStrictEqual(merged.columns.map((c) => c.month), [null, '2026-08', '2026-09'].map((x, i) => (i === 0 ? single.columns[0].month : x)));
+  const inc = merged.sections[0]; const byName = Object.fromEntries(inc.rows.map((r) => [r.name, r.values]));
+  assert.deepStrictEqual(byName['Sales'], [7, 1, 2]); assert.deepStrictEqual(byName['Only recent'], [0, 0, 0], 'a line absent from the older column is 0 there'); assert.deepStrictEqual(byName['Old line'], [4, 0, 0], 'a line only in the older column is 0 in the newer ones');
+  assert.deepStrictEqual(inc.summary.values.length, 3); assert.strictEqual(merged.sections.find((s) => !s.title && s.rows[0].name === 'Net Profit').rows[0].values.length, 3);
 });
 test('months add up into quarters; nothing is lost; rows, summaries and profit lines all aggregate', () => {
   const hdr = ['31 Dec 2025', '30 Nov 2025', '31 Oct 2025', '30 Sep 2025', '31 Aug 2025', '31 Jul 2025']; // newest first, as Xero sends them
@@ -181,8 +237,7 @@ test('quarters a year earlier are the same months shifted back 12 (a quarter in 
   const prv = P.priorQuarters(now);
   assert.deepStrictEqual(prv.map((q) => q.sub), ['Jan–Mar 25', 'Apr–Jun 25', 'Jul–Sep 25', 'Oct–Dec 25']);
   assert.deepStrictEqual(prv[3].months, ['2025-10'], 'only October of last year, to match October so far');
-  assert.deepStrictEqual(P.requestForMonths(prv.flatMap((q) => q.months)), { path: 'Reports/ProfitAndLoss', fromDate: '2025-10-01', toDate: '2025-10-31', periods: '9', timeframe: 'MONTH' });
-  assert.strictEqual(P.requestForMonths([]), null); assert.deepStrictEqual(P.requestForMonths(['2025-10']), { path: 'Reports/ProfitAndLoss', fromDate: '2025-10-01', toDate: '2025-10-31' });
+  assert.deepStrictEqual(P.monthlyPlan(prv.flatMap((q) => q.months)).map((s) => s.request), [{ path: 'Reports/ProfitAndLoss', fromDate: '2025-10-01', toDate: '2025-10-31', periods: '9', timeframe: 'MONTH' }]);
 });
 test('compare across several columns: every quarter keeps its own previous-year value; totals reconcile', () => {
   const qs = P.quarterRange('2025-07-01', '2026-06-30', '2026-10-03').quarters;
