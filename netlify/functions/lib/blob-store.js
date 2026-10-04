@@ -61,9 +61,14 @@ function cashflowInputsStore() {
   return namedStore('cashflow-inputs');
 }
 
+// P&L tab: the remembered Trading P&L cost-of-goods percentages (online / wholesale).
+function pnlSettingsStore() {
+  return namedStore('pnl-settings');
+}
+
 // Snapshot of the Xero-derived debtors rows served by debtors-feed.js.
 function debtorsFeedStore() {
   return namedStore('debtors-feed');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, debtorsFeedStore };
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, debtorsFeedStore };

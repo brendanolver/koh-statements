@@ -880,7 +880,8 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #pnlView table.pl-table td.pl-down { color: #d0021b; }
 #pnlView .pl-kpi-sub .pl-up { color: #1a7a3c; font-weight: 600; }
 #pnlView .pl-kpi-sub .pl-down { color: #d0021b; font-weight: 600; }
-#pnlView .pl-cogs { display: inline-flex; align-items: center; gap: 6px; }
+#pnlView .pl-cogs { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#pnlView .pl-cogs-f { display: inline-flex; align-items: center; gap: 6px; }
 #pnlView .pl-cogs input { width: 66px; padding: 7px 9px; font-size: 14px; font-weight: 600; text-align: right; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; }
 #pnlView .pl-cogs small { font-size: 11.5px; color: var(--muted); }
 #pnlView .pl-basis { margin-bottom: 14px; padding: 10px 14px; border-radius: 12px; background: #eef5f2; border: 1px solid #cfe3da; color: #0c4a3b; font-size: 13px; line-height: 1.5; }
@@ -1570,7 +1571,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <label class="pl-cmp" id="plCmpWrap"><input type="checkbox" id="plCmp" onchange="plSetCompare(this.checked)"> Compare to previous year</label>
       <label class="pl-cmp" id="plStockWrap"><input type="checkbox" id="plStock" onchange="plSetShowStock(this.checked)"> Show opening &amp; closing stock</label>
       <label class="pl-cmp"><input type="checkbox" id="plTrading" onchange="plSetTrading(this.checked)"> Trading P&amp;L</label>
-      <span class="pl-cogs" id="plCogsWrap" style="display:none"><input type="text" inputmode="decimal" id="plCogsPct" oninput="plSetCogs(this.value)" placeholder="%" aria-label="Cost of goods as a percentage of income"><span class="pl-lbl">% COGS</span><small id="plCogsHint"></small></span>
+      <span class="pl-cogs" id="plCogsWrap" style="display:none"><label class="pl-cogs-f"><span class="pl-lbl">Online % COGS</span><input type="text" inputmode="decimal" id="plCogsOnline" oninput="plSetCogs('online', this.value)" placeholder="%" aria-label="Cost of goods as a percentage of online sales"></label><label class="pl-cogs-f"><span class="pl-lbl">Wholesale % COGS</span><input type="text" inputmode="decimal" id="plCogsWholesale" oninput="plSetCogs('wholesale', this.value)" placeholder="%" aria-label="Cost of goods as a percentage of wholesale sales"></label><small id="plCogsHint"></small></span>
       <button id="plRefreshBtn" onclick="loadPnl(true)">Refresh</button>
     </div>
   </div>
@@ -7009,14 +7010,35 @@ async function loadDrawings(force) {
 // Xero's own Profit & Loss report (accrual basis), parsed by pnl-report.js. 'Total' = one column for
 // the whole period; 'By month' = one column per whole calendar month (Xero compares up to 12 at once).
 // One Xero call per view, cached for the browser session for 10 minutes.
-const PL_COGS_KEY = 'pl_cogs_pct';
-const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, trading: false, cogsPct: (() => { try { return localStorage.getItem(PL_COGS_KEY) || ''; } catch (e) { return ''; } })(), presets: [], loading: false, data: {}, needsAuth: false };
+// The two cost-of-goods percentages (Online / Wholesale) are remembered: kept in this browser straight away and
+// saved to the server (/pnl-settings) so they follow across devices and stay until they are changed.
+const PL_COGS_KEY = 'pl_cogs_v2';
+const plReadLocalCogs = () => { try { const o = JSON.parse(localStorage.getItem(PL_COGS_KEY) || '{}'); return { online: o.online == null ? '' : String(o.online), wholesale: o.wholesale == null ? '' : String(o.wholesale) }; } catch (e) { return { online: '', wholesale: '' }; } };
+const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, trading: false, cogs: plReadLocalCogs(), cogsTouched: false, cogsTimer: null, presets: [], loading: false, data: {}, needsAuth: false };
 const plComparing = () => pl.compare && (pl.mode === 'total' || pl.mode === 'quarter'); // the tick box applies to Total and By quarter, not By month
 const plKey = () => `${pl.mode}_${pl.from}_${pl.to}${plComparing() ? '_cmp' : ''}`;
 
+async function plLoadCogs() {
+  try {
+    const res = await fetch('/.netlify/functions/pnl-settings');
+    if (!res.ok) return;
+    const doc = await res.json(), c = doc.cogs || {};
+    if (pl.cogsTouched) return; // typed while this was loading — the typed values win and get saved
+    pl.cogs = { online: c.online === '' || c.online == null ? '' : String(c.online), wholesale: c.wholesale === '' || c.wholesale == null ? '' : String(c.wholesale) };
+    try { localStorage.setItem(PL_COGS_KEY, JSON.stringify(pl.cogs)); } catch (e) { /* ignore */ }
+    plFillCogs();
+    if (pl.data[plKey()]) plRender();
+  } catch (e) { /* offline or not deployed — this browser's copy is used */ }
+}
+function plFillCogs() {
+  document.getElementById('plCogsOnline').value = pl.cogs.online;
+  document.getElementById('plCogsWholesale').value = pl.cogs.wholesale;
+}
 function plInit() {
   const sel = document.getElementById('plPeriod');
   if (sel.options.length) return;
+  plFillCogs();
+  plLoadCogs();
   // The same periods as Drawings (financial years Jul–Jun, calendar years), except the rolling year is the
   // last 12 COMPLETED months — a part-finished month would skew every comparison.
   pl.presets = dwBuildPresets().map((p) => {
@@ -7059,15 +7081,20 @@ function plSetShowStock(on) { pl.showStock = !!on; plRender(); }
 // Trading P&L is also display-only: it re-works the report that is already loaded (no Xero call).
 function plSetTrading(on) {
   pl.trading = !!on;
-  const box = document.getElementById('plCogsPct');
-  box.value = pl.cogsPct;
+  plFillCogs();
   plRender();
-  if (pl.trading && pl.cogsPct === '') box.focus();
+  if (pl.trading) { const empty = ['online', 'wholesale'].find((k) => pl.cogs[k] === ''); if (empty) document.getElementById(empty === 'online' ? 'plCogsOnline' : 'plCogsWholesale').focus(); }
 }
-function plSetCogs(v) {
-  pl.cogsPct = String(v).trim().replace('%', '');
-  try { localStorage.setItem(PL_COGS_KEY, pl.cogsPct); } catch (e) { /* not saved — just forgotten on reload */ }
+function plSetCogs(kind, v) {
+  pl.cogs[kind] = String(v).trim().replace('%', '');
+  pl.cogsTouched = true;
+  try { localStorage.setItem(PL_COGS_KEY, JSON.stringify(pl.cogs)); } catch (e) { /* not saved here — the server copy still is */ }
   plRender();
+  // Save what was entered (only valid numbers or blanks are kept server side), once typing pauses.
+  clearTimeout(pl.cogsTimer);
+  pl.cogsTimer = setTimeout(() => {
+    fetch('/.netlify/functions/pnl-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cogs: pl.cogs }) }).catch(() => { /* kept in this browser regardless */ });
+  }, 700);
 }
 
 // One Xero call per report; each is cached for the session by its own dates, so a period seen on its own is
@@ -7184,18 +7211,23 @@ function plRender() {
   const basis = document.getElementById('plBasis');
   basis.style.display = 'none';
   if (pl.trading) {
-    const pct = pl.cogsPct === '' ? null : Number(pl.cogsPct);
-    const t = PNL.tradingView(d.report, pct);
-    document.getElementById('plCogsHint').textContent = t.info.found ? `actual ${t.info.actualPct}% for this view` : '';
+    const pcts = { online: pl.cogs.online === '' ? null : Number(pl.cogs.online), wholesale: pl.cogs.wholesale === '' ? null : Number(pl.cogs.wholesale) };
+    const t = PNL.tradingView(d.report, pcts);
+    const actualTxt = t.info.found && t.info.actualPct !== null ? `actual ${t.info.actualPct}% of sales for this view` : '';
+    document.getElementById('plCogsHint').textContent = actualTxt;
+    const chan = { online: 'Online', wholesale: 'Wholesale' };
     if (t.applied) {
       trade = t; rep = t.report;
-      if (d.prior) priorRep = PNL.tradingView(d.prior, pct).report; // the previous year is restated at the same %
-      const diff = t.totalDelta;
+      if (d.prior) priorRep = PNL.tradingView(d.prior, pcts).report; // the previous year is restated at the same %s
+      const diff = t.totalDelta, pctTxt = t.need.map((k) => `${chan[k]} ${cfEsc(String(Math.round(t.pct[k] * 100) / 100))}% of ${k} sales`).join(', ');
       basis.className = 'pl-basis';
-      basis.innerHTML = `<b>Trading P&amp;L</b> — cost of goods modelled at ${cfEsc(String(Math.round(t.pct * 100) / 100))}% of income (actual ${t.info.actualPct}%). Net profit is ${cfMoney(Math.abs(diff))} ${diff >= 0 ? 'higher' : 'lower'} than Xero's actual.`;
+      basis.innerHTML = `<b>Trading P&amp;L</b> — cost of goods modelled at ${pctTxt} (actual ${t.info.actualPct}% of online + wholesale sales; modelled ${t.blendedPct}%). Net profit is ${cfMoney(Math.abs(diff))} ${diff >= 0 ? 'higher' : 'lower'} than Xero's actual.`;
+    } else if (t.noChannels) {
+      basis.className = 'pl-basis warn';
+      basis.innerHTML = `Trading P&amp;L needs Online or Wholesale sales to apply a % to, and none were found in this period's income lines — showing Xero's actual figures.`;
     } else {
       basis.className = 'pl-basis warn';
-      basis.innerHTML = t.info.found ? `Enter a % COGS to see the Trading P&amp;L — for this view the actual cost of goods is ${t.info.actualPct}% of income. Showing Xero's actual figures until then.` : `Trading P&amp;L needs Opening Stock / Cost of Goods Sold lines in Cost of Sales, and none were found here — showing Xero's actual figures.`;
+      basis.innerHTML = t.info.found ? `Enter ${t.missing.map((k) => `the ${chan[k]} % COGS`).join(' and ')} to see the Trading P&amp;L — for this view the actual cost of goods is ${t.info.actualPct}% of online + wholesale sales. Showing Xero's actual figures until then.` : `Trading P&amp;L needs Opening Stock / Cost of Goods Sold lines in Cost of Sales, and none were found here — showing Xero's actual figures.`;
     }
     basis.style.display = 'block';
   }
@@ -7286,7 +7318,7 @@ function plRender() {
   else if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);
   else if (plComparing()) notes.push('No previous-year figures came back from Xero for those dates.');
   if (rep.assumedOrder) notes.push('Xero\'s column headings couldn\'t be read, so the columns are assumed to run newest to oldest — check the totals against Xero.');
-  if (trade) notes.push(`Trading P&L: Opening Stock, Cost of Goods Sold and Closing Stock are replaced by ${Math.round(trade.pct * 100) / 100}% of Total Income, so gross and net profit follow sales rather than when stock was bought. Freight & courier and any other cost-of-sales lines, and all expenses, are actual from Xero. Untick Trading P&L for Xero's own figures.`);
+  if (trade) notes.push(`Trading P&L: Opening Stock, Cost of Goods Sold and Closing Stock are replaced by a % of each sales channel's own income (${trade.need.map((k) => `${Math.round(trade.pct[k] * 100) / 100}% of ${k}`).join(', ')}), so gross and net profit follow sales rather than when stock was bought. Other income (e.g. freight invoiced) carries no goods cost. Freight & courier and any other cost-of-sales lines, and all expenses, are actual from Xero. Untick Trading P&L for Xero's own figures.`);
   notes.push(trade ? 'Everything else is straight from Xero\'s Profit & Loss report (accrual basis). Expenses are shown as positive amounts.' : 'Straight from Xero\'s Profit & Loss report (accrual basis), so it matches Xero\'s own report for the same dates. Expenses are shown as positive amounts.');
   note.innerHTML = notes.map(cfEsc).join('<br>');
 }

@@ -252,53 +252,72 @@ test('compare across several columns: every quarter keeps its own previous-year 
   assert.strictEqual(c.sections[0].summary.priorValues.length, 4); assert.strictEqual(c.columns.length, 4);
   const net = c.sections.find((s) => !s.title && s.rows[0].name === 'Net Profit').rows[0]; assert.strictEqual(tot(net.priorValues), P.headline(prv, 'sum').netProfit);
 });
-// ---- trading P&L (figures taken from three of the real months: a big-purchase month, a no-purchase month, a normal one) ----
-const real3 = () => P.parseReport(mk(['31 Jan 2026', '28 Feb 2026', '31 Mar 2026'], [['Sales - Online', [350000, 380000, 1000000]], ['Freight Invoiced', [94934, 87527, 198123]]],
+// ---- trading P&L: separate % of goods cost for Online and Wholesale sales (figures from three real months + a wholesale line) ----
+const real3 = () => P.parseReport(mk(['31 Jan 2026', '28 Feb 2026', '31 Mar 2026'],
+  [['Sales - Online', [350000, 380000, 1000000]], ['Sales AM - Wholesale AU', [100000, 50000, 200000]], ['Freight Invoiced', [94934, 87527, 198123]]],
   [['Cost of Goods Sold', [593490, 15313, 582382]], ['Freight & Courier', [72556, 56075, 50601]]], [['Wages', [40000, 40000, 40000]], ['Rent', [10000, 10000, 10000]]]));
+const rnd = (x) => Math.round(x * 100) / 100;
+const COS = (rep) => rep.sections.find((x) => x.title === 'Less Cost of Sales'), GP = (rep) => rep.sections.find((x) => !x.title && x.rows[0].name === 'Gross Profit').rows[0].values;
 test('goods lines are recognised (opening/closing stock, cost of goods sold, purchases) — freight and the rest are not', () => {
   for (const ok of ['Opening Stock', 'Closing Stock', 'Cost of Goods Sold', 'Cost of Goods', 'Purchases', 'Purchases - Stock']) assert.strictEqual(P.isGoodsRow(ok), true, ok);
   for (const no of ['Freight & Courier', 'Packaging', 'Stock Adjustments', 'Merchant fees', 'Sales']) assert.strictEqual(P.isGoodsRow(no), false, no);
 });
-test('actual goods % per period and overall comes straight from the report', () => {
+test('income lines are sorted into online, wholesale and other by account name', () => {
+  for (const [name, kind] of [['Sales - Online', 'online'], ['Shopify Sales', 'online'], ['Sales AM - Wholesale AU', 'wholesale'], ['Sales AM - Wholesale NZ', 'wholesale'], ['Freight Invoiced', 'other'], ['Sales - Retail', 'other']]) assert.strictEqual(P.incomeKind(name), kind, name);
+});
+test('goodsInfo: income by channel and the actual goods cost % (of online + wholesale sales) come straight from the report', () => {
   const info = P.goodsInfo(real3());
-  assert.deepStrictEqual(info.income, [444934, 467527, 1198123].map((x) => x)); assert.deepStrictEqual(info.actual, [593490, 15313, 582382]);
-  assert.strictEqual(info.totalIncome, 2110584); assert.strictEqual(info.totalActual, 1191185); assert.strictEqual(info.actualPct, 56.44);
+  assert.deepStrictEqual(info.kindIncome.online, [350000, 380000, 1000000]); assert.deepStrictEqual(info.kindIncome.wholesale, [100000, 50000, 200000]); assert.deepStrictEqual(info.kindIncome.other, [94934, 87527, 198123]);
+  assert.deepStrictEqual(info.actual, [593490, 15313, 582382]); assert.strictEqual(info.totalActual, 1191185);
+  assert.strictEqual(info.salesTotal, 2080000); assert.strictEqual(info.actualPct, rnd((1191185 / 2080000) * 100));
   assert.strictEqual(P.goodsInfo(P.parseReport({ Reports: [{ Rows: [{ RowType: 'Header', Cells: [cell(''), cell('x')] }] }] })).found, false);
 });
-test('trading view: goods cost becomes % of income each month; freight stays actual; profit moves by exactly the difference', () => {
+test('trading view: each channel gets its own % of its own income; freight and other income stay actual; profit moves by exactly the difference', () => {
   const rep = real3(), before = P.headline(rep, 'sum');
-  const tv = P.tradingView(rep, 40); assert.strictEqual(tv.applied, true);
-  assert.deepStrictEqual(tv.modelled, [177973.6, 187010.8, 479249.2]);
-  const cos = tv.report.sections.find((s) => s.title === 'Less Cost of Sales');
-  assert.deepStrictEqual(cos.rows.map((r) => r.name), ['Cost of goods (40% of income)', 'Freight & Courier'], 'the modelled line replaces the goods lines, freight is kept');
-  assert.deepStrictEqual(cos.rows[0].values, tv.modelled); assert.strictEqual(cos.rows[0].modelled, true); assert.deepStrictEqual(cos.rows[1].values, [72556, 56075, 50601], 'freight untouched');
-  assert.deepStrictEqual(cos.summary.values, [177973.6 + 72556, 187010.8 + 56075, 479249.2 + 50601].map((x) => Math.round(x * 100) / 100), 'Total Cost of Sales = modelled goods + actual freight');
+  const tv = P.tradingView(rep, { online: 40, wholesale: 55 }); assert.strictEqual(tv.applied, true);
+  const onl = [350000, 380000, 1000000].map((x) => rnd(x * 0.4)), whl = [100000, 50000, 200000].map((x) => rnd(x * 0.55));
+  assert.deepStrictEqual(tv.modelledBy.online, onl); assert.deepStrictEqual(tv.modelledBy.wholesale, whl);
+  assert.deepStrictEqual(tv.modelled, onl.map((x, i) => rnd(x + whl[i])));
+  const cos = COS(tv.report);
+  assert.deepStrictEqual(cos.rows.map((r) => r.name), ['Cost of goods – Online (40% of online sales)', 'Cost of goods – Wholesale (55% of wholesale sales)', 'Freight & Courier']);
+  assert.deepStrictEqual(cos.rows[0].values, onl); assert.deepStrictEqual(cos.rows[1].values, whl); assert.ok(cos.rows[0].modelled && cos.rows[1].modelled && !cos.rows[2].modelled);
+  assert.deepStrictEqual(cos.rows[2].values, [72556, 56075, 50601], 'freight untouched');
+  assert.deepStrictEqual(cos.summary.values, [0, 1, 2].map((i) => rnd(onl[i] + whl[i] + [72556, 56075, 50601][i])), 'Total Cost of Sales = modelled goods + actual freight');
   const after = P.headline(tv.report, 'sum');
   assert.strictEqual(after.income, before.income, 'income unchanged'); assert.strictEqual(after.opex, before.opex, 'operating expenses unchanged');
-  assert.strictEqual(Math.round((after.netProfit - before.netProfit) * 100) / 100, tv.totalDelta); assert.strictEqual(Math.round((after.grossProfit - before.grossProfit) * 100) / 100, tv.totalDelta);
-  assert.strictEqual(tv.totalDelta, Math.round((1191185 - tv.totalModelled) * 100) / 100);
-  // per month: gross profit = income - modelled goods - freight
-  const g = tv.report.sections.find((s) => !s.title && s.rows[0].name === 'Gross Profit').rows[0].values;
-  assert.deepStrictEqual(g, [444934 - 177973.6 - 72556, 467527 - 187010.8 - 56075, 1198123 - 479249.2 - 50601].map((x) => Math.round(x * 100) / 100));
+  assert.strictEqual(rnd(after.netProfit - before.netProfit), tv.totalDelta); assert.strictEqual(rnd(after.grossProfit - before.grossProfit), tv.totalDelta);
+  assert.strictEqual(tv.totalDelta, rnd(1191185 - tv.totalModelled));
+  assert.deepStrictEqual(GP(tv.report), [0, 1, 2].map((i) => rnd([544934, 517527, 1398123][i] - onl[i] - whl[i] - [72556, 56075, 50601][i])), 'gross profit = income - modelled goods - freight');
+  assert.strictEqual(tv.blendedPct, rnd((tv.totalModelled / 2080000) * 100));
 });
-test('trading view smooths the lumps: January (133% goods cost) and February (3%) now sit at the same % of income', () => {
-  const tv = P.tradingView(real3(), 40), cos = tv.report.sections.find((s) => s.title === 'Less Cost of Sales').rows[0].values, inc = tv.info.income;
-  cos.forEach((v, i) => assert.ok(Math.abs((v / inc[i]) * 100 - 40) < 0.01));
+test('trading view smooths the lumps: every month now carries exactly its channel %s', () => {
+  const tv = P.tradingView(real3(), { online: 40, wholesale: 55 }), c = COS(tv.report).rows;
+  c[0].values.forEach((v, i) => assert.ok(Math.abs((v / tv.info.kindIncome.online[i]) * 100 - 40) < 0.01));
+  c[1].values.forEach((v, i) => assert.ok(Math.abs((v / tv.info.kindIncome.wholesale[i]) * 100 - 55) < 0.01));
 });
-test('trading view needs a valid %; without one (or with nothing to replace) the report is returned untouched', () => {
+test('trading view needs a valid % for each channel that has income; otherwise the report is returned untouched and says what is missing', () => {
   const rep = real3();
-  for (const bad of [null, undefined, '', 'abc', -5, 101]) { const tv = P.tradingView(rep, bad); assert.strictEqual(tv.applied, false); assert.strictEqual(tv.report, rep); }
-  assert.strictEqual(P.tradingView(rep, 0).applied, true, '0% is allowed'); assert.strictEqual(P.tradingView(rep, 100).applied, true);
-  const noGoods = P.parseReport(mk(['x'], [['Sales', [100]]], [['Freight & Courier', [10]]], [['Rent', [5]]])); assert.strictEqual(P.tradingView(noGoods, 40).applied, false);
+  for (const bad of [null, undefined, '', 'abc', -5, 101]) {
+    const tv = P.tradingView(rep, { online: bad, wholesale: 50 }); assert.strictEqual(tv.applied, false); assert.strictEqual(tv.report, rep); assert.deepStrictEqual(tv.missing, ['online']);
+  }
+  assert.deepStrictEqual(P.tradingView(rep, { online: 40 }).missing, ['wholesale']); assert.deepStrictEqual(P.tradingView(rep, null).missing, ['online', 'wholesale']);
+  assert.strictEqual(P.tradingView(rep, { online: 0, wholesale: 100 }).applied, true, '0% and 100% are allowed');
+  // a channel with no income in the period needs no %
+  const onlineOnly = P.parseReport(mk(['x'], [['Sales - Online', [1000]], ['Freight Invoiced', [50]]], [['Cost of Goods Sold', [700]]], [['Rent', [100]]]));
+  const o = P.tradingView(onlineOnly, { online: 40, wholesale: '' }); assert.strictEqual(o.applied, true); assert.deepStrictEqual(o.need, ['online']);
+  assert.deepStrictEqual(COS(o.report).rows.map((r) => r.name), ['Cost of goods – Online (40% of online sales)']); assert.strictEqual(P.headline(o.report, 0).netProfit, 1050 - 400 - 100);
+  const noGoods = P.parseReport(mk(['x'], [['Sales - Online', [100]]], [['Freight & Courier', [10]]], [['Rent', [5]]])); assert.strictEqual(P.tradingView(noGoods, { online: 40, wholesale: 40 }).applied, false);
+  const noSales = P.parseReport(mk(['x'], [['Freight Invoiced', [100]]], [['Cost of Goods Sold', [10]]], [['Rent', [5]]])); const ns = P.tradingView(noSales, { online: 40, wholesale: 40 }); assert.strictEqual(ns.applied, false); assert.ok(ns.noChannels);
 });
-test('trading view works on a quarter-aggregated report and on a single-column report, and the prior year can use the same %', () => {
-  const months = P.parseReport(mk(['31 Dec 2025', '30 Nov 2025', '31 Oct 2025'], [['Sales', [300, 200, 100]]], [['Opening Stock', [10, 0, 0]], ['Cost of Goods Sold', [50, 400, 5]], ['Closing Stock', [-20, 0, 0]]], [['Rent', [1, 1, 1]]]));
+test('trading view works on a quarter-aggregated report and on a single-column report, and the prior year can use the same %s', () => {
+  const months = P.parseReport(mk(['31 Dec 2025', '30 Nov 2025', '31 Oct 2025'], [['Sales - Online', [300, 200, 100]], ['Sales AM - Wholesale AU', [30, 20, 10]]], [['Opening Stock', [10, 0, 0]], ['Cost of Goods Sold', [50, 400, 5]], ['Closing Stock', [-20, 0, 0]]], [['Rent', [1, 1, 1]]]));
   const q = P.toQuarters(months, P.quarterRange('2025-10-01', '2025-12-31', '2026-02-01').quarters);
-  const tv = P.tradingView(q, 50); assert.strictEqual(tv.applied, true); assert.deepStrictEqual(tv.modelled, [300], '50% of the quarter income 600');
-  const monthlyModelled = P.tradingView(months, 50).modelled.reduce((a, b) => a + b, 0); assert.strictEqual(monthlyModelled, tv.modelled[0], 'quarter = sum of the months (the % is linear)');
-  const single = P.parseReport(mk(['x'], [['Sales', [1000]]], [['Cost of Goods Sold', [700]], ['Freight', [50]]], [['Rent', [100]]]));
-  const s1 = P.tradingView(single, 40); assert.strictEqual(P.headline(s1.report, 0).netProfit, 1000 - 400 - 50 - 100);
-  const c = P.compareReports(P.tradingView(single, 40).report, P.tradingView(P.parseReport(mk(['x'], [['Sales', [800]]], [['Cost of Goods Sold', [500]], ['Freight', [40]]], [['Rent', [100]]])), 40).report);
-  const gl = c.sections.find((x) => x.title === 'Less Cost of Sales').rows[0]; assert.strictEqual(gl.modelled, true); assert.deepStrictEqual([gl.values[0], gl.priorValues[0]], [400, 320]);
+  const tv = P.tradingView(q, { online: 50, wholesale: 20 }); assert.strictEqual(tv.applied, true); assert.deepStrictEqual(tv.modelled, [300 + 12], '50% of online 600 + 20% of wholesale 60');
+  const m = P.tradingView(months, { online: 50, wholesale: 20 }).modelled.reduce((a, b) => a + b, 0); assert.strictEqual(m, tv.modelled[0], 'quarter = sum of the months (the % is linear)');
+  const mkOne = (on, wh, cogs) => P.parseReport(mk(['x'], [['Sales - Online', [on]], ['Sales AM - Wholesale AU', [wh]]], [['Cost of Goods Sold', [cogs]], ['Freight', [50]]], [['Rent', [100]]]));
+  const s1 = P.tradingView(mkOne(1000, 500, 700), { online: 40, wholesale: 60 }); assert.strictEqual(P.headline(s1.report, 0).netProfit, 1500 - 400 - 300 - 50 - 100);
+  const c = P.compareReports(s1.report, P.tradingView(mkOne(800, 400, 500), { online: 40, wholesale: 60 }).report);
+  const rows = c.sections.find((x) => x.title === 'Less Cost of Sales').rows;
+  assert.ok(rows[0].modelled && rows[1].modelled); assert.deepStrictEqual([rows[0].values[0], rows[0].priorValues[0], rows[1].values[0], rows[1].priorValues[0]], [400, 320, 300, 240]);
 });
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

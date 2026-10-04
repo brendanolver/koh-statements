@@ -283,41 +283,58 @@
   // ---- trading P&L ----
   // Stock lands in lumps (a big shipment hits one month's purchases; the following months sell it with almost no
   // purchases), so each month's actual gross and net profit swing. The trading view replaces the PRODUCT cost lines
-  // — Opening Stock, Cost of Goods Sold / Purchases, Closing Stock — with a chosen % of Total Income, so profit moves
-  // with sales. Other Cost of Sales lines (e.g. Freight & Courier) stay actual, and so does everything below Gross
-  // Profit. Gross Profit and Net Profit move by exactly the amount the goods cost moved.
+  // — Opening Stock, Cost of Goods Sold / Purchases, Closing Stock — with a chosen % of each sales channel's income:
+  // one % for Online sales and one for Wholesale sales. Other income (e.g. Freight Invoiced) carries no goods cost,
+  // other Cost of Sales lines (e.g. Freight & Courier) stay actual, and so does everything below Gross Profit. Gross
+  // Profit and Net Profit move by exactly the amount the goods cost moved.
   const GOODS_RE = /^(opening|closing)\s+(stock|inventory)\b|^cost of goods\b|^purchases\b/i;
   const isGoodsRow = (name) => GOODS_RE.test(String(name || '').trim());
+  // Which channel an income line belongs to, by its account name (Sales - Online, Sales AM - Wholesale AU/NZ…).
+  const incomeKind = (name) => (/wholesale/i.test(name) ? 'wholesale' : /online|shopify|e-?commerce/i.test(name) ? 'online' : 'other');
+  const KIND_LABEL = { online: 'Online', wholesale: 'Wholesale' };
   const colCount = (rep) => Math.max(1, (rep.columns || []).length, ...rep.sections.flatMap((sec) => [...sec.rows, sec.summary].filter(Boolean).map((r) => r.values.length)));
+  const sumArr = (a) => r2(a.reduce((x, y) => x + y, 0));
 
-  // The actual goods cost and income per column, and the % it works out to. { found:false } if the report has no
-  // Income section or no recognisable goods lines inside Cost of Sales.
+  // The actual goods cost and the income by channel, per column. { found:false } if the report has no Income section
+  // or no recognisable goods lines inside Cost of Sales. actualPct is goods cost as a % of Online + Wholesale sales
+  // (the base the percentages apply to), blended across the two channels.
   function goodsInfo(report) {
     const n = colCount(report);
     const incSec = report.sections.find((x) => x.title && INCOME_RE.test(x.title));
     const cosSec = report.sections.find((x) => x.title && COS_RE.test(x.title));
     const goods = cosSec ? cosSec.rows.filter((r) => isGoodsRow(r.name)) : [];
     if (!incSec || !cosSec || !goods.length) return { found: false };
-    const income = Array.from({ length: n }, (_, i) => lineTotal(incSec, i));
+    const kindIncome = { online: Array(n).fill(0), wholesale: Array(n).fill(0), other: Array(n).fill(0) };
+    for (const r of incSec.rows) { const k = incomeKind(r.name); for (let i = 0; i < n; i++) kindIncome[k][i] = r2(kindIncome[k][i] + (r.values[i] || 0)); }
+    const kindTotal = { online: sumArr(kindIncome.online), wholesale: sumArr(kindIncome.wholesale), other: sumArr(kindIncome.other) };
     const actual = Array.from({ length: n }, (_, i) => r2(goods.reduce((a, r) => a + (r.values[i] || 0), 0)));
-    const sum = (a) => r2(a.reduce((x, y) => x + y, 0));
-    return { found: true, n, income, actual, totalIncome: sum(income), totalActual: sum(actual), actualPct: sum(income) ? r2((sum(actual) / sum(income)) * 100) : null, cosSec, incSec };
+    const totalActual = sumArr(actual), salesTotal = r2(kindTotal.online + kindTotal.wholesale);
+    return { found: true, n, kindIncome, kindTotal, salesTotal, actual, totalActual, actualPct: salesTotal ? r2((totalActual / salesTotal) * 100) : null, cosSec, incSec };
   }
 
-  // Returns { applied, report, ... }. With no valid % (or nothing to replace) the report comes back unchanged.
-  function tradingView(report, pct) {
+  const validPct = (v) => v !== '' && v !== null && v !== undefined && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
+
+  // pcts = { online, wholesale } (0–100). A % is only needed for a channel that actually has income in this report.
+  // Returns { applied, report, info, missing:[...] }; with a needed % missing (or nothing to replace) the report comes
+  // back unchanged, and `missing` says which channels still need one.
+  function tradingView(report, pcts) {
     const info = goodsInfo(report);
-    const p = Number(pct);
-    if (!info.found || pct === null || pct === undefined || pct === '' || !Number.isFinite(p) || p < 0 || p > 100) return { applied: false, report, info };
-    const modelled = info.income.map((v) => r2((v * p) / 100));
+    if (!info.found) return { applied: false, report, info, missing: [] };
+    const need = ['online', 'wholesale'].filter((k) => info.kindTotal[k] !== 0);
+    if (!need.length) return { applied: false, report, info, missing: [], noChannels: true };
+    const missing = need.filter((k) => !validPct(pcts && pcts[k]));
+    if (missing.length) return { applied: false, report, info, missing };
+    const pct = {}, modelledBy = {};
+    for (const k of need) { pct[k] = Number(pcts[k]); modelledBy[k] = info.kindIncome[k].map((v) => r2((v * pct[k]) / 100)); }
+    const modelled = Array.from({ length: info.n }, (_, i) => r2(need.reduce((a, k) => a + modelledBy[k][i], 0)));
     const delta = info.actual.map((a, i) => r2(a - modelled[i])); // positive = the model's cost is lower, so profit is higher
-    const label = `Cost of goods (${Math.round(p * 100) / 100}% of income)`;
+    const rowsFor = () => need.map((k) => ({ name: `Cost of goods – ${KIND_LABEL[k]} (${Math.round(pct[k] * 100) / 100}% of ${k} sales)`, id: null, values: modelledBy[k].slice(), modelled: true }));
     const sections = report.sections.map((sec) => {
       if (sec === info.cosSec) {
         const rows = []; let placed = false;
         for (const r of sec.rows) {
           if (!isGoodsRow(r.name)) { rows.push(r); continue; }
-          if (!placed) { rows.push({ name: label, id: null, values: modelled.slice(), modelled: true }); placed = true; }
+          if (!placed) { rows.push(...rowsFor()); placed = true; }
         }
         const summary = sec.summary ? { ...sec.summary, values: Array.from({ length: info.n }, (_, i) => r2((sec.summary.values[i] || 0) - info.actual[i] + modelled[i])) } : null;
         return { ...sec, rows, summary };
@@ -325,10 +342,10 @@
       if (!sec.title) return { ...sec, rows: sec.rows.map((r) => (GROSS_RE.test(r.name) || NET_RE.test(r.name) ? { ...r, values: Array.from({ length: info.n }, (_, i) => r2((r.values[i] || 0) + delta[i])) } : r)) };
       return sec;
     });
-    const sum = (a) => r2(a.reduce((x, y) => x + y, 0));
-    return { applied: true, report: { ...report, sections }, info, pct: p, modelled, delta, totalModelled: sum(modelled), totalDelta: sum(delta) };
+    const totalModelled = sumArr(modelled);
+    return { applied: true, report: { ...report, sections }, info, pct, need, modelled, modelledBy, delta, totalModelled, totalDelta: sumArr(delta), blendedPct: info.salesTotal ? r2((totalModelled / info.salesTotal) * 100) : null };
   }
 
-  root.PNL = { goodsInfo, tradingView, isGoodsRow, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, monthsFor, monthlyPlan, keepMonths, mergeColumns, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
+  root.PNL = { goodsInfo, tradingView, isGoodsRow, incomeKind, validPct, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, monthsFor, monthlyPlan, keepMonths, mergeColumns, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);
