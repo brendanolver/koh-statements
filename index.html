@@ -3958,7 +3958,6 @@ const WAGES_COLUMNS = [
   { key: 'yearlyAvg', label: 'Yearly (avg hrs)', num: true },
   { key: 'super', label: 'Super', num: true },
   { key: 'total', label: 'Total', num: true },
-  { key: 'dollar', label: '+ $ / hr', num: true, scenario: true },
   { key: 'pct', label: '+ %', num: true, scenario: true },
   { key: 'newHourly', label: 'New hourly', num: true, scenario: true },
   { key: 'newYearly', label: 'New yearly', num: true, scenario: true },
@@ -4271,7 +4270,6 @@ function renderWages() {
       tot.newYearly += c.newYearly; tot.newSuper += c.newSuper; tot.newTotal += c.newTotal; tot.newHourly += c.newHourly;
     }
     const adj = wagesAdj[id];
-    const dollarVal = adj ? (adj.src === 'dollar' ? adj.dollarStr : adj.dollar.toFixed(2)) : '';
     const pctVal = adj ? (adj.src === 'pct' ? adj.pctStr : adj.pct.toFixed(2)) : '';
     const newHourlyVal = adj ? (adj.src === 'newHourly' ? adj.newHourlyStr : c.newHourly.toFixed(2)) : '';
     const newYearlyVal = adj ? (adj.src === 'newYearly' ? adj.newYearlyStr : c.newYearly.toFixed(2)) : '';
@@ -4284,7 +4282,6 @@ function renderWages() {
       yearlyAvg: `<td class="num${e.basis === 'hourly' && !c.avgHours ? ' wages-fallback' : ''}"${e.basis === 'hourly' && !c.avgHours ? ` title="No payslip hours yet — showing the ${wagesSettings.hours}h figure"` : ''}>${wagesMoney(c.yearlyAvg)}</td>`,
       super: `<td class="num">${wagesMoney(c.super)}</td>`,
       total: `<td class="num emph-cell">${wagesMoney(c.total)}</td>`,
-      dollar: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="d-${wagesEsc(id)}" value="${wagesEsc(dollarVal)}" placeholder="0.00" oninput="onWagesRowInput('${wagesEsc(id)}','dollar',this.value)"></td>`,
       pct: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="p-${wagesEsc(id)}" value="${wagesEsc(pctVal)}" placeholder="0.00" oninput="onWagesRowInput('${wagesEsc(id)}','pct',this.value)"></td>`,
       newHourly: `<td class="num"><input class="wages-in" type="text" inputmode="decimal" data-wfocus="h-${wagesEsc(id)}" value="${wagesEsc(newHourlyVal)}" placeholder="${c.hourly.toFixed(2)}" oninput="onWagesRowInput('${wagesEsc(id)}','newHourly',this.value)"></td>`,
       newYearly: `<td class="num"><input class="wages-in wages-in-wide" type="text" inputmode="decimal" data-wfocus="y-${wagesEsc(id)}" value="${wagesEsc(newYearlyVal)}" placeholder="${c.yearly.toFixed(2)}" oninput="onWagesRowInput('${wagesEsc(id)}','newYearly',this.value)"></td>`,
@@ -4305,7 +4302,6 @@ function renderWages() {
     yearlyAvg: `<td class="num">${wagesMoney(tot.yearlyAvg)}</td>`,
     super: `<td class="num">${wagesMoney(tot.super)}</td>`,
     total: `<td class="num">${wagesMoney(tot.total)}</td>`,
-    dollar: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.newHourly - tot.hourly))}</td>`,
     pct: `<td class="num">${tot.hourly > 0 ? (((tot.newHourly - tot.hourly) / tot.hourly) * 100).toFixed(2) + '%' : '—'}</td>`,
     newHourly: `<td class="num"><span class="wages-avg">avg</span> ${wagesMoney(avg(tot.newHourly))}</td>`,
     newYearly: `<td class="num">${wagesMoney(tot.newYearly)}</td>`,
