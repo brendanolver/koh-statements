@@ -459,6 +459,16 @@
     .print-hdr { display: block; }
     #debtorsView table.debtors-table th { background: #000; color: #fff; }
     #debtorsView table.debtors-table th.th-hold { background: #3a2800; color: #ffcc80; }
+    #wagesView .wages-settings, #wagesView .wages-scenario-bar, #wagesView .status-line, #wagesView .wages-hint { display: none !important; }
+    #wagesView tr.wages-unticked { display: none !important; }
+    #wagesView .debtors-table-wrap { overflow: visible !important; }
+    #wagesView table.wages-table th, #wagesView table.wages-table td { padding: 4px 5px; }
+    #wagesView table.debtors-table th { background: #000; color: #fff; }
+    #wagesView table.wages-table th:first-child, #wagesView table.wages-table td:first-child { position: static; }
+    #wagesView .sort-arrow { display: none; }
+    #wagesView .print-hdr { display: block; margin-bottom: 10px; }
+    #wagesView .wages-in { width: 100%; border: none; background: transparent; padding: 0; text-align: right; font: inherit; color: inherit; }
+    #wagesView .wages-in::placeholder { color: #8a8d94; opacity: 1; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   }
   .print-hdr { display: none; }
@@ -695,6 +705,9 @@
   .wages-scenario-bar { padding: 12px 14px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
   .wages-scenario-title { font-weight: 600; }
   .wages-in.wages-in-wide { width: 112px; }
+  .wages-tick { width: 15px; height: 15px; margin: 0 9px 0 0; vertical-align: -3px; accent-color: var(--accent); cursor: pointer; }
+  table.wages-table tr.wages-unticked td { opacity: .38; }
+  table.wages-table tr.wages-unticked td.name-cell { text-decoration: line-through; }
   .wages-or { color: var(--muted); }
   .wages-hint { font-size: 12px; color: var(--muted); }
   .wages-settings select { padding: 6px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
@@ -1411,11 +1424,13 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 
 <div id="wagesView" style="display:none;">
   <div class="debtors-panel wages-panel">
-    <div class="debtors-header">
+    <div class="debtors-header no-print">
       <h2>Wages <span class="debtors-subtitle">— team pay from Xero Payroll</span></h2>
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         <button id="wagesScenarioBtn" onclick="toggleWagesScenario()">Scenarios</button>
+        <button id="wagesHideBtn" onclick="toggleWagesHideUnticked()" title="Take unticked team members out of the table completely (they stay out of the totals either way)">Hide unticked</button>
         <button onclick="loadWages()">Refresh</button>
+        <button class="primary" onclick="printWages()" title="Prints / saves exactly what is on screen — ticked team members only">Print / Export PDF</button>
       </div>
     </div>
 
@@ -1430,6 +1445,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     </div>
 
     <div id="wagesContent" style="display:none;">
+      <div class="print-hdr" id="wagesPrintHdr"></div>
       <div class="wages-settings">
         <label>Hours / week <input type="text" inputmode="decimal" id="wagesHours" oninput="onWagesSettingInput()"></label>
         <label>Weeks / year <input type="text" inputmode="decimal" id="wagesWeeks" oninput="onWagesSettingInput()"></label>
@@ -3891,6 +3907,12 @@ let wagesAdj = {};                 // id -> { dollar, pct, src: 'dollar'|'pct', 
 let wagesScenarioOn = false;
 let wagesSort = { field: 'hourly', dir: 'desc' }; // highest hourly rate first by default
 let wagesOrder = [];               // employee ids in display order — only re-sorted on a header click / reload
+// Unticked team members: left out of the totals, stats and PDF. Only opaque
+// employee ids are remembered (no names or pay figures), so new starters show by default.
+const WAGES_HIDDEN_KEY = 'wagesUntickedIds';
+let wagesHidden = new Set();
+let wagesHideUnticked = false;      // true = unticked rows are removed from the table, not just dimmed
+try { wagesHidden = new Set(JSON.parse(localStorage.getItem(WAGES_HIDDEN_KEY) || '[]')); } catch (e) {}
 try {
   const saved = JSON.parse(localStorage.getItem(WAGES_SETTINGS_KEY) || 'null');
   if (saved && saved.hours > 0 && saved.weeks > 0 && saved.superPct >= 0) wagesSettings = { ...wagesSettings, ...saved, basis: saved.basis === 'average' ? 'average' : 'standard' };
@@ -4158,6 +4180,35 @@ function onWagesGlobalInput(field) {
   renderWages();
 }
 
+function saveWagesHidden() {
+  try { localStorage.setItem(WAGES_HIDDEN_KEY, JSON.stringify([...wagesHidden])); } catch (e) {}
+}
+function onWagesTick(id, on) {
+  if (on) wagesHidden.delete(id); else wagesHidden.add(id);
+  saveWagesHidden();
+  renderWages();
+}
+function onWagesTickAll(on) {
+  if (on) wagesHidden.clear(); else for (const e of wagesData || []) wagesHidden.add(e.id);
+  saveWagesHidden();
+  renderWages();
+}
+function toggleWagesHideUnticked() {
+  wagesHideUnticked = !wagesHideUnticked;
+  renderWages();
+}
+// Unticked rows are already hidden by the print styles, so this just prints
+// the current view (columns, scenario, sort and ticked people exactly as shown).
+function printWages() {
+  if (!wagesData) return;
+  const prevTitle = document.title;
+  const today = new Date().toISOString().slice(0, 10);
+  document.title = `KOH Wages ${today}${wagesScenarioOn ? ' (scenario)' : ''}`;
+  const restore = () => { document.title = prevTitle; window.removeEventListener('afterprint', restore); };
+  window.addEventListener('afterprint', restore);
+  window.print();
+}
+
 function setWagesSort(field) {
   wagesSort = { field, dir: wagesSort.field === field && wagesSort.dir === 'asc' ? 'desc' : 'asc' };
   resortWages();
@@ -4194,23 +4245,31 @@ function renderWages() {
 
   const cols = WAGES_COLUMNS.filter((c) => wagesScenarioOn || !c.scenario);
   document.getElementById('wagesHead').innerHTML = '<tr>' + cols.map((c) =>
-    `<th class="${c.num ? 'num ' : ''}sortable" onclick="setWagesSort('${c.key}')">${typeof c.label === 'function' ? c.label() : c.label}<span class="sort-arrow">${wagesSort.field === c.key ? (wagesSort.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`).join('') + '</tr>';
+    `<th class="${c.num ? 'num ' : ''}sortable" onclick="setWagesSort('${c.key}')">${c.key === 'name' ? '<input type="checkbox" id="wagesTickAll" class="wages-tick no-print" title="Show / hide everyone" onclick="event.stopPropagation()" onchange="onWagesTickAll(this.checked)">' : ''}${typeof c.label === 'function' ? c.label() : c.label}<span class="sort-arrow">${wagesSort.field === c.key ? (wagesSort.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`).join('') + '</tr>';
 
   const byId = new Map(wagesData.map((e) => [e.id, e]));
   const tot = { yearly: 0, super: 0, total: 0, hourly: 0, newYearly: 0, newSuper: 0, newTotal: 0, newHourly: 0, dollar: 0, n: 0, hoursSum: 0, hoursN: 0, yearlyStd: 0, yearlyAvg: 0 };
   let html = '';
+  let shownCount = 0, totalPeople = 0;
   for (const id of wagesOrder) {
     const e = byId.get(id);
     if (!e) continue;
+    totalPeople++;
+    const shown = !wagesHidden.has(id);
+    if (shown) shownCount++;
+    if (!shown && wagesHideUnticked) continue;
+    const tickBox = `<input type="checkbox" class="wages-tick no-print" ${shown ? 'checked' : ''} title="Include in totals and the PDF" onchange="onWagesTick('${wagesEsc(id)}', this.checked)">`;
     if (!e.basis) {
-      html += `<tr class="wages-unpriced"><td class="name-cell" style="cursor:default">${wagesEsc(e.name)}</td><td colspan="${cols.length - 1}" class="wages-note">${wagesEsc(e.note || 'No pay rate found')}</td></tr>`;
+      html += `<tr class="wages-unpriced${shown ? '' : ' wages-unticked'}"><td class="name-cell" style="cursor:default">${tickBox}${wagesEsc(e.name)}</td><td colspan="${cols.length - 1}" class="wages-note">${wagesEsc(e.note || 'No pay rate found')}</td></tr>`;
       continue;
     }
     const c = wagesCalc(e);
-    if (c.avgHours) { tot.hoursSum += c.avgHours; tot.hoursN++; }
-    tot.yearlyStd += c.yearlyStd; tot.yearlyAvg += c.yearlyAvg;
-    tot.n++; tot.yearly += c.yearly; tot.super += c.super; tot.total += c.total; tot.hourly += c.hourly;
-    tot.newYearly += c.newYearly; tot.newSuper += c.newSuper; tot.newTotal += c.newTotal; tot.newHourly += c.newHourly;
+    if (shown) {
+      if (c.avgHours) { tot.hoursSum += c.avgHours; tot.hoursN++; }
+      tot.yearlyStd += c.yearlyStd; tot.yearlyAvg += c.yearlyAvg;
+      tot.n++; tot.yearly += c.yearly; tot.super += c.super; tot.total += c.total; tot.hourly += c.hourly;
+      tot.newYearly += c.newYearly; tot.newSuper += c.newSuper; tot.newTotal += c.newTotal; tot.newHourly += c.newHourly;
+    }
     const adj = wagesAdj[id];
     const dollarVal = adj ? (adj.src === 'dollar' ? adj.dollarStr : adj.dollar.toFixed(2)) : '';
     const pctVal = adj ? (adj.src === 'pct' ? adj.pctStr : adj.pct.toFixed(2)) : '';
@@ -4218,7 +4277,7 @@ function renderWages() {
     const newYearlyVal = adj ? (adj.src === 'newYearly' ? adj.newYearlyStr : c.newYearly.toFixed(2)) : '';
     const tag = e.basis === 'salary' ? '<span class="wages-tag">salary</span>' : (e.employmentBasis === 'CASUAL' ? '<span class="wages-tag">casual</span>' : '');
     const cell = {
-      name: `<td class="name-cell" style="cursor:default">${wagesEsc(e.name)}${tag}</td>`,
+      name: `<td class="name-cell" style="cursor:default">${tickBox}${wagesEsc(e.name)}${tag}</td>`,
       hourly: `<td class="num">${wagesMoney(c.hourly)}</td>`,
       avgHours: `<td class="num" title="${c.avgHours ? `Averaged over ${c.weeksCounted} weeks with hours` : 'No payslip hours found yet'}">${c.avgHours ? c.avgHours.toFixed(1) : '—'}</td>`,
       yearlyStd: `<td class="num">${wagesMoney(c.yearlyStd)}</td>`,
@@ -4233,7 +4292,7 @@ function renderWages() {
       newTotal: `<td class="num emph-cell">${wagesMoney(c.newTotal)}</td>`,
       change: `<td class="num ${c.change > 0.005 ? 'wages-up' : c.change < -0.005 ? 'wages-down' : ''}">${c.change > 0.005 ? '+' : ''}${wagesMoney(c.change)}</td>`,
     };
-    html += '<tr>' + cols.map((col) => cell[col.key]).join('') + '</tr>';
+    html += `<tr${shown ? '' : ' class="wages-unticked"'}>` + cols.map((col) => cell[col.key]).join('') + '</tr>';
   }
   // Totals: a sum for every money column; hourly / $-per-hr are shown as averages
   // (adding hourly rates together isn't meaningful).
@@ -4255,12 +4314,26 @@ function renderWages() {
     change: `<td class="num">${tot.newTotal - tot.total > 0.005 ? '+' : ''}${wagesMoney(tot.newTotal - tot.total)}</td>`,
   };
   if (tot.n) html += '<tr class="total-row">' + cols.map((col) => totalsCell[col.key]).join('') + '</tr>';
-  document.getElementById('wagesRows').innerHTML = html || `<tr><td colspan="${cols.length}" class="wages-note">No active team members found in Xero Payroll.</td></tr>`;
+  document.getElementById('wagesRows').innerHTML = html || `<tr><td colspan="${cols.length}" class="wages-note">${totalPeople > 0 ? 'Everyone is unticked — click “Show unticked” to bring the list back.' : 'No active team members found in Xero Payroll.'}</td></tr>`;
+
+  const pricedTotal = wagesData.filter((x) => x.basis).length;
+  const tickAll = document.getElementById('wagesTickAll');
+  if (tickAll) { tickAll.checked = totalPeople > 0 && shownCount === totalPeople; tickAll.indeterminate = shownCount > 0 && shownCount < totalPeople; }
+  const hideBtn = document.getElementById('wagesHideBtn');
+  const untickedN = totalPeople - shownCount;
+  hideBtn.textContent = wagesHideUnticked ? `Show unticked (${untickedN})` : 'Hide unticked' + (untickedN ? ` (${untickedN})` : '');
+  hideBtn.disabled = !wagesHideUnticked && untickedN === 0;
+  hideBtn.classList.toggle('primary', wagesHideUnticked);
+
+  const basisTxt = wagesSettings.basis === 'average' ? '12-month average hours' : `${wagesSettings.hours}h / week`;
+  document.getElementById('wagesPrintHdr').innerHTML =
+    `<h2>Wages summary${wagesScenarioOn ? ' — scenario' : ''}</h2>` +
+    `<p>As at ${wagesEsc(new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }))} · ${tot.n} of ${pricedTotal} team members · ${wagesEsc(basisTxt)} × ${wagesSettings.weeks} weeks · super ${wagesSettings.superPct}%</p>`;
 
   const stat = (label, val, cls) => `<div class="stat ${cls || ''}">${label}<strong>${val}</strong></div>`;
   const diff = tot.newTotal - tot.total;
   document.getElementById('wagesStats').innerHTML =
-    stat('Team members', tot.n) +
+    stat('Team members', tot.n < pricedTotal ? `${tot.n} of ${pricedTotal}` : tot.n) +
     stat(wagesSettings.basis === 'average' ? 'Yearly wages (avg hrs)' : `Yearly wages (${wagesSettings.hours}h)`, wagesMoney(tot.yearly)) +
     stat(`Super (${wagesSettings.superPct}%)`, wagesMoney(tot.super)) +
     stat('Total cost', wagesMoney(tot.total)) +
