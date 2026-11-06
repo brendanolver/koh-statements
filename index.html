@@ -640,6 +640,9 @@
 #cashflowView .cfx-b-Apparel { background: #f3e8fb; color: #7a2fa8; }
 #cashflowView .cfx-b-Shopify { background: #e3f4e6; color: #1c6b2f; }
 #cashflowView .cfx-b-Manual { background: #fff1d6; color: #925a00; }
+#cashflowView table.cfx-inputs tr.cfx-sec-row td { padding: 16px 12px 4px; text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); border-bottom: none; }
+#cashflowView input.cfx-all { width: 44px; margin-left: 6px; padding: 3px 5px; font-size: 11.5px; text-align: right; border: 1px dashed var(--border); border-radius: 5px; background: #fff; }
+#cashflowView .cfx-cell input:disabled { background: #f6f6f3; color: #b5b9c0; }
 #cashflowView .cfx-b-Last { background: #e8eef5; color: #3b5675; }
 #cashflowView .cfx-chk { display: flex; align-items: center; gap: 7px; font-size: 13px; padding: 3px 0; cursor: pointer; }
 #cashflowView .cfx-chk.off { color: #9aa0a8; cursor: default; }
@@ -6401,8 +6404,8 @@ async function cfLoadInputs() {
   try {
     const res = await fetch('/.netlify/functions/cashflow-inputs');
     const doc = await res.json();
-    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {}, targets: { online: (doc.targets && doc.targets.online) || {} } };
-  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {}, targets: { online: {} } }; }
+    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {}, targets: { online: (doc.targets && doc.targets.online) || {} }, growth: doc.growth || {} };
+  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {}, targets: { online: {} }, growth: {} }; }
 }
 function cfSaveInputsDebounced() {
   document.getElementById('cfSaveState').textContent = 'Saving…';
@@ -6448,7 +6451,7 @@ function cfBuildInput() {
     shopify: cf.shopify && cf.shopify.daily && Object.keys(cf.shopify.daily).length ? { daily: cf.shopify.daily } : null,
     history: cf.history ? { stockPerWeek: cf.history.stockPerWeek, onlineReceiptsPerWeek: cf.history.receiptsPerWeek, otherOutPerWeek: cf.history.otherOutPerWeek, marketingPerWeek: cf.history.marketingPerWeek, conversion: conv } : null,
     overrides: cf.inputs.overrides || {}, payDates: cf.inputs.payDates || {}, settings,
-    lastYear: cfLastYearInput(),
+    lastYear: cfLastYearInput(), growth: cf.inputs.growth || {},
   };
 }
 
@@ -6805,6 +6808,29 @@ function cfRenderInputs() {
     html += `<td class="cfx-cell"><input type="text" inputmode="decimal" class="${v !== undefined ? 'on' : ''}" data-tmonth="${mk}" value="${v === undefined ? '' : v}" placeholder="—" onchange="cfOnTarget(this)"><small>${sub}</small></td>`;
   }
   html += '</tr>';
+  // Growth on last year, month by month, for the lines planned from last year. The Worst / Base / Best % in the
+  // scenario table is applied on top of whatever is set here.
+  const lyIn = cfLastYearInput() || {};
+  const gr = cf.inputs.growth || {};
+  html += `<tr class="cfx-sec-row"><td colspan="13">Growth on last year, by month <span class="cfx-hint">(% — the Worst / Base / Best % in the scenario table below is applied on top)</span></td></tr>`;
+  for (const [line, name, flag] of [['wholesale', 'Wholesale', 'lyWholesale'], ['stock', 'Stock payments', 'lyStock'], ['marketing', 'Marketing', 'lyMarketing'], ['otherOut', 'Other cash out', 'lyOtherOut']]) {
+    const active = r.settings.lyOn && r.settings[flag];
+    html += `<tr class="cfx-target-row"><td>${name} <input class="cfx-all" type="text" inputmode="decimal" placeholder="all" title="Type a % to fill every month in this row (0 clears the row)" data-gall="${line}" onchange="cfOnGrowthAll(this)"></td>`;
+    months.forEach((mk, i) => {
+      const v = gr[line] && gr[line][mk];
+      const lyRow = lyIn[CFE.util.addMonths(mk, -12)];
+      const lyVal = lyRow && Number.isFinite(lyRow[line]) ? lyRow[line] : null;
+      let sub, dis = '';
+      if (i === 0) { sub = 'this month: usual logic'; dis = 'disabled'; }
+      else if (!active) sub = 'not using last year';
+      else if (!cf.year.months) sub = 'reading last year…';
+      else if (lyVal === null) sub = 'no last year';
+      else sub = v !== undefined && Number(v) !== 0 ? `LY ${cfMoneyCompact(lyVal)} → ${cfMoneyCompact(lyVal * (1 + Number(v) / 100))}` : `LY ${cfMoneyCompact(lyVal)}`;
+      html += `<td class="cfx-cell"><input type="text" inputmode="decimal" class="${v !== undefined ? 'on' : ''}" data-gline="${line}" data-gmonth="${mk}" value="${v === undefined ? '' : v}" placeholder="—" ${dis} onchange="cfOnGrowth(this)"><small>${sub}</small></td>`;
+    });
+    html += '</tr>';
+  }
+  html += `<tr class="cfx-sec-row"><td colspan="13">Typed amounts <span class="cfx-hint">($ — replaces the forecast for that month and line)</span></td></tr>`;
   for (const line of CFE.INPUT_LINES) {
     html += `<tr><td>${CFE.LINE_LABELS[line]}${CFE.LINES_OUT.includes(line) ? ' <span class="cfx-hint">(out)</span>' : ''}</td>`;
     for (const mk of months) {
@@ -6823,8 +6849,8 @@ function cfRenderInputs() {
   const lyFlag = (key, label, off) => `<label class="cfx-chk${off ? ' off' : ''}"><input type="checkbox" data-set="${key}" ${st[key] ? 'checked' : ''} ${off ? 'disabled' : ''} onchange="cfOnFlag(this)"> ${label}</label>`;
   const scenRow = (name) => `<tr><td>${CF_SCENS.find((x) => x[0] === name)[1]}</td>${['online', 'wholesale', 'stock', 'out', 'delay'].map((k) => `<td><input type="text" inputmode="decimal" data-scen="${name}" data-key="${k}" value="${st.scenarios[name][k]}" onchange="cfOnScenario(this)"></td>`).join('')}</tr>`;
   document.getElementById('cfSettings').innerHTML =
-    `<div style="grid-column:1/-1"><h4>Scenario assumptions</h4><table class="cfx-table cfx-scen" style="width:auto"><thead><tr><th></th><th>Online %</th><th>Wholesale %</th><th>Stock %</th><th>Spend %</th><th>Pay delay (days)</th></tr></thead><tbody>${['worst', 'base', 'best'].map(scenRow).join('')}</tbody></table><div class="cfx-hint" style="margin-top:6px;line-height:1.5;max-width:760px">With "Plan from last year" on (next box), Wholesale %, Stock % and Spend % are the growth on last year's same month — Spend % covers marketing and other cash out. Online % moves online receipts (system or manual). Pay delay shifts when customers pay.</div></div>` +
-     `<div><h4>Plan from last year</h4>${lyFlag('lyOn', 'Start from last year\'s same month', false)}<div style="margin:4px 0 4px 22px">${lyFlag('lyWholesale', 'Wholesale', !st.lyOn)}${lyFlag('lyStock', 'Stock payments', !st.lyOn)}${lyFlag('lyMarketing', 'Marketing', !st.lyOn)}${lyFlag('lyOtherOut', 'Other cash out', !st.lyOn)}</div><div class="cfx-hint" style="margin-top:6px;line-height:1.5">From next month on, each ticked line is last year's same month × (1 + the % for that case in the table). Invoices, orders, bills and POs already in Xero / Apparel Magic count towards it, so nothing is counted twice, and a number you type in the grid above still wins. The rest of this month, Online and Other cash in work as before; a month last year can't cover uses the recent average.</div></div>` +
+    `<div style="grid-column:1/-1"><h4>Scenario assumptions</h4><table class="cfx-table cfx-scen" style="width:auto"><thead><tr><th></th><th>Online %</th><th>Wholesale %</th><th>Stock %</th><th>Spend %</th><th>Pay delay (days)</th></tr></thead><tbody>${['worst', 'base', 'best'].map(scenRow).join('')}</tbody></table><div class="cfx-hint" style="margin-top:6px;line-height:1.5;max-width:760px">With "Plan from last year" on (next box), Wholesale %, Stock % and Spend % are the growth on last year's same month — Spend % covers marketing and other cash out — applied on top of any growth % you set for a single month in the grid above. Online % moves online receipts (system or manual). Pay delay shifts when customers pay.</div></div>` +
+     `<div><h4>Plan from last year</h4>${lyFlag('lyOn', 'Start from last year\'s same month', false)}<div style="margin:4px 0 4px 22px">${lyFlag('lyWholesale', 'Wholesale', !st.lyOn)}${lyFlag('lyStock', 'Stock payments', !st.lyOn)}${lyFlag('lyMarketing', 'Marketing', !st.lyOn)}${lyFlag('lyOtherOut', 'Other cash out', !st.lyOn)}</div><div class="cfx-hint" style="margin-top:6px;line-height:1.5">From next month on, each ticked line is last year's same month × (1 + that month's growth % from the grid above, if you set one) × (1 + the % for that case in the table). Invoices, orders, bills and POs already in Xero / Apparel Magic count towards it, so nothing is counted twice, and a number you type in the grid above still wins. The rest of this month, Online and Other cash in work as before; a month last year can't cover uses the recent average.</div></div>` +
     `<div><h4>Amex statements</h4>${(cf.xero.cards.length ? cf.xero.cards : []).map((c) => { const t = (st.cardTerms && st.cardTerms[c.last4]) || st.cardDefault; const f = (k, v) => `<input type="text" inputmode="numeric" data-last4="${cfEsc(c.last4)}" data-key="${k}" value="${v}" onchange="cfOnCardTerm(this)">`; return `<div class="cfx-set-row"><span>${cfEsc(c.name.replace('American Express®', 'Amex'))} ···${cfEsc(c.last4)}</span></div><div class="cfx-set-row"><span>closes on day</span><span>${f('closeDay', t.closeDay)}</span></div><div class="cfx-set-row"><span>due on day</span><span>${f('dueDay', t.dueDay)}</span></div><div class="cfx-set-row"><span>due in month</span><span><select data-last4="${cfEsc(c.last4)}" data-key="dueMonthOffset" onchange="cfOnCardTerm(this)"><option value="0"${t.dueMonthOffset ? '' : ' selected'}>same as close</option><option value="1"${t.dueMonthOffset ? ' selected' : ''}>month after close</option></select></span></div>`; }).join('') || '<div class="cfx-hint">No credit cards found in Xero.</div>'}<div class="cfx-hint" style="margin-top:6px;line-height:1.5">Card spend accrues on the card and leaves the bank when the statement is due.</div></div>` +
     `<div><h4>Timing &amp; thresholds</h4>` +
     setRow('cashThreshold', 'Warn if cash falls below', st.cashThreshold, '$') +
@@ -6862,6 +6888,28 @@ function cfOnSetting(el) {
   if (v !== null && !Number.isFinite(v)) return;
   if (v === null) delete cf.inputs.settings[el.dataset.set]; else cf.inputs.settings[el.dataset.set] = v;
   cfRecompute(); cfRenderMain(); cfRenderInputs(); cfSaveInputsDebounced();
+}
+function cfOnGrowth(el) {
+  const raw = el.value.trim().replace('%', '');
+  const g = cf.inputs.growth = cf.inputs.growth || {};
+  const line = el.dataset.gline, mk = el.dataset.gmonth;
+  if (raw === '') { if (g[line]) { delete g[line][mk]; if (!Object.keys(g[line]).length) delete g[line]; } }
+  else { const v = Number(raw); if (!Number.isFinite(v)) return; (g[line] = g[line] || {})[mk] = v; }
+  cfRecompute(); cfRenderMain(); cfSaveInputsDebounced();
+}
+// Fills every planned month of one line with the same growth %; 0 (or blank) clears the row.
+function cfOnGrowthAll(el) {
+  const raw = el.value.trim().replace('%', '');
+  if (raw !== '' && !Number.isFinite(Number(raw))) return;
+  const line = el.dataset.gall;
+  const g = cf.inputs.growth = cf.inputs.growth || {};
+  const m0 = CFE.util.monthKey(cf.result.today);
+  for (let k = 1; k <= 11; k++) {
+    const mk = CFE.util.addMonths(m0, k);
+    if (raw === '' || Number(raw) === 0) { if (g[line]) delete g[line][mk]; } else (g[line] = g[line] || {})[mk] = Number(raw);
+  }
+  if (g[line] && !Object.keys(g[line]).length) delete g[line];
+  cfRecompute(); cfRenderMain(); cfSaveInputsDebounced();
 }
 function cfOnTarget(el) {
   const raw = el.value.trim().replace('%', '');

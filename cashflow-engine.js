@@ -171,6 +171,7 @@
     // this month keeps the usual logic (known bills and orders dominate that short stretch), and so does any
     // month last year can't cover.
     const ly = input.lastYear || null;
+    const growth = input.growth || {}; // { line: { 'YYYY-MM': pct } } — growth on last year for that month, before the case %
     const m0 = monthKey(today);
     const lyMonths = {};
     for (const [line, flag] of Object.entries(LY_LINES)) {
@@ -293,14 +294,21 @@
       const pct = sc[LINE_PCT_KEY[line]] || 0;
       for (const mk of notes.lastYear[line]) {
         const lyMk = addMonths(mk, -12);
-        const plan = ly[lyMk][line] * (1 + pct / 100);
+        const g = Number(growth[line] && growth[line][mk]);
+        const mPct = Number.isFinite(g) ? Math.max(-100, g) : 0;
+        const plan = ly[lyMk][line] * (1 + mPct / 100) * (1 + pct / 100);
         const known = items.filter((it) => it.line === line && monthKey(it.date) === mk).reduce((a, it) => a + it.amount, 0);
         const gap = plan - known;
         if (!(gap > 0)) continue;
         const nDays = Number(lastDayOfMonth(mk + '-01').slice(8));
+        // The month's own growth % comes first, and the Worst / Base / Best % is applied on top of it.
+        const sgn = (p) => `${p >= 0 ? '+' : '−'}${Math.abs(p)}%`;
+        const fac = (p) => `(1 ${p >= 0 ? '+' : '−'} ${Math.abs(p)}%)`;
+        const label = mPct === 0 ? `Last year's ${monthLabel(lyMk)} pattern (${sgn(pct)})` : `Last year's ${monthLabel(lyMk)} pattern (${sgn(mPct)} month${pct !== 0 ? `, ${sgn(pct)} case` : ''})`;
+        const factors = mPct === 0 ? `x ${fac(pct)}` : `x ${fac(mPct)} for the month x ${fac(pct)} case`;
+        const method = `Last year's ${monthLabel(lyMk)} ${LINE_LABELS[line].toLowerCase()} ${factors} = ${Math.round(plan).toLocaleString('en-AU')}, less ${Math.round(known).toLocaleString('en-AU')} already known`;
         for (let day = 1; day <= nDays; day++) {
-          push(line, `${mk}-${String(day).padStart(2, '0')}`, gap / nDays, `Last year's ${monthLabel(lyMk)} pattern (${pct >= 0 ? '+' : '−'}${Math.abs(pct)}%)`, 'Last year', 'assumption',
-            { method: `Last year's ${monthLabel(lyMk)} ${LINE_LABELS[line].toLowerCase()} x (1 ${pct >= 0 ? '+' : '−'} ${Math.abs(pct)}%) = ${Math.round(plan).toLocaleString('en-AU')}, less ${Math.round(known).toLocaleString('en-AU')} already known` });
+          push(line, `${mk}-${String(day).padStart(2, '0')}`, gap / nDays, label, 'Last year', 'assumption', { method });
         }
       }
     }

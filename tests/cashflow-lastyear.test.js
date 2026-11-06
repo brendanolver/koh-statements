@@ -123,4 +123,53 @@ test('Oct–Nov plan shows up in the monthly buckets the Year view reads', () =>
   near(oct.wholesale, 30000); near(oct.stock, 50000); near(oct.marketing, 40000); near(oct.otherOut, 20000);
 });
 
+console.log('Growth for a single month');
+const GROWTH = { wholesale: { '2026-10': 20 }, marketing: { '2026-11': -50 } };
+test('a month\'s own growth % multiplies last year, and the Worst / Base / Best % goes on top of it', () => {
+  const r = CFE.buildForecast(base({ lastYear: LY, growth: GROWTH }));
+  near(total(r, 'base', 'wholesale', '2026-10'), 30000 * 1.2);
+  near(total(r, 'worst', 'wholesale', '2026-10'), 30000 * 1.2 * 0.9, 0.01, 'worst: +20% month, then -10% case');
+  near(total(r, 'best', 'wholesale', '2026-10'), 30000 * 1.2 * 1.05, 0.01, 'best: +20% month, then +5% case');
+});
+test('only the months you set change; a negative growth cuts the month', () => {
+  const r = CFE.buildForecast(base({ lastYear: LY, growth: GROWTH }));
+  near(total(r, 'base', 'wholesale', '2026-11'), 60000, 0.01, 'Nov wholesale untouched');
+  near(total(r, 'base', 'marketing', '2026-11'), 45000, 0.01, 'Nov marketing -50% of 90,000');
+  near(total(r, 'base', 'marketing', '2026-10'), 40000, 0.01, 'Oct marketing untouched');
+  near(total(r, 'worst', 'marketing', '2026-11'), 45000 * 1.05, 0.01);
+});
+test('growth counts towards the plan the same way: known invoices still come off the planned amount', () => {
+  const r = CFE.buildForecast(base({ lastYear: LY, growth: GROWTH, ar: [{ id: 'a', contact: 'ACME', amountDue: 10000, currency: 'AUD', dueDate: '2026-10-01', online: false }] }));
+  near(total(r, 'base', 'wholesale', '2026-10'), 36000);
+  near(lyItems(r, 'base', 'wholesale', '2026-10').reduce((a, i) => a + i.amount, 0), 26000);
+});
+test('the label and the method say what was applied', () => {
+  const w = lyItems(CFE.buildForecast(base({ lastYear: LY, growth: GROWTH })), 'worst', 'wholesale', '2026-10')[0];
+  assert.strictEqual(w.label, "Last year's Oct 25 pattern (+20% month, −10% case)");
+  assert.ok(/Oct 25 wholesale x \(1 \+ 20%\) for the month x \(1 − 10%\) case = 32,400, less 0 already known/.test(w.meta.method), w.meta.method);
+  const base0 = lyItems(CFE.buildForecast(base({ lastYear: LY, growth: GROWTH })), 'base', 'wholesale', '2026-10')[0];
+  assert.strictEqual(base0.label, "Last year's Oct 25 pattern (+20% month)", 'a 0% case is left out of the label');
+});
+test('growth on a month or line that isn\'t planned from last year does nothing', () => {
+  const r = CFE.buildForecast(base({ lastYear: LY, history: { marketingPerWeek: 7000 }, growth: { wholesale: { '2026-12': 50, '2026-09': 50 }, marketing: { '2026-10': 100 } }, settings: { lyMarketing: 0 } }));
+  assert.strictEqual(lyItems(r, 'base', 'wholesale', '2026-12').length, 0, 'no Dec 2025 to grow');
+  assert.strictEqual(lyItems(r, 'base', 'wholesale', '2026-09').length, 0, 'this month keeps the usual logic');
+  near(total(r, 'base', 'marketing', '2026-10'), 31 * 1000, 0.01, 'marketing is off, so the run-rate stands and the growth is ignored');
+});
+test('blank, text or non-numeric growth counts as 0; -100% or lower means nothing planned', () => {
+  const r = CFE.buildForecast(base({ lastYear: LY, growth: { wholesale: { '2026-10': '', '2026-11': 'abc' }, stock: { '2026-10': -100, '2026-11': -250 } } }));
+  near(total(r, 'base', 'wholesale', '2026-10'), 30000); near(total(r, 'base', 'wholesale', '2026-11'), 60000);
+  near(total(r, 'base', 'stock', '2026-10'), 0); near(total(r, 'base', 'stock', '2026-11'), 0, 0.01, 'clamped at -100%');
+});
+test('a typed monthly $ override still beats the plan and its growth', () => {
+  const r = CFE.buildForecast(base({ lastYear: LY, growth: GROWTH, overrides: { wholesale: { '2026-10': 5000 } } }));
+  near(CFE.monthCell(r, 'base', 'wholesale', '2026-10').value, 5000);
+  near(CFE.monthCell(r, 'base', 'wholesale', '2026-10').system, 36000, 0.01, 'the grown plan it replaced is what is shown');
+});
+test('no growth input behaves exactly as before', () => {
+  const a = CFE.buildForecast(base({ lastYear: LY }));
+  const b = CFE.buildForecast(base({ lastYear: LY, growth: {} }));
+  for (const line of ['wholesale', 'stock', 'marketing', 'otherOut']) near(total(a, 'base', line), total(b, 'base', line), 0.001, line);
+});
+
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

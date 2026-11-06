@@ -27,6 +27,19 @@ function sanitise(doc) {
   const tg = doc && doc.targets && typeof doc.targets.online === 'object' && doc.targets.online ? doc.targets.online : {};
   const targets = Object.entries(tg).filter(([k, v]) => /^\d{4}-\d{2}$/.test(k) && v !== '' && v !== null && Number.isFinite(Number(v)) && Number(v) >= -100 && Number(v) <= 1000).map(([k, v]) => [k, Math.round(Number(v) * 10) / 10]);
   if (targets.length) out.targets = { online: Object.fromEntries(targets) };
+  // Growth on last year for a single month, per line (line -> YYYY-MM -> percent). Feeds the plan-from-last-year layer.
+  const gr = doc && doc.growth && typeof doc.growth === 'object' ? doc.growth : {};
+  const growth = {};
+  for (const line of ['wholesale', 'stock', 'marketing', 'otherOut']) {
+    const months = gr[line];
+    if (!months || typeof months !== 'object') continue;
+    for (const [m, v] of Object.entries(months)) {
+      if (!/^\d{4}-\d{2}$/.test(m) || (typeof v !== 'number' && typeof v !== 'string') || String(v).trim() === '') continue;
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= -100 && n <= 1000) (growth[line] = growth[line] || {})[m] = Math.round(n * 100) / 100;
+    }
+  }
+  if (Object.keys(growth).length) out.growth = growth;
   // Expected payment date per bill / PO (id -> YYYY-MM-DD), capped so the document stays small.
   const pd = doc && typeof doc.payDates === 'object' && doc.payDates ? doc.payDates : {};
   const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po|card):[\w:-]{1,120}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);

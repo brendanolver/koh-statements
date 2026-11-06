@@ -28,5 +28,13 @@ const call = async (httpMethod, body) => { const r = await fn.handler({ httpMeth
     assert.strictEqual(s.cashThreshold, 5000);
     assert.deepStrictEqual(s.scenarios.worst, {});
   });
+  await test('monthly growth % is kept per line and month; bad lines, months and values are dropped', async () => {
+    const growth = { wholesale: { '2026-12': 25, '2027-01': '-10.456', 'oct': 5, '2027-02': '', '2027-03': 'x', '2027-04': 5000 }, marketing: { '2026-11': -100 }, online: { '2026-12': 5 }, stock: 'nope' };
+    assert.strictEqual((await call('POST', { growth })).status, 200);
+    const got = (await call('GET')).body.growth;
+    assert.deepStrictEqual(got, { wholesale: { '2026-12': 25, '2027-01': -10.46 }, marketing: { '2026-11': -100 } });
+    assert.strictEqual(fn._sanitise({ growth: {} }).growth, undefined, 'nothing set → nothing stored');
+    assert.strictEqual(fn._sanitise({}).growth, undefined);
+  });
   console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);
 })();
