@@ -277,6 +277,13 @@
   .card-info { flex: 1; min-width: 0; }
   .card-name { font-size: 12px; font-weight: 600; word-break: break-word; margin-bottom: 5px; }
   .card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+  .card-dtp { margin-top: 5px; font-size: 11px; color: var(--muted); }
+  .card-dtp b { font-weight: 600; }
+  .dtp-ok { color: #1a7a3c; } .dtp-warn { color: #b45309; } .dtp-bad { color: #d0021b; } .dtp-none { color: #9aa0a8; }
+  .dtp-few { font-size: 10.5px; color: var(--muted); }
+  td.td-dtp { white-space: nowrap; }
+  td.td-dtp.dtp-few span { opacity: .55; }
+  .stat .stat-sub { display: block; margin-top: 3px; font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
   .card-badge { font-size: 10px; padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap; background: #fff8e1; color: #856404; border: 0.5px solid #ffe082; }
   .card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
   .card-total { font-size: 13px; font-weight: 700; white-space: nowrap; }
@@ -2755,6 +2762,65 @@ function openStatementFor(customerLike) {
   selectCustomer(customerLike);
 }
 
+// ── Average days to pay ─────────────────────────────────────────────────
+// How long each customer really takes to pay: invoice date to the day Xero says the invoice was fully paid,
+// over the invoices dated in the last 12 months (maths in debtor-days.js, window.DDP, unit-tested). Xero only
+// returns payment dates on full invoices, so this reads them in pages of 100 — about ten calls — AFTER the
+// debtors list has appeared, and keeps the per-customer totals in this browser for 12 hours.
+const DTP_KEY = 'dtp_v1';
+const DTP_TTL_MS = 12 * 60 * 60 * 1000;
+const dtp = { state: 'idle', byContact: null, error: '', loading: false };
+const dtpFor = (d) => (dtp.byContact ? DDP.avg(dtp.byContact[d.contactId]) : null);
+
+async function loadDaysToPay(force) {
+  if (dtp.loading) return;
+  if (!force) {
+    try {
+      const c = JSON.parse(localStorage.getItem(DTP_KEY) || 'null');
+      if (c && c.v === 1 && c.byContact && Date.now() - c.at < DTP_TTL_MS) { dtp.byContact = c.byContact; dtp.state = 'ok'; renderAll(); return; }
+    } catch (e) {}
+  }
+  dtp.loading = true; dtp.state = 'loading'; dtp.error = '';
+  try {
+    const from = new Date(); from.setDate(from.getDate() - 365);
+    const where = `Type=="ACCREC" && Status=="PAID" && Date>=DateTime(${from.getFullYear()},${from.getMonth() + 1},${from.getDate()})`;
+    const rows = await cfXeroPaged('Invoices', where, 'Invoices', 100, 60, (i) => DDP.rowFrom(i));
+    dtp.byContact = DDP.aggregate(rows).byContact;
+    dtp.state = 'ok';
+    try { localStorage.setItem(DTP_KEY, JSON.stringify({ v: 1, at: Date.now(), byContact: dtp.byContact })); } catch (e) {}
+  } catch (e) {
+    dtp.state = 'failed'; dtp.error = e.message;
+  }
+  dtp.loading = false;
+  renderAll();
+}
+
+// The small "⏱ Avg 47 days to pay" line on a debtor card.
+function dtpCardLine(d) {
+  if (dtp.state !== 'ok') return null;
+  const a = dtpFor(d);
+  const el = document.createElement('div');
+  el.className = 'card-dtp';
+  el.title = DDP.describe(a);
+  if (!a) { el.classList.add('dtp-none'); el.textContent = 'No payment history (12 months)'; return el; }
+  el.innerHTML = `⏱ Avg <b class="dtp-${DDP.band(a)}">${a.days} days</b> to pay${a.n < 3 ? ` <span class="dtp-few">(${a.n} invoice${a.n === 1 ? '' : 's'})</span>` : ''}`;
+  return el;
+}
+
+// The summary card: everyone's average, and the same for the customers on stop / cleared.
+function dtpStatHtml() {
+  const card = (big, sub, title) => `<div class="stat"${title ? ` title="${escHtml(title)}"` : ''}><strong>${big}</strong>Avg days to pay${sub ? `<span class="stat-sub">${sub}</span>` : ''}</div>`;
+  if (dtp.state === 'failed') return card('—', '', `Couldn't read payment history from Xero: ${dtp.error}`);
+  if (dtp.state !== 'ok') return card('…', '', 'Working out how long customers take to pay');
+  const ids = (list) => list.map((d) => d.contactId);
+  const all = DDP.avg(DDP.combine(dtp.byContact, ids(debtors)));
+  if (!all) return card('—', '', DDP.describe(null));
+  const grp = (st) => DDP.avg(DDP.combine(dtp.byContact, ids(debtors.filter((d) => debtorStatusMap[d.contactId] === st))));
+  const stop = grp('stop'), clear = grp('clear');
+  const parts = [stop && `Stop ${stop.days}`, clear && `Cleared ${clear.days}`].filter(Boolean);
+  return card(all.days, parts.join(' · '), `All the customers listed here: ${DDP.describe(all)}`);
+}
+
 async function loadDebtors() {
   // Deliberately does NOT clear debtorsRows up front — on a refresh (as
   // opposed to first load) that emptied a 60+ row table for the several
@@ -2770,6 +2836,7 @@ async function loadDebtors() {
     renderAll();
     renderHiddenPanel();
     setDebtorsStatus('');
+    loadDaysToPay(false); // after the list is showing, so the two don't compete for Xero's rate limit
   } catch (err) {
     setDebtorsStatus(err.message, true);
   }
@@ -2849,6 +2916,8 @@ function buildDebtorCard(d, { showToggle }) {
 
   info.appendChild(nameEl);
   info.appendChild(badges);
+  const dtpLine = dtpCardLine(d);
+  if (dtpLine) info.appendChild(dtpLine);
 
   const right = document.createElement('div');
   right.className = 'card-right';
@@ -2920,6 +2989,7 @@ function renderDebtorsStats() {
     <div class="stat"><strong>${pendingN}</strong>Pending</div>
     ${holdN > 0 ? `<div class="stat s-amber"><strong>${holdN}</strong>Stock on hold</div>` : ''}
     ${stopN > 0 ? `<div class="stat s-red"><strong>${fmtMoney(stopAmt)}</strong>Total on stop</div>` : ''}
+    ${dtpStatHtml()}
   `;
 
   const thresholdEl = document.getElementById('eligibleThreshold');
@@ -3067,6 +3137,12 @@ function sortedDebtorsForTable() {
       av = a.holdTotal || 0; bv = b.holdTotal || 0;
     } else if (debtorsTableSortField === 'total') {
       av = a.total || 0; bv = b.total || 0;
+    } else if (debtorsTableSortField === 'avgdays') {
+      const aa = dtpFor(a), bb = dtpFor(b);
+      if (!aa && !bb) return 0;
+      if (!aa) return 1;  // customers with no payment history always sit at the bottom
+      if (!bb) return -1;
+      av = aa.days; bv = bb.days;
     } else {
       const idx = Number(debtorsTableSortField.slice('bucket'.length));
       av = a.buckets[idx] || 0; bv = b.buckets[idx] || 0;
@@ -3088,6 +3164,7 @@ function renderDebtorsAgingTable() {
     + AGING_BUCKET_LABELS.map((b, i) => `<th class="num sortable" onclick="setDebtorsTableSort('bucket${i}')">${b}${arrow('bucket' + i)}</th>`).join('');
   if (hasHold) headHtml += `<th class="num sortable th-hold" onclick="setDebtorsTableSort('hold')">Stock on Hold${arrow('hold')}</th>`;
   headHtml += `<th class="num sortable" onclick="setDebtorsTableSort('total')">Total${arrow('total')}</th>`;
+  headHtml += `<th class="num sortable th-dtp" onclick="setDebtorsTableSort('avgdays')" title="Average days from invoice date to fully paid, over invoices dated in the last 12 months">Avg days to pay${arrow('avgdays')}</th>`;
   headHtml += `<th class="no-print"></th>`;
   document.getElementById('debtorsTableHead').innerHTML = `<tr>${headHtml}</tr>`;
 
@@ -3125,6 +3202,15 @@ function renderDebtorsAgingTable() {
     grandTotal += d.total || 0;
     tr.appendChild(totalTd);
 
+    const dtpTd = document.createElement('td');
+    dtpTd.className = 'num td-dtp';
+    const dtpA = dtpFor(d);
+    if (dtp.state === 'failed') { dtpTd.textContent = '—'; dtpTd.title = `Couldn't read payment history: ${dtp.error}`; }
+    else if (dtp.state !== 'ok') dtpTd.textContent = '…';
+    else if (!dtpA) { dtpTd.textContent = '—'; dtpTd.title = DDP.describe(null); }
+    else { dtpTd.innerHTML = `<span class="dtp-${DDP.band(dtpA)}">${dtpA.days}</span>`; dtpTd.title = DDP.describe(dtpA); if (dtpA.n < 3) dtpTd.classList.add('dtp-few'); }
+    tr.appendChild(dtpTd);
+
     const hideTd = document.createElement('td');
     hideTd.className = 'no-print';
     const hideBtn = document.createElement('button');
@@ -3143,6 +3229,8 @@ function renderDebtorsAgingTable() {
   let totalHtml = '<td>Total</td>' + sums.map((v) => `<td class="num">${moneyOrParen(v)}</td>`).join('');
   if (hasHold) totalHtml += `<td class="num td-hold">${fmtMoney(holdSum)}</td>`;
   totalHtml += `<td class="num">${moneyOrParen(grandTotal)}</td>`;
+  const dtpAll = dtp.state === 'ok' ? DDP.avg(DDP.combine(dtp.byContact, rows.map((d) => d.contactId))) : null;
+  totalHtml += `<td class="num td-dtp"${dtpAll ? ` title="${escHtml(DDP.describe(dtpAll))}"` : ''}>${dtpAll ? dtpAll.days : (dtp.state === 'ok' || dtp.state === 'failed' ? '—' : '…')}</td>`;
   totalHtml += `<td class="no-print"></td>`;
   totalTr.innerHTML = totalHtml;
   els.debtorsRows.appendChild(totalTr);
@@ -3153,6 +3241,7 @@ function renderDebtorsAgingTable() {
   let pctHtml = '<td>% of total</td>' + sums.map((v) => `<td class="num">${pct(v)}</td>`).join('');
   if (hasHold) pctHtml += '<td class="num">—</td>';
   pctHtml += '<td class="num">100.00%</td>';
+  pctHtml += '<td class="num"></td>';
   pctHtml += '<td class="no-print"></td>';
   pctTr.innerHTML = pctHtml;
   els.debtorsRows.appendChild(pctTr);
@@ -6100,6 +6189,7 @@ loadPlaceholderSeq();
 <script src="drawings-history.js"></script>
 <script src="pnl-report.js"></script>
 <script src="amex-import.js"></script>
+<script src="debtor-days.js"></script>
 <script src="cashflow-engine.js"></script>
 <script src="cashflow-history.js"></script>
 <script>
