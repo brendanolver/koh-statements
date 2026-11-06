@@ -982,13 +982,18 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #amexView table.ax-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 #amexView table.ax-table th { text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 12px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 #amexView table.ax-table td { padding: 6px 8px; border-bottom: 1px solid #f1f1ee; vertical-align: middle; }
+#amexView table.ax-table th.ax-sortable { cursor: pointer; user-select: none; }
+#amexView table.ax-table th.ax-sortable:hover { color: var(--ink); }
+#amexView table.ax-table th .ax-arrow { margin-left: 5px; font-size: 9px; color: #c3c7ce; }
+#amexView table.ax-table th.ax-sortable.on { color: var(--ink); }
+#amexView table.ax-table th.ax-sortable.on .ax-arrow { color: var(--ink); }
 #amexView table.ax-table th.r, #amexView table.ax-table td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #amexView table.ax-table td.ax-desc { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #amexView table.ax-table td.ax-date { white-space: nowrap; color: var(--muted); }
 #amexView table.ax-table tr.ax-off td { color: #9aa0a8; }
 #amexView table.ax-table tr.ax-off select, #amexView table.ax-table tr.ax-off input[type=text] { color: #9aa0a8; }
 #amexView table.ax-table select, #amexView table.ax-table input[type=text] { padding: 5px 7px; font-size: 12.5px; border: 1px solid var(--border); border-radius: 7px; background: #fff; font-family: inherit; color: var(--ink); max-width: 100%; }
-#amexView table.ax-table select.ax-acct { width: 250px; }
+#amexView table.ax-table input.ax-acct { width: 250px; }
 #amexView table.ax-table select.ax-tax { width: 165px; }
 #amexView table.ax-table input.ax-contact { width: 130px; }
 #amexView table.ax-table input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
@@ -998,9 +1003,15 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #amexView .ax-badge.imported { background: #eef0f3; color: #5b6470; }
 #amexView .ax-badge.maybe { background: #fff2cc; color: #7a5a00; }
 #amexView .ax-badge.payment { background: #eef0f3; color: #5b6470; }
+#amexView .ax-badge.approved { background: #e1eafd; color: #1d4ed8; }
 #amexView .ax-badge.done { background: #d9f0e1; color: #14602f; }
 #amexView .ax-badge.err { background: #fde3e0; color: #8a1f14; white-space: normal; }
 #amexView .ax-note { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+.ax-pop { display: none; position: fixed; z-index: 1000; box-sizing: border-box; max-height: 300px; overflow-y: auto; padding: 4px; background: #fff; border: 1px solid #d8dbe0; border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.16); font-size: 13px; color: #1a1a1a; }
+.ax-pop .ax-opt { padding: 6px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+.ax-pop .ax-opt strong { display: inline-block; min-width: 54px; font-variant-numeric: tabular-nums; }
+.ax-pop .ax-opt:hover, .ax-pop .ax-opt.active { background: #e6f2ee; }
+.ax-pop .ax-none { padding: 10px; color: #6b7280; }
 #amexView details.ax-rules { margin-top: 18px; }
 #amexView details.ax-rules summary { cursor: pointer; font-size: 13px; font-weight: 600; }
 #amexView table.ax-rt { margin-top: 10px; border-collapse: collapse; font-size: 13px; }
@@ -7515,17 +7526,21 @@ function plRender() {
 // tests/amex-import.test.js). Xero reads/writes go through xero-push.js (listBankTransactions /
 // createBankTransactions), which also re-checks for duplicates on the server before it writes anything.
 // Merchant → account / tax / contact rules are remembered in /amex-rules (and this browser) so each
-// merchant only has to be coded once.
+// merchant only has to be coded once. The account list is Xero's live chart of accounts (so drawings,
+// suspense, assets etc. are all there), searched by typing in the account box.
 // ============================================================================
 const AX_RULES_KEY = 'ax_rules_v1';
+const AX_ACCTS_KEY = 'ax_accounts_v1';
+const AX_ACCTS_TTL = 60 * 60 * 1000;
 const AX_URL = '/.netlify/functions/xero-push';
 const AX_CHUNK = 25;
-const ax = { rows: [], fileName: '', rules: {}, rulesLoaded: false, checking: false, checked: false, checkError: '', pushError: '', pushing: false, rulesTimer: null };
+const ax = { rows: [], fileName: '', rules: {}, rulesLoaded: false, accounts: null, accountsSorted: null, sort: { col: null, dir: 1 }, pop: null, checking: false, checked: false, checkError: '', pushError: '', pushing: false, rulesTimer: null };
 
 const axMoney = (n) => '$' + Number(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const axSet = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
 const axShow = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
 
+// ── Rules ────────────────────────────────────────────────────────────
 function axReadLocalRules() { try { return JSON.parse(localStorage.getItem(AX_RULES_KEY) || '{}') || {}; } catch (e) { return {}; } }
 
 async function axLoadRules() {
@@ -7553,14 +7568,71 @@ function axSaveRulesSoon() {
   }, 600);
 }
 
+// ── Accounts ─────────────────────────────────────────────────────────
+// Xero's live chart of accounts: everything a Spend Money line can be coded to (so not bank accounts or
+// Xero's own control accounts), each with its class (EXPENSE / EQUITY / LIABILITY…) so the tax can follow the
+// account. If Xero can't be reached, the built-in expense list plus Suspense and both Drawings accounts is used.
+const AX_EXTRA_ACCOUNTS = [
+  { code: '850', name: 'Suspense', cls: 'LIABILITY' },
+  { code: '501', name: 'Drawings - Olver', cls: 'EQUITY' },
+  { code: '502', name: 'Drawings - Kirby', cls: 'EQUITY' },
+];
+
+function axFallbackAccounts() {
+  const list = (typeof ACCOUNTS !== 'undefined' ? ACCOUNTS : []).map((a) => ({ code: String(a.code), name: a.name, cls: 'EXPENSE' }));
+  for (const e of AX_EXTRA_ACCOUNTS) if (!list.some((a) => a.code === e.code)) list.push(e);
+  return list;
+}
+
+async function axLoadAccounts() {
+  if (ax.accounts) return;
+  try {
+    const c = JSON.parse(sessionStorage.getItem(AX_ACCTS_KEY) || 'null');
+    if (c && Date.now() - c.at < AX_ACCTS_TTL && Array.isArray(c.list) && c.list.length) { ax.accounts = c.list; ax.accountsSorted = null; return; }
+  } catch (e) {}
+  try {
+    const data = await cfXero({ path: 'Accounts', where: 'Status=="ACTIVE"' });
+    const list = (data.Accounts || [])
+      .filter((a) => a.Code && a.Type !== 'BANK' && !a.SystemAccount)
+      .map((a) => ({ code: String(a.Code), name: a.Name || '', cls: a.Class || 'EXPENSE' }));
+    if (list.length) {
+      ax.accounts = list; ax.accountsSorted = null;
+      try { sessionStorage.setItem(AX_ACCTS_KEY, JSON.stringify({ at: Date.now(), list })); } catch (e) {}
+    }
+  } catch (e) { /* the built-in list is used */ }
+}
+
+function axAccountList() {
+  if (!ax.accountsSorted) {
+    ax.accountsSorted = (ax.accounts || axFallbackAccounts()).slice().sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  }
+  return ax.accountsSorted;
+}
+const axAcctByCode = (code) => axAccountList().find((a) => a.code === String(code)) || null;
+const axAcctClass = (code) => { const a = axAcctByCode(code); return a ? a.cls : 'EXPENSE'; };
+const axAcctLabel = (code) => { const a = axAcctByCode(code); return a ? `${a.code} · ${a.name}` : String(code || ''); };
+
+// Typed search: every word must appear in "code name"; an exact / leading code match comes first.
+function axAcctMatches(q) {
+  const list = axAccountList();
+  const terms = String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return list;
+  const hits = list.filter((a) => { const hay = (a.code + ' ' + a.name).toLowerCase(); return terms.every((t) => hay.includes(t)); });
+  const t0 = terms[0];
+  const rank = (a) => { const c = a.code.toLowerCase(); return c === t0 ? 0 : c.startsWith(t0) ? 1 : a.name.toLowerCase().startsWith(t0) ? 2 : 3; };
+  return hits.map((a, n) => [rank(a), n, a]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map((x) => x[2]);
+}
+
+// ── Tab lifecycle ────────────────────────────────────────────────────
 async function loadAmexTab() {
-  await axLoadRules();
+  await Promise.all([axLoadRules(), axLoadAccounts()]);
   if (ax.rows.length) axRender();
 }
 
 function axReset() {
   if (ax.pushing) return;
-  ax.rows = []; ax.fileName = ''; ax.checked = false; ax.checkError = ''; ax.pushError = '';
+  axPopClose();
+  ax.rows = []; ax.fileName = ''; ax.checked = false; ax.checkError = ''; ax.pushError = ''; ax.sort = { col: null, dir: 1 };
   axShow('axBody', false); axShow('axDrop', true); axShow('axResetBtn', false); axShow('axRecheckBtn', false);
   axShow('axError', false); axShow('axWarn', false);
   axSet('axStatus', 'Drop an Amex activity CSV to begin.');
@@ -7579,7 +7651,7 @@ async function axPickFile(file) {
   if (ax.pushing) return;
   axShowError('');
   ax.pushError = ''; ax.checkError = '';
-  await axLoadRules();
+  await Promise.all([axLoadRules(), axLoadAccounts()]);
   let text;
   try { text = await file.text(); } catch (e) { axShowError(cfEsc('Couldn\'t read that file: ' + e.message)); return; }
   const parsed = AMX.parseAmex(text);
@@ -7589,8 +7661,9 @@ async function axPickFile(file) {
   }
   ax.rows = parsed.rows;
   ax.fileName = file.name || 'Amex.csv';
+  ax.sort = { col: null, dir: 1 };
   AMX.applyRules(ax.rows, ax.rules);
-  for (const r of ax.rows) { r.status = r.kind === 'payment' ? 'payment' : 'new'; r.selected = false; r.result = null; }
+  for (const r of ax.rows) { r.status = r.kind === 'payment' ? 'payment' : 'new'; r.selected = false; r.approved = false; r.result = null; }
   const warn = document.getElementById('axWarn');
   if (parsed.errors.length) {
     warn.innerHTML = cfEsc(`${parsed.errors.length} line${parsed.errors.length === 1 ? '' : 's'} in the file couldn't be read and ${parsed.errors.length === 1 ? 'was' : 'were'} left out: `) + cfEsc(parsed.errors.slice(0, 3).join(' ')) + (parsed.errors.length > 3 ? ' …' : '');
@@ -7624,19 +7697,33 @@ async function axCheckXero() {
   axRender();
 }
 
+// ── Editing a line ───────────────────────────────────────────────────
+const axLocked = (r) => !!(r.result && r.result.ok) || r.status === 'imported' || r.status === 'payment';
+
+// A change to account / tax / contact marks the line Approved, is remembered for that merchant (only the field
+// that changed is saved), and is applied to the other lines from the same merchant — which are approved too.
+// Putting a line on a drawings (equity) or revenue account switches its tax to BAS Excluded, as Xero won't take
+// GST on those.
 function axSetRow(i, field, value) {
   const r = ax.rows[i];
-  if (!r || r.result && r.result.ok) return;
+  if (!r || (r.result && r.result.ok)) return;
   if (field === 'selected') { r.selected = !!value; axRender(); return; }
-  r[field] = String(value).trim();
-  if (field === 'contact' && !r.contact) r.contact = AMX.titleCase(r.merchant) || 'American Express';
-  // Remember the choice for this merchant and apply it to the other lines from it.
+  const v = String(value).trim();
   const key = r.merchant || r.description.toUpperCase().slice(0, 30);
-  ax.rules[key] = { account: r.account, tax: r.tax, contact: r.contact };
+  const rule = Object.assign({}, ax.rules[key]);
+  const apply = (o) => {
+    if (field === 'account') { o.tax = AMX.taxAfterAccountChange(o.tax, axAcctClass(o.account), axAcctClass(v)); o.account = v; }
+    else if (field === 'tax') o.tax = v;
+    else o.contact = v || AMX.titleCase(o.merchant) || 'American Express';
+    o.approved = true;
+  };
+  apply(r);
+  if (field === 'account') { rule.account = r.account; rule.tax = r.tax; }
+  else if (field === 'tax') rule.tax = r.tax;
+  else rule.contact = r.contact;
+  ax.rules[key] = rule;
   axSaveRulesSoon();
-  for (const o of ax.rows) {
-    if (r.merchant && o !== r && !(o.result && o.result.ok) && (o.merchant === r.merchant)) { o.account = r.account; o.tax = r.tax; o.contact = r.contact; }
-  }
+  if (r.merchant) for (const o of ax.rows) if (o !== r && o.merchant === r.merchant && !axLocked(o)) apply(o);
   axRender();
 }
 
@@ -7648,20 +7735,156 @@ function axDeleteRule(key) {
 }
 
 function axSelectAll(on) {
-  for (const r of ax.rows) if (!(r.result && r.result.ok) && (r.status === 'new' || r.status === 'maybe')) r.selected = on;
+  for (const r of ax.rows) if (axCanSelect(r)) r.selected = on;
   axRender();
 }
 
 const axCanSelect = (r) => !(r.result && r.result.ok) && (r.status === 'new' || r.status === 'maybe');
 
-function axAccountOptions(current) {
-  const list = (typeof ACCOUNTS !== 'undefined' ? ACCOUNTS : []).map((a) => ({ code: String(a.code), name: a.name }));
-  if (!list.some((a) => a.code === '850')) list.push({ code: '850', name: 'Suspense' });
-  if (current && !list.some((a) => a.code === current)) list.push({ code: current, name: '' });
-  list.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-  return list.map((a) => `<option value="${cfEsc(a.code)}"${a.code === current ? ' selected' : ''}>${cfEsc(a.code + (a.name ? ' · ' + a.name : ''))}</option>`).join('');
+// ── Account search box ───────────────────────────────────────────────
+// One floating list shared by every row (the table scrolls sideways, so a list inside it would be clipped).
+function axPopClose() {
+  const p = document.getElementById('axPop');
+  if (p) p.style.display = 'none';
+  ax.pop = null;
 }
 
+function axPopRender() {
+  const p = document.getElementById('axPop');
+  const pop = ax.pop;
+  if (!p || !pop) return;
+  p.innerHTML = pop.matches.length
+    ? pop.matches.slice(0, 250).map((a, n) => `<div class="ax-opt${n === pop.active ? ' active' : ''}" data-code="${cfEsc(a.code)}"><strong>${cfEsc(a.code)}</strong> ${cfEsc(a.name)}</div>`).join('')
+    : '<div class="ax-none">No matching account</div>';
+  const act = p.querySelector('.ax-opt.active');
+  if (act) act.scrollIntoView({ block: 'nearest' });
+}
+
+function axPopOpen(inp, q, showAll) {
+  let p = document.getElementById('axPop');
+  if (!p) {
+    p = document.createElement('div');
+    p.id = 'axPop';
+    p.className = 'ax-pop';
+    // mousedown (not click) so the box keeps focus and doesn't blur-and-revert before the pick lands
+    p.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const o = e.target.closest ? e.target.closest('.ax-opt') : null;
+      if (o) axAcctPick(o.dataset.code, false);
+    });
+    document.body.appendChild(p);
+  }
+  const i = Number(inp.dataset.i);
+  const row = ax.rows[i];
+  const matches = showAll ? axAccountList() : axAcctMatches(q);
+  const cur = showAll && row ? matches.findIndex((a) => a.code === row.account) : -1;
+  ax.pop = { inp, i, matches, active: cur >= 0 ? cur : 0 };
+  const rect = inp.getBoundingClientRect();
+  p.style.display = 'block';
+  p.style.minWidth = Math.max(rect.width, 320) + 'px';
+  p.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 340)) + 'px';
+  axPopRender();
+  const h = p.offsetHeight;
+  p.style.top = (rect.bottom + 4 + h > window.innerHeight && rect.top - 4 - h > 0 ? rect.top - 4 - h : rect.bottom + 4) + 'px';
+}
+
+function axAcctFocus(inp) { inp.select(); axPopOpen(inp, '', true); }
+function axAcctInput(inp) { axPopOpen(inp, inp.value, false); }
+
+function axAcctPick(code, advance) {
+  const pop = ax.pop;
+  if (!pop) return;
+  const { i, inp } = pop;
+  axPopClose();
+  const r = ax.rows[i];
+  if (r && r.account !== code) axSetRow(i, 'account', code);
+  else if (inp) inp.value = axAcctLabel(code);
+  if (advance) {
+    const next = document.querySelector(`#axTable tr[data-i="${i}"] select.ax-tax`);
+    if (next) next.focus();
+  }
+}
+
+function axAcctKey(e, inp) {
+  const pop = ax.pop;
+  const row = ax.rows[Number(inp.dataset.i)];
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!pop) { axPopOpen(inp, '', true); return; }
+    pop.active = Math.max(0, Math.min(pop.matches.length - 1, pop.active + (e.key === 'ArrowDown' ? 1 : -1)));
+    axPopRender();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (pop && pop.matches[pop.active]) axAcctPick(pop.matches[pop.active].code, true);
+  } else if (e.key === 'Escape') {
+    if (row) inp.value = axAcctLabel(row.account);
+    axPopClose();
+  } else if (e.key === 'Tab') {
+    // Tabbing out after typing a search takes the highlighted match, like Enter.
+    if (pop && row && inp.value !== axAcctLabel(row.account) && pop.matches[pop.active]) {
+      e.preventDefault();
+      axAcctPick(pop.matches[pop.active].code, true);
+    }
+  }
+}
+
+function axAcctBlur(inp) {
+  const row = ax.rows[Number(inp.dataset.i)];
+  if (row && document.body.contains(inp)) inp.value = axAcctLabel(row.account); // nothing was picked → put the old account back
+  if (ax.pop && ax.pop.inp === inp) axPopClose();
+}
+
+window.addEventListener('scroll', (e) => {
+  const t = e.target;
+  if (ax.pop && !(t && t.closest && t.closest('#axPop'))) axPopClose();
+}, true);
+window.addEventListener('resize', axPopClose);
+
+// ── Sorting ──────────────────────────────────────────────────────────
+function axStatusLabel(r) {
+  if (r.result && r.result.ok) return '✓ In Xero';
+  if (r.result && r.result.error) return 'Error';
+  switch (r.status) {
+    case 'imported': return 'Already in Xero';
+    case 'maybe': return 'Maybe already in Xero';
+    case 'payment': return 'Card payment · skipped';
+    default: return r.approved ? 'Approved' : 'New';
+  }
+}
+
+const AX_HEADS = [['date', 'Date', ''], ['desc', 'Description', ''], ['contact', 'Contact', ''], ['account', 'Account', ''], ['tax', 'Tax', ''], ['amount', 'Amount', 'r'], ['status', 'Status', '']];
+
+function axSortVal(r, col) {
+  switch (col) {
+    case 'date': return r.date;
+    case 'desc': return r.description;
+    case 'contact': return r.contact;
+    case 'account': return r.account;
+    case 'tax': return r.tax;
+    case 'amount': return r.cents;
+    default: return axStatusLabel(r);
+  }
+}
+
+// Click a heading to sort by it; click again to flip the direction. Rows with equal values keep the file's order.
+function axSortBy(col) {
+  axPopClose();
+  ax.sort = ax.sort.col === col ? { col, dir: -ax.sort.dir } : { col, dir: 1 };
+  axRender();
+}
+
+function axViewOrder() {
+  const idx = ax.rows.map((_, i) => i);
+  const { col, dir } = ax.sort;
+  if (!col) return idx;
+  return idx.sort((a, b) => {
+    const va = axSortVal(ax.rows[a], col), vb = axSortVal(ax.rows[b], col);
+    const c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: 'base' });
+    return c * dir || a - b;
+  });
+}
+
+// ── Drawing the tab ──────────────────────────────────────────────────
 function axBadge(r) {
   if (r.result && r.result.ok) return '<span class="ax-badge done">✓ In Xero</span>';
   if (r.result && r.result.error) return `<span class="ax-badge err">${cfEsc(r.result.error)}</span>`;
@@ -7669,7 +7892,9 @@ function axBadge(r) {
     case 'imported': return '<span class="ax-badge imported">Already in Xero</span>';
     case 'maybe': return '<span class="ax-badge maybe" title="Xero already has an entry on this card with the same date, amount and direction that this app didn\'t create">Maybe already in Xero</span>';
     case 'payment': return '<span class="ax-badge payment" title="Card payments are already recorded in Xero as transfers from the bank account">Card payment · skipped</span>';
-    default: return '<span class="ax-badge new">New</span>';
+    default: return r.approved
+      ? '<span class="ax-badge approved" title="You\'ve changed this line (or another line from the same merchant)">Approved</span>'
+      : '<span class="ax-badge new">New</span>';
   }
 }
 
@@ -7683,32 +7908,37 @@ function axRender() {
   const done = rows.filter((r) => r.result && r.result.ok).length;
   const inXero = rows.filter((r) => r.status === 'imported' || r.status === 'maybe').length;
   const suspense = sel.filter((r) => r.account === AMX.FALLBACK_RULE.account).length;
+  const approved = sel.filter((r) => r.approved).length;
 
   const kpi = (label, value, sub) => `<div class="ax-kpi"><div class="ax-kpi-label">${label}</div><div class="ax-kpi-value">${value}</div><div class="ax-kpi-sub">${sub || ''}</div></div>`;
   document.getElementById('axKpis').innerHTML =
     kpi('In the file', sum.total, `${AMX.isoToDmy(from)} – ${AMX.isoToDmy(to)}`) +
-    kpi('Ticked to push', sel.length, ax.checked || done ? `${axMoney(selCents / 100)} net` + (suspense ? ` · ${suspense} to Suspense` : '') : 'waiting on the Xero check') +
+    kpi('Ticked to push', sel.length, ax.checked || done ? `${axMoney(selCents / 100)} net · ${approved} approved` + (suspense ? ` · ${suspense} in Suspense` : '') : 'waiting on the Xero check') +
     kpi('Already in Xero', inXero, `${sum.imported} matched exactly · ${sum.maybe} look the same`) +
     kpi('Card payments skipped', sum.payment, 'already transfers in Xero');
 
   const eligible = rows.filter(axCanSelect);
   const allOn = eligible.length > 0 && eligible.every((r) => r.selected);
-  let body = `<thead><tr><th><input type="checkbox" ${allOn ? 'checked' : ''} ${eligible.length && !ax.pushing ? '' : 'disabled'} onchange="axSelectAll(this.checked)" title="Tick / untick everything that can be pushed"></th><th>Date</th><th>Description</th><th>Contact</th><th>Account</th><th>Tax</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>`;
-  rows.forEach((r, i) => {
+  const head = AX_HEADS.map(([col, label, cls]) => {
+    const on = ax.sort.col === col;
+    const arrow = on ? (ax.sort.dir === 1 ? '▲' : '▼') : '↕';
+    return `<th class="ax-sortable${on ? ' on' : ''}${cls ? ' ' + cls : ''}" onclick="axSortBy('${col}')" aria-sort="${on ? (ax.sort.dir === 1 ? 'ascending' : 'descending') : 'none'}" title="Click to sort">${label}<span class="ax-arrow">${arrow}</span></th>`;
+  }).join('');
+  let body = `<thead><tr><th><input type="checkbox" ${allOn ? 'checked' : ''} ${eligible.length && !ax.pushing ? '' : 'disabled'} onchange="axSelectAll(this.checked)" title="Tick / untick everything that can be pushed"></th>${head}</tr></thead><tbody>`;
+  for (const i of axViewOrder()) {
+    const r = rows[i];
     const can = axCanSelect(r) && !ax.pushing;
-    const off = !r.selected;
-    const locked = (r.result && r.result.ok) || r.status === 'imported' || r.status === 'payment';
-    const dis = locked || ax.pushing ? 'disabled' : '';
-    body += `<tr class="${off ? 'ax-off' : ''}">` +
+    const dis = axLocked(r) || ax.pushing ? 'disabled' : '';
+    body += `<tr data-i="${i}" class="${r.selected ? '' : 'ax-off'}">` +
       `<td><input type="checkbox" ${r.selected ? 'checked' : ''} ${can ? '' : 'disabled'} onchange="axSetRow(${i},'selected',this.checked)"></td>` +
       `<td class="ax-date">${AMX.isoToDmy(r.date)}</td>` +
       `<td class="ax-desc" title="${cfEsc(r.description)}">${cfEsc(r.description)}</td>` +
       `<td><input type="text" class="ax-contact" value="${cfEsc(r.contact)}" ${dis} onchange="axSetRow(${i},'contact',this.value)"></td>` +
-      `<td><select class="ax-acct" ${dis} onchange="axSetRow(${i},'account',this.value)">${axAccountOptions(r.account)}</select></td>` +
+      `<td><input type="text" class="ax-acct" data-i="${i}" value="${cfEsc(axAcctLabel(r.account))}" ${dis} autocomplete="off" spellcheck="false" placeholder="Type to search…" onfocus="axAcctFocus(this)" oninput="axAcctInput(this)" onkeydown="axAcctKey(event,this)" onblur="axAcctBlur(this)"></td>` +
       `<td><select class="ax-tax" ${dis} onchange="axSetRow(${i},'tax',this.value)">${AMX.TAX_OPTIONS.map((t) => `<option${t === r.tax ? ' selected' : ''}>${cfEsc(t)}</option>`).join('')}</select></td>` +
       `<td class="r ${r.cents < 0 ? 'ax-credit' : ''}">${r.cents < 0 ? '−' : ''}${axMoney(r.amount)}</td>` +
       `<td>${axBadge(r)}</td></tr>`;
-  });
+  }
   document.getElementById('axTable').innerHTML = body + '</tbody>';
 
   const btn = document.getElementById('axPushBtn');
@@ -7728,24 +7958,25 @@ function axRender() {
 
   document.getElementById('axNote').innerHTML = cfEsc(
     'Each ticked line becomes a Spend Money entry on American Express® Platinum#001 (a refund becomes Receive Money), dated the transaction date, with the description as shown. ' +
-    'Lines coded to 850 Suspense are a holding place — recode them in Xero (or here, before pushing) and they stay out of the P&L and BAS until you do. ' +
-    'Changing a line\'s account, tax or contact is remembered for that merchant. Card payments are left out because the transfers from the bank account are already in Xero. ' +
-    'Pushing the same file twice is safe: lines already in Xero are recognised and skipped.');
+    'Everything except Facebook starts as GST on Expenses (Facebook: GST Free Expenses). Lines on 850 Suspense are a holding place — recode them here before pushing, or in Xero afterwards — but they carry GST until you do. ' +
+    'Putting a line on a drawings (equity) account switches its tax to BAS Excluded, because Xero doesn\'t allow GST on those. ' +
+    'Changing a line\'s account, tax or contact marks it Approved and is remembered for that merchant (every line from it changes together). Card payments are left out because the transfers from the bank account are already in Xero. ' +
+    'Pushing the same file twice is safe: lines already in Xero are recognised and skipped. Click a column heading to sort.');
   axRenderRules();
 }
 
 function axRenderRules() {
-  const all = Object.assign({}, AMX.DEFAULT_RULES, ax.rules);
-  const keys = Object.keys(all).sort();
+  const keys = Array.from(new Set(Object.keys(AMX.DEFAULT_RULES).concat(Object.keys(ax.rules)))).sort();
   document.getElementById('axRulesSummary').textContent = `Saved merchant rules (${keys.length})`;
   document.getElementById('axRules').innerHTML = `<table class="ax-rt"><thead><tr><th>Description contains</th><th>Contact</th><th>Account</th><th>Tax</th><th></th></tr></thead><tbody>` +
     keys.map((k) => {
-      const r = all[k];
+      const r = Object.assign({}, AMX.DEFAULT_RULES[k], ax.rules[k]);
       const saved = Object.prototype.hasOwnProperty.call(ax.rules, k);
-      return `<tr><td>${cfEsc(k)}</td><td>${cfEsc(r.contact || '—')}</td><td>${cfEsc(r.account)}</td><td>${cfEsc(r.tax)}</td><td>${saved ? `<button onclick="axDeleteRule(${cfEsc(JSON.stringify(k))})">Remove</button>` : '<span style="color:var(--muted);font-size:12px">built in</span>'}</td></tr>`;
+      return `<tr><td>${cfEsc(k)}</td><td>${cfEsc(r.contact || '—')}</td><td>${cfEsc(r.account ? axAcctLabel(r.account) : '—')}</td><td>${cfEsc(r.tax || '—')}</td><td>${saved ? `<button onclick="axDeleteRule(${cfEsc(JSON.stringify(k))})">Remove</button>` : '<span style="color:var(--muted);font-size:12px">built in</span>'}</td></tr>`;
     }).join('') + '</tbody></table>';
 }
 
+// ── Push ─────────────────────────────────────────────────────────────
 async function axPush() {
   if (ax.pushing || ax.checking || !ax.checked) return;
   const todo = ax.rows.filter((r) => r.selected && axCanSelect(r)).sort((a, b) => a.date.localeCompare(b.date));
@@ -7753,10 +7984,11 @@ async function axPush() {
   const net = todo.reduce((t, r) => t + r.cents, 0) / 100;
   const suspense = todo.filter((r) => r.account === AMX.FALLBACK_RULE.account).length;
   const msg = `Push ${todo.length} entr${todo.length === 1 ? 'y' : 'ies'} (${axMoney(net)} net) into Xero on American Express® Platinum#001?\n\n` +
-    (suspense ? `${suspense} of them are coded to 850 Suspense and will need coding in Xero afterwards.\n\n` : '') +
+    (suspense ? `${suspense} of them are on 850 Suspense (with GST on Expenses) and will need coding in Xero afterwards.\n\n` : '') +
     'They are created as authorised Spend Money entries, ready to reconcile.';
   if (!window.confirm(msg)) return;
 
+  axPopClose();
   ax.pushing = true;
   ax.pushError = '';
   axRender();

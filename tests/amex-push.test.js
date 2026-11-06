@@ -139,9 +139,9 @@ const xeroTxn = (o) => Object.assign({ Type: 'SPEND', Status: 'AUTHORISED', Date
     await rcall('POST', { rules: { woolworths: { account: '480', tax: 'GST on Expenses', contact: 'Woolworths' }, 'FACEBK': { account: '401', tax: 'GST Free Expenses' } } });
     assert.deepStrictEqual((await rcall('GET')).body.rules, { WOOLWORTHS: { account: '480', tax: 'GST on Expenses', contact: 'Woolworths' }, FACEBK: { account: '401', tax: 'GST Free Expenses' } });
   });
-  await test('rules: bad entries are dropped, unknown tax falls back to BAS Excluded, extras never stored', async () => {
-    const s = rules._sanitise({ rules: { A: { account: '', tax: 'GST on Expenses' }, B: { account: '<script>' }, C: { account: '429', tax: 'Mystery' }, D: 'x', '': { account: '429' } }, evil: 1 });
-    assert.deepStrictEqual(s.rules, { C: { account: '429', tax: 'BAS Excluded' } });
+  await test('rules: each field is optional and kept only if valid; empty rules and extras are never stored', async () => {
+    const s = rules._sanitise({ rules: { A: { account: '', tax: 'GST on Expenses' }, B: { account: '<script>' }, C: { account: '429', tax: 'Mystery' }, D: 'x', '': { account: '429' }, E: { contact: ' Woolies ' } }, evil: 1 });
+    assert.deepStrictEqual(s.rules, { A: { tax: 'GST on Expenses' }, C: { account: '429' }, E: { contact: 'Woolies' } });
     assert.deepStrictEqual(Object.keys(s).sort(), ['rules', 'updatedAt']);
     assert.deepStrictEqual(rules._sanitise(null).rules, {});
   });

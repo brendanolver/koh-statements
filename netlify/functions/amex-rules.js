@@ -19,11 +19,15 @@ function sanitise(doc) {
     if (Object.keys(rules).length >= MAX_RULES) break;
     const key = String(rawKey).trim().toUpperCase().slice(0, 80);
     if (!key || !r || typeof r !== 'object') continue;
+    // Each field is optional and kept only if valid: a rule can be just an account, just a tax, or just a
+    // contact name — whatever it leaves out falls back to the app's defaults when it's applied.
+    const rule = {};
     const account = String(r.account || '').trim();
-    if (!/^[A-Za-z0-9\/ .-]{1,12}$/.test(account)) continue;
-    const tax = TAXES.includes(r.tax) ? r.tax : 'BAS Excluded';
+    if (/^[A-Za-z0-9\/ .-]{1,12}$/.test(account)) rule.account = account;
+    if (TAXES.includes(r.tax)) rule.tax = r.tax;
     const contact = String(r.contact || '').trim().slice(0, 100);
-    rules[key] = contact ? { account, tax, contact } : { account, tax };
+    if (contact) rule.contact = contact;
+    if (Object.keys(rule).length) rules[key] = rule;
   }
   return { rules, updatedAt: new Date().toISOString() };
 }

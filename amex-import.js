@@ -11,9 +11,10 @@
   'use strict';
 
   // Where the card lives in Xero ("American Express® Platinum#001"), and where lines land until someone
-  // codes them. Suspense is a balance-sheet holding account, so nothing hits the P&L (or the BAS) by guesswork.
+  // codes them. Suspense is a balance-sheet holding account, so nothing hits the P&L by guesswork. Everything
+  // except Facebook defaults to GST on Expenses (ordinary Australian purchases carry GST on the card statement).
   const CARD_ACCOUNT_CODE = '810';
-  const FALLBACK_RULE = { account: '850', tax: 'BAS Excluded' };
+  const FALLBACK_RULE = { account: '850', tax: 'GST on Expenses' };
   // Starter rules, keyed by the upper-case text they look for in the description. Anything the user changes
   // in the table is saved on top of these (see applyRules).
   const DEFAULT_RULES = {
@@ -189,16 +190,29 @@
   // longest matching key wins, so a specific rule beats a general one.
   // Rules saved from the table are keyed by the merchant key (store numbers and references already removed),
   // so they're matched against that as well as the full description.
+  // A saved rule may hold only some of account / tax / contact — whatever it leaves out comes from the built-in
+  // rule for the same key (e.g. Facebook's contact), and then from the fallback.
   function ruleFor(description, saved, merchant) {
-    const all = Object.assign({}, DEFAULT_RULES, saved || {});
+    const sv = saved || {};
+    const keys = new Set(Object.keys(DEFAULT_RULES).concat(Object.keys(sv)));
     const d = clean(description).toUpperCase();
     const m = String(merchant || merchantKey(description)).toUpperCase();
     let best = null, bestKey = '';
-    for (const k of Object.keys(all)) {
+    for (const k of keys) {
       const kk = String(k).toUpperCase();
-      if (kk && (d.includes(kk) || m.includes(kk)) && kk.length > bestKey.length) { best = all[k]; bestKey = kk; }
+      if (kk && (d.includes(kk) || m.includes(kk)) && kk.length > bestKey.length) { best = Object.assign({}, DEFAULT_RULES[k], sv[k]); bestKey = kk; }
     }
     return best;
+  }
+
+  // Equity (drawings) and revenue accounts can't carry GST on Expenses / GST Free Expenses in Xero, so moving a
+  // line onto one means BAS Excluded; moving it back off restores GST on Expenses — but only if BAS Excluded was
+  // that automatic switch, never over a tax the user chose on purpose.
+  const NO_GST_CLASSES = ['EQUITY', 'REVENUE'];
+  function taxAfterAccountChange(prevTax, prevClass, newClass) {
+    if (NO_GST_CLASSES.includes(newClass)) return 'BAS Excluded';
+    if (NO_GST_CLASSES.includes(prevClass) && prevTax === 'BAS Excluded') return 'GST on Expenses';
+    return prevTax;
   }
 
   function applyRules(rows, saved) {
@@ -267,7 +281,7 @@
   root.AMX = {
     CARD_ACCOUNT_CODE, FALLBACK_RULE, DEFAULT_RULES, TAX_OPTIONS, KEY_PREFIX,
     parseCsv, parseDate, parseAmount, parseAmex, merchantKey, titleCase, hash53, assignKeys,
-    ruleFor, applyRules, classify, toXeroStatementCsv, dateRange, summary, isoToDmy,
+    ruleFor, applyRules, taxAfterAccountChange, NO_GST_CLASSES, classify, toXeroStatementCsv, dateRange, summary, isoToDmy,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.AMX;
 })(typeof window !== 'undefined' ? window : globalThis);
