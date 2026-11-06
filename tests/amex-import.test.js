@@ -140,6 +140,18 @@ test('bad input is reported, not guessed at', () => {
   assert.strictEqual(p.errors.length, 2); assert.strictEqual(p.rows.length, 1);
   assert.strictEqual(A.parseAmount('1,234.50'), 1234.5); assert.strictEqual(A.parseAmount('(12.00)'), -12);
 });
+test('from-date filter keeps lines on or after the date; no date means everything', () => {
+  const dates = (rows) => rows.map((r) => r.date);
+  assert.strictEqual(A.rowsFrom(parsed.rows, '').length, parsed.rows.length);
+  assert.strictEqual(A.rowsFrom(parsed.rows, undefined).length, parsed.rows.length);
+  assert.strictEqual(A.rowsFrom(parsed.rows, 'not a date').length, parsed.rows.length, 'an unreadable date is ignored');
+  const from = A.rowsFrom(parsed.rows, '2026-10-22');
+  assert.ok(dates(from).every((d) => d >= '2026-10-22'));
+  assert.ok(dates(from).includes('2026-10-22'), 'the chosen day itself is included');
+  assert.strictEqual(from.length, parsed.rows.filter((r) => r.date >= '2026-10-22').length);
+  assert.deepStrictEqual(A.rowsFrom(parsed.rows, '2027-01-01'), []);
+  assert.notStrictEqual(A.rowsFrom(parsed.rows, ''), parsed.rows, 'returns a copy');
+});
 test('date range of a file', () => {
   assert.deepStrictEqual(A.dateRange(parsed.rows), { from: '2026-10-14', to: '2026-11-03' });
 });

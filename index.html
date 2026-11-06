@@ -978,6 +978,8 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #amexView .ax-kpi-sub { font-size: 12px; color: var(--muted); margin-top: 7px; min-height: 15px; }
 #amexView .ax-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 #amexView .ax-pushstatus { font-size: 13px; color: var(--muted); }
+#amexView .ax-from { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+#amexView .ax-from input { padding: 6px 9px; font-size: 13px; font-weight: 500; text-transform: none; letter-spacing: 0; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-family: inherit; color: var(--ink); }
 #amexView .ax-gate { font-size: 13px; font-weight: 500; color: #7a5a00; background: #fff8e6; border: 1px solid #f0dba8; border-radius: 99px; padding: 4px 12px; }
 #amexView .ax-gate:empty { display: none; }
 #amexView .ax-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 8px 16px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.05); overflow-x: auto; }
@@ -1711,6 +1713,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     <div class="ax-actions">
       <button class="primary" id="axPushBtn" onclick="axPush()">Push to Xero</button>
       <button id="axCsvBtn" onclick="axDownloadStatementCsv()">Download Xero statement CSV</button>
+      <label class="ax-from" title="Leave blank for every line in the file. Set it to skip the days Xero already has statement lines for (check the latest date on the Bank statements tab in Xero)."><span>Lines from</span><input type="date" id="axCsvFrom" onchange="axRender()"></label>
       <span class="ax-pushstatus" id="axPushStatus"></span>
       <span class="ax-gate" id="axGate"></span>
     </div>
@@ -7640,6 +7643,7 @@ function axReset() {
   if (ax.pushing) return;
   axPopClose();
   ax.rows = []; ax.fileName = ''; ax.checked = false; ax.checkError = ''; ax.pushError = ''; ax.sort = { col: null, dir: 1 };
+  document.getElementById('axCsvFrom').value = '';
   axShow('axBody', false); axShow('axDrop', true); axShow('axResetBtn', false); axShow('axRecheckBtn', false);
   axShow('axError', false); axShow('axWarn', false);
   axSet('axStatus', 'Drop an Amex activity CSV to begin.');
@@ -7668,6 +7672,7 @@ async function axPickFile(file) {
   }
   ax.rows = parsed.rows;
   ax.fileName = file.name || 'Amex.csv';
+  document.getElementById('axCsvFrom').value = '';
   ax.sort = { col: null, dir: 1 };
   AMX.applyRules(ax.rows, ax.rules);
   for (const r of ax.rows) { r.status = r.kind === 'payment' ? 'payment' : 'new'; r.selected = false; r.approved = !!r.autoApprove; r.result = null; }
@@ -7968,7 +7973,13 @@ function axRender() {
   btn.title = needs > 0 ? axGateText(needs) : '';
   axSet('axGate', !ax.pushing && ax.checked && needs > 0 ? axGateText(needs) : '');
   btn.textContent = ax.pushing ? 'Pushing…' : sel.length ? `Push ${sel.length} to Xero` : 'Push to Xero';
-  document.getElementById('axCsvBtn').disabled = ax.pushing;
+  const fromEl = document.getElementById('axCsvFrom');
+  fromEl.min = from; fromEl.max = to; fromEl.disabled = ax.pushing;
+  const csvRows = AMX.rowsFrom(rows, fromEl.value);
+  const csvBtn = document.getElementById('axCsvBtn');
+  csvBtn.textContent = `Download Xero statement CSV (${csvRows.length} line${csvRows.length === 1 ? '' : 's'})`;
+  csvBtn.disabled = ax.pushing || csvRows.length === 0;
+  csvBtn.title = csvRows.length === 0 ? 'No lines on or after that date' : '';
   document.getElementById('axRecheckBtn').disabled = ax.checking || ax.pushing;
 
   if (ax.checking) axSet('axStatus', 'Checking Xero for entries already on the card…');
@@ -7985,7 +7996,7 @@ function axRender() {
     'Everything except Facebook starts as GST on Expenses (Facebook: GST Free Expenses). Lines on 850 Suspense are a holding place — recode them here before pushing, or in Xero afterwards — but they carry GST until you do. ' +
     'Putting a line on a drawings (equity) account switches its tax to BAS Excluded, because Xero doesn\'t allow GST on those. ' +
     'Facebook lines start as Approved; any other line becomes Approved when you change its account, tax or contact (that change is remembered for the merchant, and every line from it changes together), or when you click its New tag. Every ticked line has to be Approved before the push button works. Card payments are left out because the transfers from the bank account are already in Xero. ' +
-    'Pushing the same file twice is safe: lines already in Xero are recognised and skipped. Click a column heading to sort.');
+    'Pushing the same file twice is safe: lines already in Xero are recognised and skipped. Click a column heading to sort. The statement CSV includes every line (card payments too, so they match the transfers) — set "Lines from" to leave out days Xero already has statement lines for.');
   axRenderRules();
 }
 
@@ -8050,8 +8061,10 @@ async function axPush() {
 
 function axDownloadStatementCsv() {
   if (!ax.rows.length) return;
-  const { from, to } = AMX.dateRange(ax.rows);
-  const csv = AMX.toXeroStatementCsv(ax.rows.slice().sort((a, b) => a.date.localeCompare(b.date)));
+  const rows = AMX.rowsFrom(ax.rows, document.getElementById('axCsvFrom').value);
+  if (!rows.length) { axSet('axPushStatus', 'No lines on or after that date.'); return; }
+  const { from, to } = AMX.dateRange(rows);
+  const csv = AMX.toXeroStatementCsv(rows.sort((a, b) => a.date.localeCompare(b.date)));
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

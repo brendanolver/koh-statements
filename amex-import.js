@@ -265,6 +265,12 @@
     return lines.join('\r\n') + '\r\n';
   }
 
+  // Lines dated on or after `fromIso` (YYYY-MM-DD); with no (or an unreadable) date, every line. Used to leave
+  // out the part of a file that Xero already holds statement lines for.
+  function rowsFrom(rows, fromIso) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(fromIso || '') ? rows.filter((r) => r.date >= fromIso) : rows.slice();
+  }
+
   function dateRange(rows) {
     let from = null, to = null;
     for (const r of rows) { if (!from || r.date < from) from = r.date; if (!to || r.date > to) to = r.date; }
@@ -283,7 +289,7 @@
   root.AMX = {
     CARD_ACCOUNT_CODE, FALLBACK_RULE, DEFAULT_RULES, TAX_OPTIONS, KEY_PREFIX,
     parseCsv, parseDate, parseAmount, parseAmex, merchantKey, titleCase, hash53, assignKeys,
-    ruleFor, applyRules, taxAfterAccountChange, NO_GST_CLASSES, classify, toXeroStatementCsv, dateRange, summary, isoToDmy,
+    ruleFor, applyRules, taxAfterAccountChange, NO_GST_CLASSES, classify, toXeroStatementCsv, rowsFrom, dateRange, summary, isoToDmy,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.AMX;
 })(typeof window !== 'undefined' ? window : globalThis);
