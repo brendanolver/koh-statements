@@ -66,9 +66,14 @@ function pnlSettingsStore() {
   return namedStore('pnl-settings');
 }
 
+// Amex Import tab: the saved merchant → account / tax / contact rules.
+function amexRulesStore() {
+  return namedStore('amex-rules');
+}
+
 // Snapshot of the Xero-derived debtors rows served by debtors-feed.js.
 function debtorsFeedStore() {
   return namedStore('debtors-feed');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, debtorsFeedStore };
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, amexRulesStore, debtorsFeedStore };

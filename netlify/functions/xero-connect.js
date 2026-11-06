@@ -9,10 +9,15 @@ const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 // .read suffix on contacts/invoices grants write access — Bills Import
 // pushing bills and contacts directly instead of a manual CSV import.
 // accounting.settings.read added for GET TaxRates (settings, not invoices).
-// accounting.banktransactions.read + accounting.reports.banksummary.read
-// added for the Cashflow tab (read-only — this app never writes bank
-// transactions) — both confirmed against this app's own scope list on
-// developer.xero.com, same as every other scope here.
+// accounting.banktransactions + accounting.reports.banksummary.read
+// added for the Cashflow tab (originally the read-only
+// accounting.banktransactions.read) — both confirmed against this app's own
+// scope list on developer.xero.com, same as every other scope here.
+// accounting.banktransactions (read AND write) replaced the .read version for the
+// Amex Import tab, which creates Spend Money / Receive Money entries on the
+// credit-card account. Write access includes read, so nothing else changes.
+// Xero only asks for approval at connect time, so after this ships the
+// connection has to be re-made once (the "Reconnect Xero" link).
 // payroll.employees.read + payroll.settings.read added for the Wages tab
 // (Payroll AU API — read-only; employees + their pay templates, and Pay
 // Items for earnings-rate lookups). payroll.payruns.read + payroll.payslip.read
@@ -21,7 +26,7 @@ const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 // accounting.reports.profitandloss.read is the granular scope for Reports/ProfitAndLoss (P&L tab). The broad
 // accounting.reports.read is NOT valid on newer Xero apps — WNDRR Tuesday hit a live invalid_scope with it
 // and uses this granular name successfully.
-const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions.read accounting.reports.banksummary.read payroll.employees.read payroll.settings.read payroll.payruns.read payroll.payslip.read accounting.reports.profitandloss.read';
+const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions accounting.reports.banksummary.read payroll.employees.read payroll.settings.read payroll.payruns.read payroll.payslip.read accounting.reports.profitandloss.read';
 
 exports.handler = async (event) => {
   try {

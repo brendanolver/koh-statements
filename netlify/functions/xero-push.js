@@ -159,7 +159,150 @@ async function createBill(connection, { contactId, invoiceNum, date, due, refere
   return { xeroInvoiceId: invoice.InvoiceID, invoiceNumber: invoice.InvoiceNumber };
 }
 
-const ACTIONS = { findOrCreateContact, checkBillExists, createBill };
+// ── Amex Import: spend / receive money on a bank or credit-card account ──────
+
+const dtExpr = (iso) => `DateTime(${Number(iso.slice(0, 4))},${Number(iso.slice(5, 7))},${Number(iso.slice(8, 10))})`;
+const isoDay = (s) => String(s || '').slice(0, 10);
+const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function accountByCode(connection, code) {
+  if (!code) throw new Error('accountCode required');
+  const data = await xeroGet(connection, 'Accounts', { where: `Code=="${escapeXeroString(code)}"` });
+  const acct = data.Accounts && data.Accounts[0];
+  if (!acct) throw new Error(`No account with code ${code} in Xero`);
+  if (acct.Type !== 'BANK') throw new Error(`Account ${code} (${acct.Name}) is not a bank / credit-card account`);
+  return { accountId: acct.AccountID, name: acct.Name };
+}
+
+// What Xero already holds on one bank/card account between two dates — slimmed down to what the Amex
+// import needs to spot duplicates (date, direction, amount, and the Reference this app stamps on its own
+// entries). Deleted entries don't count. Xero is asked to filter by account; if it refuses that filter
+// the same date range is read org-wide and filtered here instead.
+async function listBankTransactions(connection, { accountCode, from, to }) {
+  if (!ISO_RE.test(from || '') || !ISO_RE.test(to || '')) throw new Error('from / to must be YYYY-MM-DD');
+  const { accountId, name } = await accountByCode(connection, accountCode);
+  const dates = `Date>=${dtExpr(from)}&&Date<=${dtExpr(to)}`;
+  const PAGE = 200;
+
+  async function readAll(where, keep) {
+    const out = [];
+    for (let page = 1; page <= 25; page++) {
+      const data = await xeroGet(connection, 'BankTransactions', { where, page: String(page), pageSize: String(PAGE) });
+      const rows = data.BankTransactions || [];
+      for (const t of rows) {
+        if (t.Status === 'DELETED' || !keep(t)) continue;
+        out.push({
+          date: isoDay(t.DateString || t.Date),
+          type: String(t.Type || '').startsWith('SPEND') ? 'SPEND' : 'RECEIVE',
+          cents: Math.round(Math.abs(Number(t.Total) || 0) * 100),
+          reference: t.Reference || '',
+          reconciled: !!t.IsReconciled,
+        });
+      }
+      if (rows.length < PAGE) break;
+    }
+    return out;
+  }
+
+  let transactions;
+  try {
+    transactions = await readAll(`BankAccount.AccountID==Guid("${accountId}")&&${dates}`, () => true);
+  } catch (err) {
+    transactions = await readAll(dates, (t) => t.BankAccount && t.BankAccount.AccountID === accountId);
+  }
+  return { accountId, accountName: name, transactions };
+}
+
+const BT_STATUS_HINT = 'Xero refused the write. If this is the first Amex push, press Reconnect Xero (it asks for the new bank-transaction write permission) and try again.';
+
+// Creates one Spend Money / Receive Money entry per item on the card account. Each carries the item's
+// stable key in Reference, and anything whose key is already on the account is skipped (so a double-click,
+// a second browser or a re-dropped file can't double up). Returns one result per item, in order.
+async function createBankTransactions(connection, { accountCode, items }) {
+  if (!accountCode) throw new Error('accountCode required');
+  if (!Array.isArray(items) || !items.length) throw new Error('items required');
+  if (items.length > 50) throw new Error('At most 50 items per call');
+
+  const results = items.map((i) => ({ key: i && i.key, ok: false }));
+  const valid = [];
+  items.forEach((i, idx) => {
+    const bad = !i || typeof i !== 'object' ? 'Bad item'
+      : !/^AMEX:[0-9a-f]{12}$/.test(i.key || '') ? 'Bad key'
+      : i.type !== 'SPEND' && i.type !== 'RECEIVE' ? 'Type must be SPEND or RECEIVE'
+      : !ISO_RE.test(i.date || '') ? 'Bad date'
+      : !(Number(i.amount) > 0) ? 'Amount must be above zero'
+      : !String(i.contact || '').trim() ? 'Contact required'
+      : !String(i.account || '').trim() ? 'Account required'
+      : !TAX_TYPE_MAP[i.tax] ? `Unknown tax "${i.tax}"`
+      : null;
+    if (bad) results[idx].error = bad; else valid.push(idx);
+  });
+  if (!valid.length) return { results };
+
+  const dates = valid.map((idx) => items[idx].date).sort();
+  const existing = await listBankTransactions(connection, { accountCode, from: dates[0], to: dates[dates.length - 1] });
+  const have = new Set(existing.transactions.map((t) => t.reference).filter(Boolean));
+  const todo = [];
+  for (const idx of valid) {
+    if (have.has(items[idx].key)) { results[idx].ok = true; results[idx].skipped = 'already in Xero'; } else todo.push(idx);
+  }
+  if (!todo.length) return { results };
+
+  const payload = {
+    BankTransactions: todo.map((idx) => {
+      const i = items[idx];
+      return {
+        Type: i.type,
+        Contact: { Name: String(i.contact).trim().slice(0, 255) },
+        BankAccount: { AccountID: existing.accountId },
+        Date: i.date,
+        Reference: i.key,
+        Status: 'AUTHORISED',
+        // The card statement amount is what was actually charged, GST included.
+        LineAmountTypes: 'Inclusive',
+        LineItems: [{
+          Description: String(i.description || '').slice(0, 4000) || 'Amex',
+          Quantity: 1,
+          UnitAmount: Number(i.amount),
+          AccountCode: String(i.account).trim(),
+          TaxType: TAX_TYPE_MAP[i.tax],
+        }],
+      };
+    }),
+  };
+
+  const res = await fetch(`${XERO_API_BASE}/BankTransactions?summarizeErrors=false`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${connection.access_token}`,
+      'Xero-tenant-id': connection.tenant_id,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const rawText = await res.text();
+  let data = {};
+  try { data = JSON.parse(rawText || '{}'); } catch { data = {}; }
+  const list = data.BankTransactions || data.Elements || [];
+  if (!list.length) {
+    if (res.status === 401 || res.status === 403) throw new Error(BT_STATUS_HINT);
+    throw new Error(data.Message || data.Detail || rawText.slice(0, 300) || `Xero POST BankTransactions failed (${res.status})`);
+  }
+  todo.forEach((idx, n) => {
+    const el = list[n] || {};
+    const errs = (el.ValidationErrors || []).map((v) => v.Message).filter(Boolean);
+    if (el.HasErrors || errs.length || !el.BankTransactionID) {
+      results[idx].error = errs.join('; ') || 'Xero did not create this entry';
+    } else {
+      results[idx].ok = true;
+      results[idx].id = el.BankTransactionID;
+    }
+  });
+  return { results };
+}
+
+const ACTIONS = { findOrCreateContact, checkBillExists, createBill, listBankTransactions, createBankTransactions };
 
 exports.handler = async (event) => {
   try {
