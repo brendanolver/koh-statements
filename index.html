@@ -619,6 +619,12 @@
 #cashflowView table.cfx-table td.cfx-sel { background: #e8f1ee; box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: 4px; }
 #cashflowView table.cfx-table td.cfx-strong { font-weight: 700; }
 #cashflowView table.cfx-table tr.cfx-total td { font-weight: 700; border-top: 1px solid var(--border); background: #fafaf8; }
+#cashflowView table.cfx-table tr.cfx-sec td { padding-top: 18px; text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
+#cashflowView table.cfx-table tr.cfx-fc td { background: rgba(15,92,74,0.045); }
+#cashflowView table.cfx-table td.cfx-gap, #cashflowView table.cfx-table th.cfx-gap-h { border-left: 1px solid var(--border); }
+#cashflowView table.cfx-year th, #cashflowView table.cfx-year td { padding-left: 7px; padding-right: 7px; font-size: 12.5px; }
+#cashflowView table.cfx-year th { white-space: normal; line-height: 1.25; vertical-align: bottom; }
+#cashflowView .cfx-ly { font-size: 10.5px; font-weight: 500; color: var(--muted); margin-top: 1px; }
 #cashflowView .cfx-drill { margin-top: 16px; padding: 16px 18px; background: #fafaf8; border: 1px solid var(--border); border-radius: 12px; }
 #cashflowView .cfx-drill-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
 #cashflowView .cfx-drill-title { font-weight: 600; font-size: 14px; }
@@ -1615,6 +1621,23 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <span><i style="background:#d0021b"></i>Worst</span>
       <span class="cfx-legend-note" id="cfConfidence"></span>
     </div>
+  </div>
+
+  <div class="cfx-card" id="cfYearCard">
+    <div class="cfx-card-head">
+      <div class="cfx-card-title">Last year &amp; forecast <span class="cfx-sub" id="cfYearScen"></span></div>
+      <button id="cfYearRefresh" onclick="cfLoadYear(true)">Refresh</button>
+    </div>
+    <div class="cfx-hint" id="cfYearStatus" style="margin:-6px 0 12px">Waiting for the forecast to load…</div>
+    <div class="cfx-chart-wrap" style="height:320px"><canvas id="cfYearChart"></canvas></div>
+    <div class="cfx-legend">
+      <span><i style="background:#2e9e6b"></i>Cash in</span>
+      <span><i style="background:#d0021b"></i>Cash out</span>
+      <span><i style="background:#16181c"></i>Closing cash</span>
+      <span class="cfx-legend-note">Solid = actual · faded / dashed = forecast</span>
+    </div>
+    <div class="cfx-table-wrap" style="margin-top:16px"><table class="cfx-table cfx-year" id="cfYearTable"></table></div>
+    <div class="cfx-drill-note" id="cfYearNote"></div>
   </div>
 
   <div class="cfx-card">
@@ -6071,6 +6094,7 @@ loadPlaceholderSeq();
 <script src="pnl-report.js"></script>
 <script src="amex-import.js"></script>
 <script src="cashflow-engine.js"></script>
+<script src="cashflow-history.js"></script>
 <script>
 // ============================================================================
 // CASHFLOW TAB — forward-looking cash forecast.
@@ -6876,14 +6900,202 @@ function cfRenderMain(skipInputs) {
   cfRenderBanner(); cfRenderControls(); cfRenderKpis(); cfRenderAccounts(); cfRenderConfidence(); cfRenderSummary(); cfRenderDrill(); cfRenderWatch(); cfRenderDetail();
   if (!skipInputs) cfRenderInputs();
   cfDrawChart();
+  cfRenderYear();
   cfSetStatus();
 }
 
 function cfRefresh() { cfRecompute(); cfRenderMain(); }
 
+// ── Year view: last 12 months actual, then the forecast months, with last year alongside ─────────────
+// The month-by-month maths lives in cashflow-history.js (window.CFH, unit-tested in tests/cashflow-history.test.js).
+// This reads the raw material from Xero — a BankSummary report per month, a year of direct bank
+// transactions, and the payments recorded on customer invoices and supplier bills — and caches each finished
+// month in this browser: a month that ended more than 45 days ago is final, so after the first (slow) load
+// only the last couple of months are re-read.
+const CF_YEAR_KEY = 'cf_year_v1';
+const CF_YEAR_FINAL_DAYS = 45;
+const CF_YEAR_TTL_MS = 30 * 60 * 1000;
+cf.year = { state: 'idle', months: null, warnings: [], error: '', loading: false, progress: '', loadedAt: 0, chart: null };
+
+// Pages through a Xero list. `map` trims each row on arrival — full invoices are big, and only a few fields are needed.
+async function cfXeroPaged(path, where, key, pageSize, maxPages, map, onRows) {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const data = await cfXero({ path, where, page: String(page), pageSize: String(pageSize) });
+    const rows = data[key] || [];
+    for (const r of rows) all.push(map ? map(r) : r);
+    if (onRows) onRows(all.length);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+const cfTrimTxn = (t) => ({ Status: t.Status, Date: t.Date, DateString: t.DateString, Total: t.Total, BankAccount: t.BankAccount && { AccountID: t.BankAccount.AccountID }, Contact: t.Contact && { Name: t.Contact.Name } });
+const cfTrimInv = (i) => ({ CurrencyCode: i.CurrencyCode, CurrencyRate: i.CurrencyRate, Contact: i.Contact && { Name: i.Contact.Name }, Payments: (i.Payments || []).map((p) => ({ Date: p.Date, Amount: p.Amount, CurrencyRate: p.CurrencyRate, Status: p.Status })) });
+
+function cfYearSetStatus(text, isError) {
+  const el = document.getElementById('cfYearStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = isError ? '#b42318' : '';
+}
+
+async function cfLoadYear(force) {
+  const y = cf.year;
+  if (y.loading || !cf.xero) return;
+  if (!force && y.state === 'ok' && Date.now() - y.loadedAt < CF_YEAR_TTL_MS) { cfRenderYear(); return; }
+  const today = cf.xero.today;
+  const months = CFH.monthsFor(today);
+  const bankIds = [...cf.xero.bankIds], cardIds = cf.xero.cards.map((c) => c.id);
+  const sig = bankIds.slice().sort().join(',') + '|' + cardIds.slice().sort().join(',');
+  const finalBefore = CFE.util.addDays(today, -CF_YEAR_FINAL_DAYS);
+  const isFinal = (mk) => CFH.lastDayOfMonth(mk) < finalBefore;
+  let cached = {};
+  if (!force) { try { const c = JSON.parse(localStorage.getItem(CF_YEAR_KEY) || 'null'); if (c && c.v === 1 && c.sig === sig) cached = c.months || {}; } catch (e) {} }
+  const have = {};
+  for (const mk of months) if (isFinal(mk) && cached[mk]) have[mk] = cached[mk];
+  const need = months.filter((mk) => !have[mk]);
+
+  y.loading = true; y.state = 'loading'; y.error = '';
+  document.getElementById('cfYearRefresh').disabled = true;
+  cfRenderYear();
+  try {
+    let computed = {}, warnings = [];
+    if (need.length) {
+      const firstDay = need[0] + '-01';
+      const dt = (iso) => `DateTime(${Number(iso.slice(0, 4))},${Number(iso.slice(5, 7))},${Number(iso.slice(8, 10))})`;
+      // 1. one BankSummary per month (3 at a time — Xero allows 5 at once and 60 a minute)
+      const summaries = {};
+      let k = 0;
+      await Promise.all([0, 1, 2].map(async () => {
+        while (k < need.length) {
+          const mk = need[k++];
+          const to = CFH.monthKey(today) === mk ? today : CFH.lastDayOfMonth(mk);
+          summaries[mk] = CFH.parseBankSummary(await cfXero({ path: 'Reports/BankSummary', fromDate: mk + '-01', toDate: to }));
+          cfYearSetStatus(`Reading last year from Xero… bank summaries ${Object.keys(summaries).length} of ${need.length}`);
+        }
+      }));
+      // 2. direct receipts and spend
+      cfYearSetStatus('Reading last year from Xero… bank transactions');
+      const recv = await cfXeroPaged('BankTransactions', `Type=="RECEIVE" && Status=="AUTHORISED" && Date>=${dt(firstDay)}`, 'BankTransactions', 1000, 12, cfTrimTxn);
+      const spend = await cfXeroPaged('BankTransactions', `Type=="SPEND" && Status=="AUTHORISED" && Date>=${dt(firstDay)}`, 'BankTransactions', 1000, 12, cfTrimTxn, (n) => cfYearSetStatus(`Reading last year from Xero… ${n.toLocaleString('en-AU')} spend transactions`));
+      // 3. payments on customer invoices and supplier bills (bills are often paid months after they're dated)
+      const ar = await cfXeroPaged('Invoices', `Type=="ACCREC" && AmountPaid>0 && Date>=${dt(CFE.util.addDays(firstDay, -150))}`, 'Invoices', 100, 80, cfTrimInv, (n) => cfYearSetStatus(`Reading last year from Xero… ${n.toLocaleString('en-AU')} customer invoices`));
+      const ap = await cfXeroPaged('Invoices', `Type=="ACCPAY" && AmountPaid>0 && Date>=${dt(CFE.util.addDays(firstDay, -270))}`, 'Invoices', 100, 80, cfTrimInv, (n) => cfYearSetStatus(`Reading last year from Xero… ${n.toLocaleString('en-AU')} supplier bills`));
+      const res = CFH.buildMonthly({ months: need, today, summaries, bankIds, cardIds, recv, spend, arInvoices: ar, apInvoices: ap, onlineRe: CF_ONLINE_CONTACT_RE, marketingRe: CF_MARKETING_RE, taxRe: CFE.TAX_CONTACT_RE });
+      for (const m of res.months) computed[m.month] = m;
+      warnings = res.warnings;
+    }
+    const merged = months.map((mk) => have[mk] || computed[mk]);
+    try {
+      const store = {};
+      for (const m of merged) if (isFinal(m.month)) store[m.month] = m;
+      localStorage.setItem(CF_YEAR_KEY, JSON.stringify({ v: 1, sig, months: store }));
+    } catch (e) {}
+    y.months = merged; y.warnings = warnings; y.state = 'ok'; y.loadedAt = Date.now();
+  } catch (e) {
+    y.state = 'failed'; y.error = e.message;
+  }
+  y.loading = false;
+  document.getElementById('cfYearRefresh').disabled = false;
+  cfRenderYear();
+}
+
+function cfRenderYear() {
+  const y = cf.year;
+  const card = document.getElementById('cfYearCard');
+  if (!card) return;
+  const scenName = (CF_SCENS.find((x) => x[0] === cf.scen) || [0, ''])[1];
+  document.getElementById('cfYearScen').textContent = `${scenName} case`;
+  const table = document.getElementById('cfYearTable'), note = document.getElementById('cfYearNote');
+  if (y.state === 'loading' && !y.months) { table.innerHTML = ''; note.textContent = ''; cfDrawYearChart([]); return; }
+  if (y.state === 'failed' && !y.months) {
+    cfYearSetStatus(`Couldn't read last year from Xero: ${y.error}. Press Refresh to try again.`, true);
+    table.innerHTML = ''; note.textContent = ''; cfDrawYearChart([]);
+    return;
+  }
+  if (!y.months) { cfYearSetStatus('Waiting for the forecast to load…'); return; }
+  const buckets = cf.result ? CFE.buckets(cf.result, 'months12') : [];
+  const rows = CFH.yearRows(y.months, buckets, cf.scen);
+  if (y.state === 'loading') { /* a refresh is in progress: keep the old figures on screen */ }
+  else cfYearSetStatus(y.state === 'failed' ? `Refresh failed: ${y.error}` : `${rows.filter((r) => r.kind === 'actual').length - 1} full months from Xero plus this month so far${buckets.length ? `, then the ${scenName.toLowerCase()} case forecast` : ' (forecast still loading)'}`, y.state === 'failed');
+  cfDrawYearChart(rows);
+
+  const money = (v) => (Math.abs(v) >= 0.5 ? cfMoney(v) : '—');
+  const label = (r) => {
+    const base = cfMonthLabel(r.month);
+    return r.partial ? `${base} <span class="cfx-hint">${r.kind === 'actual' ? 'so far' : 'rest of month'}</span>` : base;
+  };
+  const F = [['online', false], ['wholesale', false], ['otherIn', false], ['totalIn', true], ['stock', false], ['cards', false], ['otherOut', false], ['totalOut', true], ['net', true], ['closing', true]];
+  const cell = (r, f, strong) => {
+    const v = r[f];
+    const neg = (f === 'net' || f === 'closing') && v < 0;
+    const ly = r.lastYear ? `<div class="cfx-ly">LY ${money(r.lastYear[f])}</div>` : '';
+    return `<td class="${strong ? 'cfx-strong ' : ''}${neg ? 'cfx-neg' : ''}${f === 'totalIn' || f === 'stock' || f === 'net' ? ' cfx-gap' : ''}">${money(v)}${ly}</td>`;
+  };
+  let html = '<thead><tr><th>Month</th><th>Online</th><th>Wholesale</th><th>Other in</th><th class="cfx-gap-h">Total in</th><th>Stock payments</th><th>Amex payments</th><th>Other out</th><th>Total out</th><th class="cfx-gap-h">Net cash</th><th>Closing cash</th></tr></thead><tbody>';
+  const section = (title) => `<tr class="cfx-sec"><td colspan="11">${title}</td></tr>`;
+  const totalRow = (name, rs) => { const t = CFH.totals(rs); return `<tr class="cfx-total"><td>${name}</td>${F.map(([f]) => `<td class="${(f === 'net' || f === 'closing') && t[f] < 0 ? 'cfx-neg' : ''}">${money(t[f])}</td>`).join('')}</tr>`; };
+  const actual = rows.filter((r) => r.kind === 'actual'), forecast = rows.filter((r) => r.kind === 'forecast');
+  html += section('Last 12 months — actual (from Xero)');
+  for (const r of actual) html += `<tr class="cfx-actual"><td>${label(r)}</td>${F.map(([f, s]) => cell(r, f, s)).join('')}</tr>`;
+  html += totalRow('Last 12 full months', actual.filter((r) => !r.partial));
+  if (forecast.length) {
+    html += section(`Next 12 months — forecast (${cfEsc(scenName)} case) · LY = the same month last year`);
+    for (const r of forecast) html += `<tr class="cfx-fc"><td>${label(r)}</td>${F.map(([f, s]) => cell(r, f, s)).join('')}</tr>`;
+    html += totalRow('Next 12 months', forecast);
+  }
+  table.innerHTML = html + '</tbody>';
+
+  const memo = y.months.filter((m) => !m.partial);
+  const mk = memo.reduce((a, m) => a + m.memo.cardMarketing, 0), mo = memo.reduce((a, m) => a + m.memo.cardOther, 0);
+  const bits = [
+    'Total cash in, total cash out and closing cash are straight from Xero\'s bank summary. Online, Wholesale, Stock payments and Amex payments are worked out from the transactions behind them; Other in / Other out are whatever is left (loan money, owner money, wages, tax, drawings, anything paid direct), so every row adds up.',
+    `Amex payments are what left the bank to pay the cards — card spend only counts then (charged to the cards over the last 12 months: marketing ${cfMoney(mk)}, everything else ${cfMoney(mo)}).`,
+    'In the forecast, Other out is marketing + other cash out less card spend that is paid later through the Amex payments.',
+  ];
+  if (y.warnings.length) bits.push('Check: ' + y.warnings.join('; ') + '.');
+  note.innerHTML = bits.map(cfEsc).join('<br>');
+}
+
+function cfDrawYearChart(rows) {
+  const canvas = document.getElementById('cfYearChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (cf.year.chart) { cf.year.chart.destroy(); cf.year.chart = null; }
+  if (!rows.length || canvas.offsetParent === null) return; // tab hidden — drawn when the tab is shown again
+  const isFc = rows.map((r) => r.kind === 'forecast');
+  const firstFc = isFc.indexOf(true);
+  const labels = rows.map((r) => (r.partial && r.kind === 'forecast' ? '' : cfMonthLabel(r.month)));
+  const fullTitle = (r) => `${cfMonthLabel(r.month)}${r.partial ? (r.kind === 'actual' ? ' so far' : ' rest of month') : ''} (${r.kind})`;
+  const shade = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+  const bar = (label, key, hex) => ({ type: 'bar', label, data: rows.map((r) => Math.round(r[key])), backgroundColor: isFc.map((f) => shade(hex, f ? 0.38 : 0.9)), borderRadius: 3, order: 2 });
+  cf.year.chart = new Chart(canvas.getContext('2d'), {
+    data: {
+      labels,
+      datasets: [
+        bar('Cash in', 'totalIn', '#2e9e6b'),
+        bar('Cash out', 'totalOut', '#d0021b'),
+        { type: 'line', label: 'Closing cash', data: rows.map((r) => Math.round(r.closing)), borderColor: '#16181c', backgroundColor: '#16181c', borderWidth: 2, pointRadius: 3, tension: 0.25, order: 1,
+          segment: { borderDash: (ctx) => (firstFc >= 0 && ctx.p1DataIndex >= firstFc ? [6, 5] : undefined) } },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { title: (items) => fullTitle(rows[items[0].dataIndex]), label: (c) => `${c.dataset.label}: ${cfMoney(c.parsed.y)}` } },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: false, font: { size: 11 } } },
+        y: { ticks: { callback: (v) => cfMoneyCompact(v), font: { size: 11 } }, grid: { color: '#eeeeea' } },
+      },
+    },
+  });
+}
+
 async function loadCashflowData(force) {
   if (cf.loading) return;
-  if (!force && cf.result && cf.updatedAt && Date.now() - cf.updatedAt.getTime() < CF_REFRESH_TTL_MS) { cfRenderMain(); return; }
+  if (!force && cf.result && cf.updatedAt && Date.now() - cf.updatedAt.getTime() < CF_REFRESH_TTL_MS) { cfRenderMain(); cfLoadYear(false); return; }
   cf.loading = true;
   const btn = document.getElementById('cfRefreshBtn');
   btn.disabled = true;
@@ -6913,6 +7125,7 @@ async function loadCashflowData(force) {
     await Promise.all(later);
     cf.updatedAt = new Date();
     cfRefresh();
+    cfLoadYear(false); // last year's months — after the forecast's own reads, so the two don't fight over Xero's rate limit
   } catch (err) {
     cf.src.xero = `Failed to load: ${err.message}`;
     document.getElementById('cfStatus').textContent = cf.src.xero;
