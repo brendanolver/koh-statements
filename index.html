@@ -978,6 +978,8 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #amexView .ax-kpi-sub { font-size: 12px; color: var(--muted); margin-top: 7px; min-height: 15px; }
 #amexView .ax-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 #amexView .ax-pushstatus { font-size: 13px; color: var(--muted); }
+#amexView .ax-gate { font-size: 13px; font-weight: 500; color: #7a5a00; background: #fff8e6; border: 1px solid #f0dba8; border-radius: 99px; padding: 4px 12px; }
+#amexView .ax-gate:empty { display: none; }
 #amexView .ax-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 8px 16px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.05); overflow-x: auto; }
 #amexView table.ax-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 #amexView table.ax-table th { text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 12px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -1004,6 +1006,10 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #amexView .ax-badge.maybe { background: #fff2cc; color: #7a5a00; }
 #amexView .ax-badge.payment { background: #eef0f3; color: #5b6470; }
 #amexView .ax-badge.approved { background: #e1eafd; color: #1d4ed8; }
+#amexView .ax-badge.ax-tog { cursor: pointer; user-select: none; }
+#amexView .ax-badge.new.ax-tog:hover { background: #cfe6dd; }
+#amexView .ax-badge.approved.ax-tog:hover { background: #c9d9fb; }
+#amexView .ax-badge.ax-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 #amexView .ax-badge.done { background: #d9f0e1; color: #14602f; }
 #amexView .ax-badge.err { background: #fde3e0; color: #8a1f14; white-space: normal; }
 #amexView .ax-note { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
@@ -1706,6 +1712,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <button class="primary" id="axPushBtn" onclick="axPush()">Push to Xero</button>
       <button id="axCsvBtn" onclick="axDownloadStatementCsv()">Download Xero statement CSV</button>
       <span class="ax-pushstatus" id="axPushStatus"></span>
+      <span class="ax-gate" id="axGate"></span>
     </div>
     <div class="ax-card"><table class="ax-table" id="axTable"></table></div>
     <div class="ax-note" id="axNote"></div>
@@ -7663,7 +7670,7 @@ async function axPickFile(file) {
   ax.fileName = file.name || 'Amex.csv';
   ax.sort = { col: null, dir: 1 };
   AMX.applyRules(ax.rows, ax.rules);
-  for (const r of ax.rows) { r.status = r.kind === 'payment' ? 'payment' : 'new'; r.selected = false; r.approved = false; r.result = null; }
+  for (const r of ax.rows) { r.status = r.kind === 'payment' ? 'payment' : 'new'; r.selected = false; r.approved = !!r.autoApprove; r.result = null; }
   const warn = document.getElementById('axWarn');
   if (parsed.errors.length) {
     warn.innerHTML = cfEsc(`${parsed.errors.length} line${parsed.errors.length === 1 ? '' : 's'} in the file couldn't be read and ${parsed.errors.length === 1 ? 'was' : 'were'} left out: `) + cfEsc(parsed.errors.slice(0, 3).join(' ')) + (parsed.errors.length > 3 ? ' …' : '');
@@ -7740,6 +7747,8 @@ function axSelectAll(on) {
 }
 
 const axCanSelect = (r) => !(r.result && r.result.ok) && (r.status === 'new' || r.status === 'maybe');
+const axNeedsApproval = (r) => r.status === 'new' && !r.approved;
+const axGateText = (n) => `${n} ticked line${n === 1 ? '' : 's'} still need${n === 1 ? 's' : ''} approving — click the New tag on each (or untick it) before you can push`;
 
 // ── Account search box ───────────────────────────────────────────────
 // One floating list shared by every row (the table scrolls sideways, so a list inside it would be clipped).
@@ -7885,7 +7894,7 @@ function axViewOrder() {
 }
 
 // ── Drawing the tab ──────────────────────────────────────────────────
-function axBadge(r) {
+function axBadge(r, i) {
   if (r.result && r.result.ok) return '<span class="ax-badge done">✓ In Xero</span>';
   if (r.result && r.result.error) return `<span class="ax-badge err">${cfEsc(r.result.error)}</span>`;
   switch (r.status) {
@@ -7893,9 +7902,21 @@ function axBadge(r) {
     case 'maybe': return '<span class="ax-badge maybe" title="Xero already has an entry on this card with the same date, amount and direction that this app didn\'t create">Maybe already in Xero</span>';
     case 'payment': return '<span class="ax-badge payment" title="Card payments are already recorded in Xero as transfers from the bank account">Card payment · skipped</span>';
     default: return r.approved
-      ? '<span class="ax-badge approved" title="You\'ve changed this line (or another line from the same merchant)">Approved</span>'
-      : '<span class="ax-badge new">New</span>';
+      ? `<span class="ax-badge approved ax-tog" role="button" tabindex="0" onclick="axToggleApprove(${i})" onkeydown="axTagKey(event,${i})" title="Approved (Facebook lines start approved; other lines become approved when you change them, or click the tag). Click to un-approve.">Approved</span>`
+      : `<span class="ax-badge new ax-tog" role="button" tabindex="0" onclick="axToggleApprove(${i})" onkeydown="axTagKey(event,${i})" title="Click to mark this line as approved">New</span>`;
   }
+}
+
+// Clicking the New / Approved tag flips it, without changing the line itself (handy for lines that are fine
+// as they came). Only lines that haven't been pushed and aren't already in Xero can be flipped.
+function axToggleApprove(i) {
+  const r = ax.rows[i];
+  if (!r || axLocked(r) || r.status !== 'new') return;
+  r.approved = !r.approved;
+  axRender();
+}
+function axTagKey(e, i) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); axToggleApprove(i); }
 }
 
 function axRender() {
@@ -7908,12 +7929,13 @@ function axRender() {
   const done = rows.filter((r) => r.result && r.result.ok).length;
   const inXero = rows.filter((r) => r.status === 'imported' || r.status === 'maybe').length;
   const suspense = sel.filter((r) => r.account === AMX.FALLBACK_RULE.account).length;
-  const approved = sel.filter((r) => r.approved).length;
+  const needs = sel.filter(axNeedsApproval).length;
+  const approved = sel.length - needs;
 
   const kpi = (label, value, sub) => `<div class="ax-kpi"><div class="ax-kpi-label">${label}</div><div class="ax-kpi-value">${value}</div><div class="ax-kpi-sub">${sub || ''}</div></div>`;
   document.getElementById('axKpis').innerHTML =
     kpi('In the file', sum.total, `${AMX.isoToDmy(from)} – ${AMX.isoToDmy(to)}`) +
-    kpi('Ticked to push', sel.length, ax.checked || done ? `${axMoney(selCents / 100)} net · ${approved} approved` + (suspense ? ` · ${suspense} in Suspense` : '') : 'waiting on the Xero check') +
+    kpi('Ticked to push', sel.length, ax.checked || done ? `${axMoney(selCents / 100)} net · ${approved} of ${sel.length} approved` + (suspense ? ` · ${suspense} in Suspense` : '') : 'waiting on the Xero check') +
     kpi('Already in Xero', inXero, `${sum.imported} matched exactly · ${sum.maybe} look the same`) +
     kpi('Card payments skipped', sum.payment, 'already transfers in Xero');
 
@@ -7937,12 +7959,14 @@ function axRender() {
       `<td><input type="text" class="ax-acct" data-i="${i}" value="${cfEsc(axAcctLabel(r.account))}" ${dis} autocomplete="off" spellcheck="false" placeholder="Type to search…" onfocus="axAcctFocus(this)" oninput="axAcctInput(this)" onkeydown="axAcctKey(event,this)" onblur="axAcctBlur(this)"></td>` +
       `<td><select class="ax-tax" ${dis} onchange="axSetRow(${i},'tax',this.value)">${AMX.TAX_OPTIONS.map((t) => `<option${t === r.tax ? ' selected' : ''}>${cfEsc(t)}</option>`).join('')}</select></td>` +
       `<td class="r ${r.cents < 0 ? 'ax-credit' : ''}">${r.cents < 0 ? '−' : ''}${axMoney(r.amount)}</td>` +
-      `<td>${axBadge(r)}</td></tr>`;
+      `<td>${axBadge(r, i)}</td></tr>`;
   }
   document.getElementById('axTable').innerHTML = body + '</tbody>';
 
   const btn = document.getElementById('axPushBtn');
-  btn.disabled = ax.pushing || ax.checking || !ax.checked || sel.length === 0;
+  btn.disabled = ax.pushing || ax.checking || !ax.checked || sel.length === 0 || needs > 0;
+  btn.title = needs > 0 ? axGateText(needs) : '';
+  axSet('axGate', !ax.pushing && ax.checked && needs > 0 ? axGateText(needs) : '');
   btn.textContent = ax.pushing ? 'Pushing…' : sel.length ? `Push ${sel.length} to Xero` : 'Push to Xero';
   document.getElementById('axCsvBtn').disabled = ax.pushing;
   document.getElementById('axRecheckBtn').disabled = ax.checking || ax.pushing;
@@ -7960,7 +7984,7 @@ function axRender() {
     'Each ticked line becomes a Spend Money entry on American Express® Platinum#001 (a refund becomes Receive Money), dated the transaction date, with the description as shown. ' +
     'Everything except Facebook starts as GST on Expenses (Facebook: GST Free Expenses). Lines on 850 Suspense are a holding place — recode them here before pushing, or in Xero afterwards — but they carry GST until you do. ' +
     'Putting a line on a drawings (equity) account switches its tax to BAS Excluded, because Xero doesn\'t allow GST on those. ' +
-    'Changing a line\'s account, tax or contact marks it Approved and is remembered for that merchant (every line from it changes together). Card payments are left out because the transfers from the bank account are already in Xero. ' +
+    'Facebook lines start as Approved; any other line becomes Approved when you change its account, tax or contact (that change is remembered for the merchant, and every line from it changes together), or when you click its New tag. Every ticked line has to be Approved before the push button works. Card payments are left out because the transfers from the bank account are already in Xero. ' +
     'Pushing the same file twice is safe: lines already in Xero are recognised and skipped. Click a column heading to sort.');
   axRenderRules();
 }
@@ -7981,6 +8005,8 @@ async function axPush() {
   if (ax.pushing || ax.checking || !ax.checked) return;
   const todo = ax.rows.filter((r) => r.selected && axCanSelect(r)).sort((a, b) => a.date.localeCompare(b.date));
   if (!todo.length) return;
+  const unapproved = todo.filter(axNeedsApproval).length;
+  if (unapproved) { axSet('axPushStatus', ''); axSet('axGate', axGateText(unapproved)); return; }
   const net = todo.reduce((t, r) => t + r.cents, 0) / 100;
   const suspense = todo.filter((r) => r.account === AMX.FALLBACK_RULE.account).length;
   const msg = `Push ${todo.length} entr${todo.length === 1 ? 'y' : 'ies'} (${axMoney(net)} net) into Xero on American Express® Platinum#001?\n\n` +

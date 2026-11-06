@@ -16,9 +16,10 @@
   const CARD_ACCOUNT_CODE = '810';
   const FALLBACK_RULE = { account: '850', tax: 'GST on Expenses' };
   // Starter rules, keyed by the upper-case text they look for in the description. Anything the user changes
-  // in the table is saved on top of these (see applyRules).
+  // in the table is saved on top of these (see applyRules). `approve: true` means lines matching the rule
+  // arrive already marked Approved (Facebook's 57-a-month ad charges are all coded the same way).
   const DEFAULT_RULES = {
-    'FACEBK': { contact: 'Facebook', account: '401', tax: 'GST Free Expenses' },
+    'FACEBK': { contact: 'Facebook', account: '401', tax: 'GST Free Expenses', approve: true },
   };
   const TAX_OPTIONS = ['GST on Expenses', 'GST Free Expenses', 'BAS Excluded'];
 
@@ -222,6 +223,7 @@
       r.tax = (rule && rule.tax) || FALLBACK_RULE.tax;
       r.contact = (rule && rule.contact) || titleCase(r.merchant) || 'American Express';
       r.ruled = !!rule;
+      r.autoApprove = !!(rule && rule.approve);
     }
     return rows;
   }

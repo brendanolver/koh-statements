@@ -71,6 +71,15 @@ test('Facebook defaults to Advertising - Social Media / GST Free; everything els
   const w = parsed.rows[2];
   assert.deepStrictEqual([w.account, w.tax, w.contact, w.ruled], ['850', 'GST on Expenses', 'Woolworths', false]);
 });
+test('Facebook lines start approved; other lines don\'t, even when a saved rule changes Facebook\'s account', () => {
+  A.applyRules(parsed.rows, null);
+  assert.deepStrictEqual(parsed.rows.filter((r) => r.autoApprove).map((r) => r.merchant), ['FACEBK', 'FACEBK']);
+  assert.strictEqual(parsed.rows.filter((r) => !r.autoApprove).length, parsed.rows.length - 2);
+  A.applyRules(parsed.rows, { FACEBK: { account: '400' }, WOOLWORTHS: { account: '480' } });
+  assert.deepStrictEqual(parsed.rows.filter((r) => r.autoApprove).map((r) => r.account), ['400', '400'], 'a partial saved rule keeps the built-in approval');
+  assert.strictEqual(parsed.rows.find((r) => r.merchant === 'WOOLWORTHS').autoApprove, false);
+  A.applyRules(parsed.rows, null);
+});
 test('a saved rule can hold just some fields; the rest come from the built-in rule, then the fallback', () => {
   A.applyRules(parsed.rows, { FACEBK: { account: '400' }, WOOLWORTHS: { tax: 'GST Free Expenses' } });
   const fb = parsed.rows[0];
