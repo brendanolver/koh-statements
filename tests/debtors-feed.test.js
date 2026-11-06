@@ -65,6 +65,10 @@ const submittedInvoices = [
 
   const rows = buildDebtors({ openInvoices, submittedInvoices, creditNotes, today });
   assert.strictEqual(JSON.stringify(bucketLabels(today)), JSON.stringify(clientLabels), 'bucket labels differ');
+  // Short month labels (SEP26, not SEPTEMBER 2026) — including across a year boundary.
+  assert.deepStrictEqual(bucketLabels('2026-11-06'), ['NOV26', 'OCT26', 'SEP26', 'AUG26', 'OLDER']);
+  assert.deepStrictEqual(bucketLabels('2026-02-10'), ['FEB26', 'JAN26', 'DEC25', 'NOV25', 'OLDER']);
+  assert.deepStrictEqual(Array.from(clientLabels, (l) => l.length), [5, 5, 5, 5, 5], 'client labels are all MMMYY / OLDER'); // Array.from: the labels come out of the test's vm sandbox
 
   const byId = (arr) => Object.fromEntries(arr.map((r) => [r.contactId, r]));
   const c = byId(clientRows), s = byId(rows);

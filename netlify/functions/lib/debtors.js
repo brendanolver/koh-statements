@@ -21,7 +21,7 @@ function bucketLabels(today) {
   const labels = [];
   for (let i = 0; i < 4; i++) {
     const d = new Date(Date.UTC(y, m - i, 1));
-    labels.push(`${MONTH_NAMES[d.getUTCMonth()].toUpperCase()} ${d.getUTCFullYear()}`);
+    labels.push(`${MONTH_NAMES[d.getUTCMonth()].slice(0, 3).toUpperCase()}${String(d.getUTCFullYear()).slice(-2)}`); // SEP26
   }
   labels.push('OLDER');
   return labels;

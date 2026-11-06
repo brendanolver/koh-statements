@@ -2374,8 +2374,10 @@ async function fetchContactsByIds(ids) {
 // Matches the original debtors-stop-supply tool exactly: buckets by
 // INVOICE DATE's calendar month (not due date), with dynamic month-name
 // columns — verified against real data (FootLocker invoices dated 7 Jul
-// 2026 landed in "JULY 2026", invoices dated 11 Jun 2026 in "JUNE 2026").
-// Buckets are an array [currentMonth, -1mo, -2mo, -3mo, Older].
+// 2026 landed in the July 2026 column, invoices dated 11 Jun 2026 in June 2026).
+// Buckets are an array [currentMonth, -1mo, -2mo, -3mo, Older]. Column labels are
+// abbreviated (SEP26, AUG26…) so the cards and table headers don't get crammed.
+// netlify/functions/lib/debtors.js builds the same labels for the WMS feed — keep in step.
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 let AGING_BUCKET_LABELS = [];
 
@@ -2383,7 +2385,7 @@ function buildAgingBucketLabels(asOf) {
   const labels = [];
   for (let i = 0; i < 4; i++) {
     const d = new Date(asOf.getFullYear(), asOf.getMonth() - i, 1);
-    labels.push(`${MONTH_NAMES[d.getMonth()].toUpperCase()} ${d.getFullYear()}`);
+    labels.push(`${MONTH_NAMES[d.getMonth()].slice(0, 3).toUpperCase()}${String(d.getFullYear()).slice(-2)}`);
   }
   labels.push('OLDER');
   return labels;
