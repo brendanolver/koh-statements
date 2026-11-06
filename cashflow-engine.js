@@ -35,7 +35,11 @@
   const LINES = [...LINES_IN, ...LINES_OUT];
   const LINE_LABELS = { online: 'Online sales', wholesale: 'Wholesale', otherIn: 'Other cash in', stock: 'Stock payments', marketing: 'Marketing', otherOut: 'Other cash out', cards: 'Amex payments', cardCredit: 'Charged to Amex (paid later)' };
   // Which scenario percentage moves which line (see DEFAULT_SETTINGS.scenarios).
-  const LINE_PCT_KEY = { online: 'online', wholesale: 'wholesale', marketing: 'out', otherOut: 'out' };
+  const LINE_PCT_KEY = { online: 'online', wholesale: 'wholesale', stock: 'stock', marketing: 'out', otherOut: 'out' };
+  // Lines that can be planned from last year's same month (settings flag that switches each one off).
+  // Online already works from last year's Shopify sales, and Other cash in is mostly one-offs (loan money,
+  // owner money), so neither is in this list.
+  const LY_LINES = { wholesale: 'lyWholesale', stock: 'lyStock', marketing: 'lyMarketing', otherOut: 'lyOtherOut' };
 
   const DEFAULT_SETTINGS = {
     defaultTermsDays: 30,     // wholesale customers we have no Xero payment-terms history for
@@ -52,11 +56,15 @@
     shipLateDays: 7,          // open orders already past their due date are assumed to ship this many days from today
     cashThreshold: 100000,    // "Cashflow Watch" warns when forecast cash drops below this
     onlineConversion: null,   // Shopify sales -> bank receipts; null = calibrate from Xero history
+    // Last year as the starting point: from next month on, Wholesale, Stock, Marketing and Other cash out are
+    // planned as last year's same month x (1 + the scenario %). 1 = on, 0 = off (lyOn is the master switch).
+    lyOn: 1, lyWholesale: 1, lyStock: 1, lyMarketing: 1, lyOtherOut: 1,
     scenarios: {
-      // online / wholesale / out are % changes; delay is extra days customers take to pay.
-      worst: { online: -15, wholesale: -10, out: 5, delay: 14 },
-      base: { online: 0, wholesale: 0, out: 0, delay: 0 },
-      best: { online: 15, wholesale: 5, out: -5, delay: -5 },
+      // online / wholesale / stock / out are % changes (against last year's pattern, or the system forecast
+      // where a line isn't using last year); delay is extra days customers take to pay.
+      worst: { online: -15, wholesale: -10, stock: 0, out: 5, delay: 14 },
+      base: { online: 0, wholesale: 0, stock: 0, out: 0, delay: 0 },
+      best: { online: 15, wholesale: 5, stock: 0, out: -5, delay: -5 },
     },
   };
 
@@ -159,6 +167,23 @@
     const delay = sc.delay || 0;
     const notes = { excluded: [] };
 
+    // -- Last year as the starting point: which future months are planned from last year, per line. The rest of
+    // this month keeps the usual logic (known bills and orders dominate that short stretch), and so does any
+    // month last year can't cover.
+    const ly = input.lastYear || null;
+    const m0 = monthKey(today);
+    const lyMonths = {};
+    for (const [line, flag] of Object.entries(LY_LINES)) {
+      lyMonths[line] = new Set();
+      if (!ly || !settings.lyOn || !settings[flag]) continue;
+      for (let k = 1; k <= 11; k++) {
+        const mk = addMonths(m0, k);
+        const row = ly[addMonths(mk, -12)];
+        if (row && Number.isFinite(row[line])) lyMonths[line].add(mk);
+      }
+    }
+    const inLy = (line, d) => lyMonths[line] && lyMonths[line].has(monthKey(d));
+
     // -- Wholesale: Xero receivables (issued invoices; scenario only changes timing)
     // Foreign-currency receivables/orders (NZD wholesale) are converted to AUD: an invoice's own
     // Xero rate when it has one, else the NZD/USD setting or a rate seen in Xero.
@@ -241,7 +266,8 @@
         const start = addDays(today, 1 + w * 7);
         if (daysBetween(today, start) > input.horizonDays) break;
         const days = [];
-        for (let k = 0; k < 7; k++) { const d = addDays(start, k); if (daysBetween(today, d) <= input.horizonDays) days.push(d); }
+        for (let k = 0; k < 7; k++) { const d = addDays(start, k); if (daysBetween(today, d) <= input.horizonDays && !inLy('stock', d)) days.push(d); }
+        if (!days.length) continue;
         const target = h.stockPerWeek * (days.length / 7);
         const known = items.filter((it) => it.line === 'stock' && it.date >= days[0] && it.date <= days[days.length - 1]).reduce((a, it) => a + it.amount, 0);
         const gap = target - known;
@@ -251,8 +277,33 @@
 
     // -- Run-rate operating spend from Xero history (wages, rent, tax, cards…)
     const outMul = 1 + (sc.out || 0) / 100;
-    if (h.marketingPerWeek > 0) for (let i = 1; i <= input.horizonDays; i++) push('marketing', addDays(today, i), (h.marketingPerWeek / 7) * outMul, 'Recent marketing spend', 'Xero', 'assumption', { method: 'Xero card/bank spend, last 13 weeks' });
-    if (h.otherOutPerWeek > 0) for (let i = 1; i <= input.horizonDays; i++) push('otherOut', addDays(today, i), (h.otherOutPerWeek / 7) * outMul, 'Recent operating spend', 'Xero', 'assumption', { method: 'Xero cash spent less bills, marketing & transfers, last 13 weeks' });
+    if (h.marketingPerWeek > 0) for (let i = 1; i <= input.horizonDays; i++) if (!inLy('marketing', addDays(today, i))) push('marketing', addDays(today, i), (h.marketingPerWeek / 7) * outMul, 'Recent marketing spend', 'Xero', 'assumption', { method: 'Xero card/bank spend, last 13 weeks' });
+    if (h.otherOutPerWeek > 0) for (let i = 1; i <= input.horizonDays; i++) if (!inLy('otherOut', addDays(today, i))) push('otherOut', addDays(today, i), (h.otherOutPerWeek / 7) * outMul, 'Recent operating spend', 'Xero', 'assumption', { method: 'Xero cash spent less bills, marketing & transfers, last 13 weeks' });
+
+    // -- Last year's pattern: for each planned month, the plan is last year's same month x (1 + the scenario %).
+    // Anything already known for that line and month (open invoices and orders, bills and POs, ATO bills) counts
+    // towards it, so only the shortfall is added — spread evenly over the month — and nothing is counted twice.
+    // A month where the known amounts already exceed the plan keeps the known amounts.
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthLabel = (mk) => `${MON[Number(mk.slice(5)) - 1]} ${mk.slice(2, 4)}`;
+    notes.lastYear = {};
+    for (const line of Object.keys(LY_LINES)) {
+      if (!lyMonths[line].size) continue;
+      notes.lastYear[line] = [...lyMonths[line]].sort();
+      const pct = sc[LINE_PCT_KEY[line]] || 0;
+      for (const mk of notes.lastYear[line]) {
+        const lyMk = addMonths(mk, -12);
+        const plan = ly[lyMk][line] * (1 + pct / 100);
+        const known = items.filter((it) => it.line === line && monthKey(it.date) === mk).reduce((a, it) => a + it.amount, 0);
+        const gap = plan - known;
+        if (!(gap > 0)) continue;
+        const nDays = Number(lastDayOfMonth(mk + '-01').slice(8));
+        for (let day = 1; day <= nDays; day++) {
+          push(line, `${mk}-${String(day).padStart(2, '0')}`, gap / nDays, `Last year's ${monthLabel(lyMk)} pattern (${pct >= 0 ? '+' : '−'}${Math.abs(pct)}%)`, 'Last year', 'assumption',
+            { method: `Last year's ${monthLabel(lyMk)} ${LINE_LABELS[line].toLowerCase()} x (1 ${pct >= 0 ? '+' : '−'} ${Math.abs(pct)}%) = ${Math.round(plan).toLocaleString('en-AU')}, less ${Math.round(known).toLocaleString('en-AU')} already known` });
+        }
+      }
+    }
 
     return { items, notes };
   }

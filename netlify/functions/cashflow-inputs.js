@@ -32,7 +32,7 @@ function sanitise(doc) {
   const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po|card):[\w:-]{1,120}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);
   if (dates.length) out.payDates = Object.fromEntries(dates);
   const st = doc && typeof doc.settings === 'object' && doc.settings ? doc.settings : {};
-  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'nzdPerAud', 'cashThreshold', 'onlineConversion', 'lumiLoanBalance']) {
+  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'nzdPerAud', 'cashThreshold', 'onlineConversion', 'lumiLoanBalance', 'lyOn', 'lyWholesale', 'lyStock', 'lyMarketing', 'lyOtherOut']) {
     const n = Number(st[k]);
     if (st[k] !== undefined && st[k] !== null && st[k] !== '' && Number.isFinite(n)) out.settings[k] = n;
   }
@@ -51,7 +51,7 @@ function sanitise(doc) {
       const src = st.scenarios[s];
       if (!src || typeof src !== 'object') continue;
       out.settings.scenarios[s] = {};
-      for (const k of ['online', 'wholesale', 'out', 'delay']) {
+      for (const k of ['online', 'wholesale', 'stock', 'out', 'delay']) {
         const n = Number(src[k]);
         if (src[k] !== undefined && src[k] !== '' && Number.isFinite(n)) out.settings.scenarios[s][k] = n;
       }

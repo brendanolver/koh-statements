@@ -640,6 +640,10 @@
 #cashflowView .cfx-b-Apparel { background: #f3e8fb; color: #7a2fa8; }
 #cashflowView .cfx-b-Shopify { background: #e3f4e6; color: #1c6b2f; }
 #cashflowView .cfx-b-Manual { background: #fff1d6; color: #925a00; }
+#cashflowView .cfx-b-Last { background: #e8eef5; color: #3b5675; }
+#cashflowView .cfx-chk { display: flex; align-items: center; gap: 7px; font-size: 13px; padding: 3px 0; cursor: pointer; }
+#cashflowView .cfx-chk.off { color: #9aa0a8; cursor: default; }
+#cashflowView .cfx-chk input { width: 15px; height: 15px; accent-color: var(--accent); }
 #cashflowView .cfx-b-status { background: #f1f1ee; color: var(--muted); font-weight: 500; }
 #cashflowView .cfx-watch-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; font-size: 13.5px; line-height: 1.45; border-bottom: 1px solid #f1f1ee; }
 #cashflowView .cfx-watch-item:last-child { border-bottom: none; }
@@ -6444,7 +6448,18 @@ function cfBuildInput() {
     shopify: cf.shopify && cf.shopify.daily && Object.keys(cf.shopify.daily).length ? { daily: cf.shopify.daily } : null,
     history: cf.history ? { stockPerWeek: cf.history.stockPerWeek, onlineReceiptsPerWeek: cf.history.receiptsPerWeek, otherOutPerWeek: cf.history.otherOutPerWeek, marketingPerWeek: cf.history.marketingPerWeek, conversion: conv } : null,
     overrides: cf.inputs.overrides || {}, payDates: cf.inputs.payDates || {}, settings,
+    lastYear: cfLastYearInput(),
   };
+}
+
+// Last year's months in the forecast engine's own terms (see cashflow-history.js), for planning from last year.
+// Only complete months are used; null until the Year view has read them from Xero.
+function cfLastYearInput() {
+  const ms = cf.year && cf.year.months;
+  if (!ms) return null;
+  const out = {};
+  for (const m of ms) if (!m.partial && m.eng) out[m.month] = { wholesale: m.eng.wholesale, stock: m.eng.stock, marketing: m.eng.marketing, otherOut: m.eng.otherOut };
+  return Object.keys(out).length ? out : null;
 }
 
 // Shopify gross sales -> bank receipts. Calibrated from the last 13 weeks of
@@ -6779,7 +6794,7 @@ function cfRenderInputs() {
   const m0 = CFE.util.monthKey(r.today);
   const months = Array.from({ length: 12 }, (_, i) => CFE.util.addMonths(m0, i));
   let html = '<thead><tr><th></th>' + months.map((m, i) => `<th>${cfMonthLabel(m)}${i === 0 ? ' (rest)' : ''}</th>`).join('') + '</tr></thead><tbody>';
-  const srcName = (s) => ({ 'Apparel Magic': 'Apparel Magic', Xero: 'Xero', Shopify: 'Shopify', Manual: 'Manual' }[s] || '');
+  const srcName = (s) => ({ 'Apparel Magic': 'Apparel Magic', Xero: 'Xero', Shopify: 'Shopify', Manual: 'Manual', 'Last year': 'Last year' }[s] || '');
   // Growth targets set for the year: online sales vs the same month last year.
   const lyMonth = (mk) => { let t = 0; const ly = CFE.util.addMonths(mk, -12); for (const d in ((cf.shopify && cf.shopify.daily) || {})) if (d.startsWith(ly)) t += cf.shopify.daily[d][0]; return t; };
   const tg = (cf.inputs.targets && cf.inputs.targets.online) || {};
@@ -6805,9 +6820,11 @@ function cfRenderInputs() {
 
   const st = r.settings;
   const setRow = (key, label, val, unit) => `<div class="cfx-set-row"><span>${label}</span><span><input type="text" inputmode="decimal" data-set="${key}" value="${val === null || val === undefined ? '' : val}" onchange="cfOnSetting(this)"> ${unit || ''}</span></div>`;
-  const scenRow = (name) => `<tr><td>${CF_SCENS.find((x) => x[0] === name)[1]}</td>${['online', 'wholesale', 'out', 'delay'].map((k) => `<td><input type="text" inputmode="decimal" data-scen="${name}" data-key="${k}" value="${st.scenarios[name][k]}" onchange="cfOnScenario(this)"></td>`).join('')}</tr>`;
+  const lyFlag = (key, label, off) => `<label class="cfx-chk${off ? ' off' : ''}"><input type="checkbox" data-set="${key}" ${st[key] ? 'checked' : ''} ${off ? 'disabled' : ''} onchange="cfOnFlag(this)"> ${label}</label>`;
+  const scenRow = (name) => `<tr><td>${CF_SCENS.find((x) => x[0] === name)[1]}</td>${['online', 'wholesale', 'stock', 'out', 'delay'].map((k) => `<td><input type="text" inputmode="decimal" data-scen="${name}" data-key="${k}" value="${st.scenarios[name][k]}" onchange="cfOnScenario(this)"></td>`).join('')}</tr>`;
   document.getElementById('cfSettings').innerHTML =
-    `<div><h4>Scenario assumptions</h4><table class="cfx-table cfx-scen"><thead><tr><th></th><th>Online %</th><th>Wholesale orders %</th><th>Spend %</th><th>Pay delay (days)</th></tr></thead><tbody>${['worst', 'base', 'best'].map(scenRow).join('')}</tbody></table><div class="cfx-hint" style="margin-top:6px;line-height:1.5">Online % moves online receipts (system or manual). Wholesale orders % trims/lifts unshipped Apparel Magic orders. Spend % moves marketing and other cash out. Pay delay shifts when customers pay.</div></div>` +
+    `<div style="grid-column:1/-1"><h4>Scenario assumptions</h4><table class="cfx-table cfx-scen" style="width:auto"><thead><tr><th></th><th>Online %</th><th>Wholesale %</th><th>Stock %</th><th>Spend %</th><th>Pay delay (days)</th></tr></thead><tbody>${['worst', 'base', 'best'].map(scenRow).join('')}</tbody></table><div class="cfx-hint" style="margin-top:6px;line-height:1.5;max-width:760px">With "Plan from last year" on (next box), Wholesale %, Stock % and Spend % are the growth on last year's same month — Spend % covers marketing and other cash out. Online % moves online receipts (system or manual). Pay delay shifts when customers pay.</div></div>` +
+     `<div><h4>Plan from last year</h4>${lyFlag('lyOn', 'Start from last year\'s same month', false)}<div style="margin:4px 0 4px 22px">${lyFlag('lyWholesale', 'Wholesale', !st.lyOn)}${lyFlag('lyStock', 'Stock payments', !st.lyOn)}${lyFlag('lyMarketing', 'Marketing', !st.lyOn)}${lyFlag('lyOtherOut', 'Other cash out', !st.lyOn)}</div><div class="cfx-hint" style="margin-top:6px;line-height:1.5">From next month on, each ticked line is last year's same month × (1 + the % for that case in the table). Invoices, orders, bills and POs already in Xero / Apparel Magic count towards it, so nothing is counted twice, and a number you type in the grid above still wins. The rest of this month, Online and Other cash in work as before; a month last year can't cover uses the recent average.</div></div>` +
     `<div><h4>Amex statements</h4>${(cf.xero.cards.length ? cf.xero.cards : []).map((c) => { const t = (st.cardTerms && st.cardTerms[c.last4]) || st.cardDefault; const f = (k, v) => `<input type="text" inputmode="numeric" data-last4="${cfEsc(c.last4)}" data-key="${k}" value="${v}" onchange="cfOnCardTerm(this)">`; return `<div class="cfx-set-row"><span>${cfEsc(c.name.replace('American Express®', 'Amex'))} ···${cfEsc(c.last4)}</span></div><div class="cfx-set-row"><span>closes on day</span><span>${f('closeDay', t.closeDay)}</span></div><div class="cfx-set-row"><span>due on day</span><span>${f('dueDay', t.dueDay)}</span></div><div class="cfx-set-row"><span>due in month</span><span><select data-last4="${cfEsc(c.last4)}" data-key="dueMonthOffset" onchange="cfOnCardTerm(this)"><option value="0"${t.dueMonthOffset ? '' : ' selected'}>same as close</option><option value="1"${t.dueMonthOffset ? ' selected' : ''}>month after close</option></select></span></div>`; }).join('') || '<div class="cfx-hint">No credit cards found in Xero.</div>'}<div class="cfx-hint" style="margin-top:6px;line-height:1.5">Card spend accrues on the card and leaves the bank when the statement is due.</div></div>` +
     `<div><h4>Timing &amp; thresholds</h4>` +
     setRow('cashThreshold', 'Warn if cash falls below', st.cashThreshold, '$') +
@@ -6860,6 +6877,10 @@ function cfOnCardTerm(el) {
   st.cardTerms = st.cardTerms || {};
   (st.cardTerms[el.dataset.last4] = st.cardTerms[el.dataset.last4] || {})[el.dataset.key] = v;
   cfRecompute(); cfRenderMain(); cfSaveInputsDebounced();
+}
+function cfOnFlag(el) {
+  cf.inputs.settings[el.dataset.set] = el.checked ? 1 : 0;
+  cfRecompute(); cfRenderMain(); cfRenderInputs(); cfSaveInputsDebounced();
 }
 function cfOnScenario(el) {
   const v = Number(el.value);
@@ -6950,7 +6971,7 @@ async function cfLoadYear(force) {
   const finalBefore = CFE.util.addDays(today, -CF_YEAR_FINAL_DAYS);
   const isFinal = (mk) => CFH.lastDayOfMonth(mk) < finalBefore;
   let cached = {};
-  if (!force) { try { const c = JSON.parse(localStorage.getItem(CF_YEAR_KEY) || 'null'); if (c && c.v === 1 && c.sig === sig) cached = c.months || {}; } catch (e) {} }
+  if (!force) { try { const c = JSON.parse(localStorage.getItem(CF_YEAR_KEY) || 'null'); if (c && c.v === 2 && c.sig === sig) cached = c.months || {}; } catch (e) {} }
   const have = {};
   for (const mk of months) if (isFinal(mk) && cached[mk]) have[mk] = cached[mk];
   const need = months.filter((mk) => !have[mk]);
@@ -6989,9 +7010,10 @@ async function cfLoadYear(force) {
     try {
       const store = {};
       for (const m of merged) if (isFinal(m.month)) store[m.month] = m;
-      localStorage.setItem(CF_YEAR_KEY, JSON.stringify({ v: 1, sig, months: store }));
+      localStorage.setItem(CF_YEAR_KEY, JSON.stringify({ v: 2, sig, months: store }));
     } catch (e) {}
     y.months = merged; y.warnings = warnings; y.state = 'ok'; y.loadedAt = Date.now();
+    if (cf.result) cfRefresh(); // the forecast plans from last year's months, which it can only do now
   } catch (e) {
     y.state = 'failed'; y.error = e.message;
   }
@@ -7053,6 +7075,12 @@ function cfRenderYear() {
     `Amex payments are what left the bank to pay the cards — card spend only counts then (charged to the cards over the last 12 months: marketing ${cfMoney(mk)}, everything else ${cfMoney(mo)}).`,
     'In the forecast, Other out is marketing + other cash out less card spend that is paid later through the Amex payments.',
   ];
+  const lyNotes = cf.result && cf.result.scenarios[cf.scen].notes.lastYear;
+  if (lyNotes && Object.keys(lyNotes).length) {
+    const names = Object.keys(lyNotes).map((l) => CFE.LINE_LABELS[l]).join(', ');
+    const from = lyNotes[Object.keys(lyNotes)[0]][0];
+    bits.unshift(`Forecast: ${names} are planned from last year's same month × (1 + the ${scenName.toLowerCase()} case % under Forecast inputs & assumptions) from ${cfMonthLabel(from)} on. Invoices, orders and bills already in Xero count towards it. Online uses Shopify as before; the rest of this month uses the recent average.`);
+  }
   if (y.warnings.length) bits.push('Check: ' + y.warnings.join('; ') + '.');
   note.innerHTML = bits.map(cfEsc).join('<br>');
 }

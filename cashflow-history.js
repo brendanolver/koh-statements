@@ -135,6 +135,12 @@
       const supplierPaid = sum(apPay.filter((p) => inM(p) && !taxRe.test(p.contact)), (p) => p.aud);
       const stock = Math.max(0, supplierPaid - cardPaidBills);
       const otherOut = spent - stock - cardPayments;
+      // The same month in the forecast engine's own terms, which count spend when it is charged (card spend
+      // included) rather than when it leaves the bank: Stock = every supplier payment however it was paid,
+      // Marketing / Other out = direct spend from the bank plus card spend. This is what a forecast month is
+      // planned from.
+      const bankMarketing = sum(spend.filter((t) => inM(t) && bankIds.has(t.acct) && marketingRe.test(t.contact)), (t) => t.amount);
+      const cardMarketing = sum(cardSpendRows.filter((t) => marketingRe.test(t.contact)), (t) => t.amount);
 
       // Cross-check: everything we can name that left the bank, against what BankSummary says did.
       const directBankSpend = sum(spend.filter((t) => inM(t) && bankIds.has(t.acct)), (t) => t.amount);
@@ -150,8 +156,13 @@
         stock: r2(stock), cards: r2(cardPayments), otherOut: r2(otherOut), totalOut: r2(spent),
         net: r2(received - spent),
         memo: {
-          cardMarketing: r2(sum(cardSpendRows.filter((t) => marketingRe.test(t.contact)), (t) => t.amount)),
+          cardMarketing: r2(cardMarketing),
           cardOther: r2(sum(cardSpendRows.filter((t) => !marketingRe.test(t.contact)), (t) => t.amount) + cardPaidBills),
+        },
+        eng: {
+          online: r2(online), wholesale: r2(wholesale), stock: r2(supplierPaid),
+          marketing: r2(bankMarketing + cardMarketing),
+          otherOut: r2(Math.max(0, otherOut - bankMarketing + cardDirectSpend - cardMarketing)),
         },
         check: { unmatchedIn: r2(unmatchedIn), unmatchedOut: r2(unmatchedOut), noSummary: rows.length === 0 },
       });
