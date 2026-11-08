@@ -282,6 +282,7 @@
   .dtp-ok { color: #1a7a3c; } .dtp-warn { color: #b45309; } .dtp-bad { color: #d0021b; } .dtp-none { color: #9aa0a8; }
   .dtp-few { font-size: 10.5px; color: var(--muted); }
   td.td-dtp { white-space: nowrap; }
+  .dtp-note { margin-top: 8px; font-size: 11px; color: var(--muted); }
   td.td-dtp.dtp-few span { opacity: .55; }
   .stat .stat-sub { display: block; margin-top: 3px; font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
   .card-badge { font-size: 10px; padding: 2px 7px; border-radius: 3px; font-weight: 500; white-space: nowrap; background: #fff8e1; color: #856404; border: 0.5px solid #ffe082; }
@@ -466,6 +467,14 @@
     .print-hdr { display: block; }
     #debtorsView table.debtors-table th { background: #000; color: #fff; }
     #debtorsView table.debtors-table th.th-hold { background: #3a2800; color: #ffcc80; }
+    /* The app's screen styles (body.app-ui …) are more specific than the compact print sizing above, so the table was
+       printing at screen size, ran wider than the page, and its right-hand columns were clipped (Avg days to pay
+       included). These rules win, and the wrapper no longer clips or scrolls on paper. */
+    #debtorsView .debtors-table-wrap { overflow: visible; box-shadow: none; }
+    #debtorsView table.debtors-table { font-size: 9px; }
+    #debtorsView table.debtors-table th, #debtorsView table.debtors-table td { padding: 4px 6px; font-size: 9px; letter-spacing: 0; }
+    #debtorsView table.debtors-table td.num, #debtorsView table.debtors-table th.num { font-size: 9px; }
+    #debtorsView table.debtors-table th { white-space: normal; line-height: 1.2; vertical-align: bottom; }
     #wagesView .wages-settings, #wagesView .wages-scenario-bar, #wagesView .status-line, #wagesView .wages-hint { display: none !important; }
     #wagesView tr.wages-unticked { display: none !important; }
     #wagesView .debtors-table-wrap { overflow: visible !important; }
@@ -1161,6 +1170,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
           <tbody id="debtorsRows"></tbody>
         </table>
       </div>
+      <div class="dtp-note">Avg days to pay = invoice date to the day it was fully paid, over invoices dated in the last 12 months. Faded figures rest on fewer than 3 paid invoices.</div>
     </div>
   </div>
 
