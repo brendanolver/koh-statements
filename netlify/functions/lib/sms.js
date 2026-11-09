@@ -8,7 +8,8 @@
  *                       landline from a mobile (an AU 02 number is a Sydney landline, but a NZ 02x number is a mobile,
  *                       so the customer's country matters).
  *  • suggestMobile    – first usable mobile out of the numbers Xero / ApparelMagic hold for a customer.
- *  • buildMessage     – the overdue text, with the "stock on hold" version when that applies.
+ *  • buildMessage     – the overdue text in one of three wordings (Friendly / Firm / Final), with or without held stock.
+ *  • suggestTemplate  – a suggested wording from the records (the sender always decides).
  *  • segments         – how many SMS parts a message costs (plain text 160/153 characters, anything fancy 70/67).
  */
 (function (root) {
@@ -106,32 +107,79 @@
     return `$${abs}` + (currency && currency !== 'AUD' ? ` ${currency}` : '');
   }
 
-  // Texts are sent under the sender name "WNDRR", and customers can't reply to a sender name — so every message says
-  // who it is from and gives Brendan's mobile and email to respond to instead of "reply". Plain characters only (no
-  // emoji, curly quotes or dashes) so it keeps the cheap 160-character text size where it can.
-  // → { kind:'hold'|'overdue', text } or null when there is nothing overdue to chase.
-  const CONTACT_EMAIL = 'brendan@kohindustries.com';
-  const CONTACT_PHONE = '0418 519939';          // Brendan's mobile, as in the signature on his other emails
+  // ---- the messages ------------------------------------------------------------------------------------------
+  //
+  // Three wordings for an overdue account, chosen by the person sending (never switched automatically):
+  //   friendly — good customers, or ones we have a positive relationship with
+  //   firm     — our standard reminder (the default)
+  //   final    — customers who have ignored earlier reminders, or are seriously overdue
+  // Each has a version for "stock is on hold" and one without, so a customer with nothing held is never told about
+  // held stock. Plain characters only (straight quotes, no emoji or dashes) to stay in the cheaper 160-character text size.
+  // Texts come from the sender name WNDRR, which can't receive replies, so each one gives Brendan's mobile to call.
+  const CONTACT_PHONE = '0418 519939';           // Brendan's mobile, as in the signature on his other emails
 
   // An Australian mobile is dialled as 04…, but from New Zealand it needs the +61.
   function phoneFor(country) {
     return countryOf(country) === 'NZ' ? '+61 418 519 939' : CONTACT_PHONE;
   }
 
-  function buildMessage({ greet, overdue, holdTotal, currency, country, contact, phone }) {
+  const TEMPLATES = {
+    friendly: { key: 'friendly', label: 'Friendly Reminder', short: 'Friendly', blurb: 'For good customers, or ones we have a positive relationship with.' },
+    firm:     { key: 'firm',     label: 'Firm Reminder',     short: 'Firm',     blurb: 'Our standard reminder for overdue accounts.' },
+    final:    { key: 'final',    label: 'Final Reminder',    short: 'Final',    blurb: 'For customers who have ignored earlier reminders, or are seriously overdue.' },
+  };
+  const TEMPLATE_ORDER = ['friendly', 'firm', 'final'];
+
+  // priorReminders = texts already sent to this customer during the current overdue period. The Final wording says
+  // "despite previous reminders" ONLY when that is true of our records; otherwise that phrase is left out (the page
+  // tells the sender, who may have chased by phone or email and can put it back).
+  // → { template, text, hasHold, leftOutPriorReminders } or null when there is nothing overdue to chase.
+  function buildMessage({ template, greet, overdue, holdTotal, currency, country, priorReminders, phone }) {
     if (!(Number(overdue) > 0)) return null;
-    const respond = `Please call ${phone || phoneFor(country)} or email ${contact || CONTACT_EMAIL} to let me know when you'll pay.`;
-    const hi = `Hi ${greet || 'there'}, it's Brendan from WNDRR.`;
-    if (Number(holdTotal) > 0) {
-      return {
-        kind: 'hold',
-        text: `${hi} Your account has ${money(overdue, currency)} overdue, so your ${money(holdTotal, currency)} of held stock can't be released. Pay today and we'll release it straight away. ${respond}`,
-      };
+    const tpl = TEMPLATES[template] ? template : 'firm';
+    const g = greet || 'there';
+    const o = money(overdue, currency);
+    const hasHold = Number(holdTotal) > 0;
+    const h = hasHold ? money(holdTotal, currency) : '';
+    const ph = phone || phoneFor(country);
+    let leftOut = false;
+    let text;
+    if (tpl === 'friendly') {
+      text = `Hi ${g}, Brendan from WNDRR. Just following up on your overdue balance of ${o}. `
+        + (hasHold ? `We've also got ${h} of stock ready to go, but can't release it until the account is brought up to date. ` : '')
+        + `Can you let me know when we can expect payment? Give me a call on ${ph} if you need to discuss. Cheers, Brendan.`;
+    } else if (tpl === 'firm') {
+      text = `Hi ${g}, your WNDRR account has an overdue balance of ${o}`
+        + (hasHold ? `, with ${h} of stock currently on hold. Please arrange payment today so we can release your stock. ` : `. Please arrange payment today. `)
+        + `If there's an issue with payment, please call me on ${ph}. Thanks, Brendan.`;
+    } else {
+      const prior = Number(priorReminders) > 0;
+      leftOut = !prior;
+      text = `Hi ${g}, Brendan from WNDRR. Your account ${prior ? 'remains overdue by' : 'is overdue by'} ${o}${prior ? ' despite previous reminders' : ''}. `
+        + (hasHold ? `Your outstanding orders totalling ${h} remain on hold. ` : '')
+        + `We require payment or a confirmed payment arrangement today to avoid further account action. Please contact me directly on ${ph}. Brendan.`;
     }
-    return {
-      kind: 'overdue',
-      text: `${hi} Your account has ${money(overdue, currency)} overdue. ${respond}`,
-    };
+    return { template: tpl, text, hasHold, leftOutPriorReminders: leftOut };
+  }
+
+  // A SUGGESTION for which wording to start from — never applied automatically, and based only on what the records show
+  // (not on how old the invoices are). Evidence, strongest first:
+  //   • 2+ texts already sent during this overdue period, or a payment promise (noted by the user) that has passed → Final
+  //   • 1 text already sent, or a pattern of paying 2+ weeks late (3+ paid invoices on record)                  → Firm
+  //   • no text yet AND a record of paying within a week of the due date (3+ paid invoices)                       → Friendly
+  // Anything else → null (Firm stays the default and nothing is suggested).
+  // { priorReminders, promiseDate:'YYYY-MM-DD'|null, avgLateDays, paidCount, overdue, today:'YYYY-MM-DD' } → { template, reason } | null
+  function suggestTemplate({ priorReminders, promiseDate, avgLateDays, paidCount, overdue, today }) {
+    if (!(Number(overdue) > 0)) return null;
+    const n = Number(priorReminders) || 0;
+    const plural = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+    if (n >= 2) return { template: 'final', reason: `${plural(n, 'text')} already sent about this overdue balance` };
+    if (promiseDate && today && promiseDate < today) return { template: 'final', reason: `a payment promise for ${promiseDate} has passed and the account is still overdue` };
+    if (n === 1) return { template: 'firm', reason: '1 text already sent about this overdue balance' };
+    const history = Number(paidCount) >= 3 && typeof avgLateDays === 'number';
+    if (history && avgLateDays > 14) return { template: 'firm', reason: `usually pays about ${Math.round(avgLateDays)} days after the due date (${paidCount} paid invoices)` };
+    if (history && avgLateDays <= 7) return { template: 'friendly', reason: `usually pays within a week of the due date (${paidCount} paid invoices) and no text has been sent yet` };
+    return null;
   }
 
   // ---- length / cost -----------------------------------------------------------------------------------------
@@ -164,6 +212,6 @@
     return { ok: true };
   }
 
-  root.SMS = { normaliseMobile, suggestMobile, looksLikeName, tidyName, suggestName, buildMessage, money, segments, validateMessage, countryOf, phoneFor, CONTACT_EMAIL, CONTACT_PHONE };
+  root.SMS = { normaliseMobile, suggestMobile, looksLikeName, tidyName, suggestName, buildMessage, suggestTemplate, TEMPLATES, TEMPLATE_ORDER, money, segments, validateMessage, countryOf, phoneFor, CONTACT_PHONE };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SMS;
 })(typeof window !== 'undefined' ? window : globalThis);

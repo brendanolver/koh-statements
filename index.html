@@ -1084,8 +1084,10 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 .sms-row { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 210px) minmax(0, 1fr); gap: 14px; padding: 12px; border: 1px solid #e5e5e1; border-radius: 10px; align-items: start; }
 .sms-row.off { opacity: .62; }
 .sms-cust label { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; font-size: 13px; cursor: pointer; }
-.sms-meta { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; padding-left: 24px; }
-.sms-last { font-size: 11px; color: #b45309; margin-top: 4px; line-height: 1.4; padding-left: 24px; }
+.sms-summary { padding-left: 24px; }
+.sms-meta { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.sms-meta.strong { font-size: 12px; font-weight: 600; color: var(--ink); }
+.sms-last { font-size: 11px; color: #b45309; margin-top: 3px; line-height: 1.4; }
 .sms-num input { width: 100%; box-sizing: border-box; padding: 7px 9px; font-size: 14px; border: 1px solid #d8dbe0; border-radius: 6px; }
 .sms-num input.bad { border-color: #e0352b; }
 .sms-lab { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 0 3px; }
@@ -1102,7 +1104,33 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #smsSummary { flex: 1 1 220px; font-size: 13px; color: var(--muted); }
 #smsSummary.bad { color: #b42318; } #smsSummary.ok { color: #12915a; }
 .sms-tag { margin-left: 6px; font-size: 10px; font-weight: 600; color: #1d4ed8; background: #eaf1ff; border: 1px solid #c6d8fb; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
-@media (max-width: 760px) { .sms-row { grid-template-columns: 1fr; } }
+.sms-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 20px 10px; font-size: 13px; color: var(--muted); }
+.sms-tpls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.sms-tpl { position: relative; text-align: left; background: #fff; border: 1px solid #d8dbe0; border-radius: 8px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font-family: inherit; color: var(--ink); }
+.sms-tpl b { font-size: 13px; font-weight: 600; }
+.sms-tpl-blurb { font-size: 11px; line-height: 1.35; color: var(--muted); font-weight: 400; }
+.sms-tpl:hover:not(:disabled) { border-color: #9aa3ab; }
+.sms-tpl.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: rgba(15,92,74,.07); }
+.sms-tpl:disabled { cursor: default; opacity: .7; }
+.sms-tpl-tag { display: none; position: absolute; top: -8px; right: 8px; font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #fff; background: #1d4ed8; border-radius: 999px; padding: 1px 7px; }
+.sms-tpl.sugg .sms-tpl-tag { display: inline-block; }
+.sms-sugg { font-size: 12px; color: #1d4ed8; margin: 0 0 6px; line-height: 1.4; }
+details.sms-hist { grid-column: 1 / -1; border-top: 1px solid #eeeeea; padding-top: 8px; }
+details.sms-hist > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted); }
+.sms-hist-h { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+.sms-hist-item { border: 1px solid #eeeeea; border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; background: #fafaf8; }
+.sms-hist-top { font-size: 11px; color: var(--muted); }
+.sms-hist-text { font-size: 12px; line-height: 1.45; margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+.sms-hist-empty { font-size: 11px; color: var(--muted); line-height: 1.4; margin: 4px 0; }
+.sms-note-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.45; padding: 3px 0; }
+.sms-note-text { flex: 1 1 auto; word-break: break-word; }
+.sms-note-del { flex: 0 0 auto; border: none; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.sms-note-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.sms-note-form input[type="text"] { flex: 1 1 220px; min-width: 0; padding: 6px 9px; font-size: 13px; border: 1px solid #d8dbe0; border-radius: 6px; }
+.sms-note-form input[type="date"] { padding: 5px 8px; font-size: 13px; border: 1px solid #d8dbe0; border-radius: 6px; }
+.sms-lab-inline { font-size: 11px; color: var(--muted); }
+button.linklike { border: none; background: transparent; color: #1d4ed8; font-size: 13px; cursor: pointer; padding: 4px 2px; text-decoration: underline; font-weight: 500; }
+@media (max-width: 760px) { .sms-row { grid-template-columns: 1fr; } .sms-tpls { grid-template-columns: 1fr; } }
 @media print { .sms-modal { display: none !important; } }
 </style>
 </head>
@@ -1161,7 +1189,12 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
   <div id="smsModal" class="sms-modal no-print" onclick="if (event.target === this) closeSms()">
     <div class="sms-card" role="dialog" aria-modal="true" aria-labelledby="smsTitle">
       <div class="sms-head"><h3 id="smsTitle">Send SMS</h3><button class="sms-x" onclick="closeSms()" aria-label="Close">×</button></div>
-      <div class="sms-sub">Texts go out straight away from your Kudosity sender. A sender name like WNDRR can't receive replies, so each message asks the customer to email you instead. Check each mobile and message first — you can edit both.</div>
+      <div class="sms-sub">Pick a wording for each customer, then check the mobile and the message — you can edit both. Nothing is sent until you click Send and confirm. Texts come from the WNDRR sender name, which can't receive replies, so each one asks the customer to call you.</div>
+      <div id="smsBulk" class="sms-bulk" style="display:none"><span>Wording for everyone:</span>
+        <button type="button" onclick="smsApplyAll('friendly')">Friendly</button>
+        <button type="button" onclick="smsApplyAll('firm')">Firm</button>
+        <button type="button" onclick="smsApplyAll('final')">Final</button>
+      </div>
       <div id="smsRows" class="sms-rows"></div>
       <div class="sms-foot">
         <span id="smsSummary"></span>
@@ -1300,6 +1333,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     <span id="holdIndicator" class="send-status hold-note"></span>
     <button class="primary" id="sendBtn" onclick="sendCurrentStatement()">Send Statement</button>
     <button id="smsBtn" onclick="openSmsForCurrent()" style="display:none" title="Text this customer about their overdue balance">Send SMS…</button>
+    <button id="smsHistLink" class="linklike" onclick="openSmsForCurrent(true)" style="display:none" title="See the texts already sent to this customer, and your notes"></button>
     <span id="sendStatus" class="send-status"></span>
   </div>
 
@@ -3589,6 +3623,8 @@ async function buildStatementData(customer) {
 
   return {
     customerName: customer.name,
+    customerId: customer.id || '',
+    contactId: xeroContact.ContactID || '',
     phoneCandidates: statementPhoneCandidates(xeroContact, customer),
     nameCandidates: statementNameCandidates(xeroContact, customer),
     accountNumber: customer.accountNumber,
@@ -3726,6 +3762,7 @@ function renderStatement(data) {
   els.ccIndicator.textContent = (data.ccEmails && data.ccEmails.length) ? `+ CC: ${data.ccEmails.join(', ')}` : '';
   els.holdIndicator.textContent = holdEmailNote(data);
   document.getElementById('smsBtn').style.display = overdue > 0 ? '' : 'none';
+  refreshSmsHistLink();
   setSendStatus('');
 }
 
@@ -3939,11 +3976,15 @@ async function sendCurrentStatement() {
 }
 
 // ---------------------------------------------------------------------------
-// SMS to overdue customers — one dialog for a single customer or the whole queue. The page checks each mobile and
-// message before it enables Send; netlify/functions/send-sms.js checks them again and talks to Kudosity. The wording
-// and the number rules live in netlify/functions/lib/sms.js (window.SMS), covered by tests/sms.test.js.
+// SMS to overdue customers — one dialog for a single customer or the whole queue. For each customer: a summary of the
+// overdue account, a choice of three wordings (Friendly / Firm / Final — Firm unless the sender picks another), an
+// editable preview, the texts already sent, and the sender's own notes. The page checks each mobile and message before
+// it enables Send; netlify/functions/send-sms.js checks them again and talks to Kudosity. Nothing is ever sent just by
+// choosing a wording. The wording and the number rules live in netlify/functions/lib/sms.js (window.SMS), covered by
+// tests/sms.test.js.
 // ---------------------------------------------------------------------------
-let smsLog = {};          // normName(customer) -> { at, to, count } — written by send-sms.js, only read here
+let smsLog = {};          // normName(customer) -> { at, to, count, history:[…] } — written by send-sms.js, only read here
+let smsNotes = {};        // normName(customer) -> [ { id, at, text, promise } ] — written by customer-notes.js
 let smsRows = [];
 let smsBusy = false;
 const SMS_RECENT_MS = 3 * 86400000;   // texted within 3 days → starts unticked, with a warning
@@ -3954,16 +3995,68 @@ async function loadSmsLog() {
     if (res.ok) smsLog = await res.json();
   } catch { /* non-fatal — the "texted" tags just don't show */ }
 }
+async function loadSmsNotes() {
+  try {
+    const res = await fetch('/.netlify/functions/customer-notes');
+    if (res.ok) smsNotes = await res.json();
+  } catch { /* non-fatal — notes just don't show */ }
+}
 function smsFmtDay(iso) { return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); }
+function smsFmtWhen(iso) { return new Date(iso).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); }
+function smsFmtPromise(ymd) { return new Date(ymd + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); }
+function smsTodayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 function smsRecent(key) {
   const e = smsLog[key];
   return e && e.at && Date.now() - Date.parse(e.at) < SMS_RECENT_MS ? e : null;
+}
+function smsTemplateName(key, short) {
+  const t = SMS.TEMPLATES[key];
+  return t ? (short ? t.short : t.label) : (short ? 'custom' : 'Custom message');
+}
+function smsLastText(key) {
+  const e = smsLog[key];
+  const last = e && e.history && e.history[e.history.length - 1];
+  return last || (e && e.at ? { at: e.at, template: '' } : null);   // entries from before the history existed only have a date
+}
+// The newest payment promise the sender has noted for this customer ("Promised payment Friday" + a date), if any.
+function smsLatestPromise(key) {
+  const withDate = (smsNotes[key] || []).filter((n) => n.promise);
+  return withDate.length ? withDate[withDate.length - 1].promise : null;
+}
+
+// What the records say about a customer's overdue account. Only invoices past their DUE date count — future-dated
+// invoices and credit-note lines never do — so this always matches the Overdue figure.
+function smsAccountFacts(data) {
+  const { rows, overdue } = computeAging(data.invoices);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const over = rows.filter((r) => r.isOverdue && (r.balance || 0) > 0);
+  const oldestDue = over.length ? over.reduce((m, r) => (r.dueDate < m ? r.dueDate : m), over[0].dueDate) : null;
+  return { overdue, count: over.length, oldestDays: oldestDue ? Math.round((today - oldestDue) / 86400000) : 0, oldestDue };
+}
+// Texts already sent to this customer during the CURRENT overdue period (since their oldest overdue invoice fell due) —
+// the only texts that count as "previous reminders" for this overdue balance.
+function smsPriorTexts(key, oldestDue) {
+  const hist = (smsLog[key] || {}).history || [];
+  return oldestDue ? hist.filter((h) => Date.parse(h.at) >= oldestDue.getTime()) : hist;
+}
+// A suggested wording from the records (never applied by itself). Payment history comes from the Debtors tab's average
+// days to pay, when that has loaded.
+function smsSuggest(r) {
+  return SMS.suggestTemplate({
+    priorReminders: r.priorCount, promiseDate: smsLatestPromise(r.key),
+    avgLateDays: r.stats && typeof r.stats.late === 'number' ? r.stats.late : null, paidCount: r.stats ? r.stats.n : 0,
+    overdue: r.overdue, today: smsTodayIso(),
+  });
 }
 
 // One customer's statement data → a row for the dialog, or null when nothing is overdue (nothing to chase).
 function smsRowFromData(data, recipientName) {
   const key = normName(data.customerName);
-  const { overdue } = computeAging(data.invoices);
+  const facts = smsAccountFacts(data);
+  const overdue = facts.overdue;
   const currency = currencyFor(data.country);
   // A name typed on the statement page, else one saved for this customer, else Xero's main contact; otherwise look further
   // (ApparelMagic, Xero contact persons). With no first name anywhere the greeting is "Hi there," — never the store name.
@@ -3971,24 +4064,31 @@ function smsRowFromData(data, recipientName) {
   const known = SMS.tidyName(recipientName || savedName || data.recipientName || data.contactFirstName || '');   // "SAM" → "Sam"
   const guess = known ? null : SMS.suggestName(data.nameCandidates);
   const first = known || (guess ? guess.name : '');
-  const msg = SMS.buildMessage({ greet: first, overdue, holdTotal: data.holdTotal, currency, country: data.country });
+  const prior = smsPriorTexts(key, facts.oldestDue);
+  const msg = SMS.buildMessage({ template: 'firm', greet: first, overdue, holdTotal: data.holdTotal, currency, country: data.country, priorReminders: prior.length });
   if (!msg) return null;
   const saved = (statementRecipientsMap[key] || {}).mobile || '';
   const numGuess = saved ? null : SMS.suggestMobile(data.phoneCandidates, data.country);
-  return {
+  const st = dtp.byContact && data.contactId ? DDP.avg(dtp.byContact[data.contactId]) : null;
+  const row = {
     key, name: data.customerName, country: data.country, overdue, currency, holdTotal: data.holdTotal || 0,
+    customerId: data.customerId || '', accountNumber: data.accountNumber || '',
+    facts, priorCount: prior.length, stats: st,
     first, firstSource: guess ? guess.source : '', greetUsed: first || 'there',
     mobile: saved || (numGuess ? numGuess.display : ''), source: saved ? 'saved' : numGuess ? numGuess.source : '',
     onFile: saved || numGuess ? null : (data.phoneCandidates || [])[0] || null,   // e.g. only a landline is held
-    message: msg.text, include: false, sent: false, num: null, msgOk: true,
+    template: 'firm', message: msg.text, generated: msg.text, leftOut: msg.leftOutPriorReminders,
+    include: false, sent: false, num: null, msgOk: true,
   };
+  row.suggest = smsSuggest(row);
+  return row;
 }
 
-function openSmsForCurrent() {
+function openSmsForCurrent(openHistory) {
   if (!currentStatementData) return;
   const row = smsRowFromData(currentStatementData, els.recipientNameInput.value.trim());
   if (!row) { setSendStatus('Nothing is overdue for this customer, so there is nothing to text about.', true); return; }
-  openSmsDialog([row], `Text ${row.name}`);
+  openSmsDialog([row], `Text ${row.name}`, openHistory === true);
 }
 
 function openSmsForQueue() {
@@ -3999,19 +4099,37 @@ function openSmsForQueue() {
   openSmsDialog(rows, `Text overdue customers (${rows.length})`);
 }
 
-function openSmsDialog(rows, title) {
+function openSmsDialog(rows, title, openHistory) {
   smsRows = rows;
   document.getElementById('smsTitle').textContent = title;
   document.getElementById('smsSummary').textContent = '';
   document.getElementById('smsSummary').className = '';
+  document.getElementById('smsBulk').style.display = rows.length > 1 ? '' : 'none';
   smsRender();
+  if (openHistory) for (const r of smsRows) r.els.details.open = true;
   document.getElementById('smsModal').classList.add('open');
 }
 
 function closeSms() {
   if (smsBusy) return;
   document.getElementById('smsModal').classList.remove('open');
-  renderCustomersTable(); // pick up any new "texted" tags
+  renderCustomersTable();   // pick up any new "texted" tags
+  refreshSmsHistLink();     // …and the texts / notes line on the open statement
+}
+
+// The one-line "📱 Texted 8 Nov · Firm · 1 note — view" beside the Send SMS button on a customer's statement.
+function refreshSmsHistLink() {
+  const btn = document.getElementById('smsHistLink');
+  if (!btn) return;
+  if (!currentStatementData || !(computeAging(currentStatementData.invoices).overdue > 0)) { btn.style.display = 'none'; return; }
+  const key = normName(currentStatementData.customerName);
+  const last = smsLastText(key);
+  const notes = (smsNotes[key] || []).length;
+  const parts = [];
+  if (last) parts.push(`📱 Texted ${smsFmtDay(last.at)}${last.template ? ` · ${smsTemplateName(last.template, true)}` : ''}`);
+  if (notes) parts.push(`${notes} note${notes === 1 ? '' : 's'}`);
+  btn.textContent = parts.length ? `${parts.join(' · ')} — view` : '';
+  btn.style.display = parts.length ? '' : 'none';
 }
 
 function smsEl(tag, cls, text) {
@@ -4033,13 +4151,8 @@ function smsRender() {
     cb.type = 'checkbox';
     cb.onchange = () => { r.include = cb.checked; smsUpdateRow(r); };
     label.append(cb, smsEl('span', '', r.name));
-    c1.appendChild(label);
-    c1.appendChild(smsEl('div', 'sms-meta', `Overdue ${fmtMoney(r.overdue)} ${r.currency}` + (r.holdTotal > 0 ? ` · 📦 ${fmtMoney(r.holdTotal)} on hold` : '')));
-    const recent = smsLog[r.key];
-    if (recent && recent.at) {
-      const when = `📱 Texted ${smsFmtDay(recent.at)}${recent.count > 1 ? ` (${recent.count} times in all)` : ''}`;
-      c1.appendChild(smsEl('div', 'sms-last', smsRecent(r.key) ? `${when} — recently, so it starts unticked` : when));
-    }
+    const summary = smsEl('div', 'sms-summary');
+    c1.append(label, summary);
 
     const c2 = smsEl('div', 'sms-num');
     const nameInput = document.createElement('input');
@@ -4059,17 +4172,42 @@ function smsRender() {
     c2.append(smsEl('div', 'sms-lab', 'First name'), nameInput, nameNote, smsEl('div', 'sms-lab', 'Mobile'), input, note);
 
     const c3 = smsEl('div', 'sms-msg');
+    const tpls = smsEl('div', 'sms-tpls');
+    tpls.setAttribute('role', 'radiogroup');
+    tpls.setAttribute('aria-label', 'Message wording');
+    const tplBtns = {};
+    SMS.TEMPLATE_ORDER.forEach((k, i) => {
+      const t = SMS.TEMPLATES[k];
+      const b = smsEl('button', 'sms-tpl');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.title = t.blurb;
+      b.append(smsEl('b', '', `${'ABC'[i]} · ${t.short}`), smsEl('span', 'sms-tpl-blurb', t.blurb), smsEl('span', 'sms-tpl-tag', 'Suggested'));
+      b.onclick = () => smsPickTemplate(r, k);
+      tpls.appendChild(b);
+      tplBtns[k] = b;
+    });
+    const sugg = smsEl('div', 'sms-sugg');
+    const tplNote = smsEl('div', 'sms-note warn');
     const ta = document.createElement('textarea');
     ta.value = r.message;
     ta.oninput = () => { r.message = ta.value; smsUpdateRow(r); };
     const count = smsEl('div', 'sms-count');
     const result = smsEl('div', 'sms-result');
-    c3.append(ta, count, result);
+    c3.append(tpls, sugg, tplNote, ta, count, result);
 
-    row.append(c1, c2, c3);
+    // texts already sent + the sender's own notes, collapsed so a long list of customers stays easy to scan
+    const details = document.createElement('details');
+    details.className = 'sms-hist';
+    const sum = document.createElement('summary');
+    const histBody = smsEl('div', 'sms-hist-body-wrap');
+    details.append(sum, histBody);
+
+    row.append(c1, c2, c3, details);
     box.appendChild(row);
-    r.els = { row, cb, input, note, nameInput, nameNote, ta, count, result };
+    r.els = { row, cb, input, note, nameInput, nameNote, tplBtns, sugg, tplNote, ta, count, result, summary, details, histSum: sum, histBody };
     r.include = smsCanSend(r) && !smsRecent(r.key);   // a good number and message, and not texted in the last 3 days
+    smsRefreshInfo(r);
     smsUpdateRow(r);
   }
 }
@@ -4078,6 +4216,151 @@ function smsCanSend(r) {
   r.num = SMS.normaliseMobile(r.mobile, r.country);
   r.msgOk = SMS.validateMessage(r.message).ok;
   return r.num.ok && r.msgOk && !r.sent;
+}
+
+// The account summary, suggestion and history/notes for one row — redrawn after a note is added or a text is sent.
+function smsRefreshInfo(r) {
+  r.suggest = smsSuggest(r);
+  smsRenderSummary(r);
+  smsRenderHist(r);
+  if (r.els.sugg) smsUpdateRow(r);
+}
+
+function smsRenderSummary(r) {
+  const box = r.els.summary;
+  box.innerHTML = '';
+  const add = (cls, text) => box.appendChild(smsEl('div', cls, text));
+  add('sms-meta strong', `Overdue ${fmtMoney(r.overdue)} ${r.currency}`);
+  add('sms-meta', `${r.facts.count} overdue invoice${r.facts.count === 1 ? '' : 's'} · oldest ${r.facts.oldestDays} day${r.facts.oldestDays === 1 ? '' : 's'} overdue`);
+  add('sms-meta', r.holdTotal > 0 ? `📦 ${fmtMoney(r.holdTotal)} ${r.currency} stock on hold` : 'No stock on hold');
+  const last = smsLastText(r.key);
+  const entry = smsLog[r.key] || {};
+  if (last) {
+    const when = `📱 Last text ${smsFmtDay(last.at)}${last.template ? ` · ${smsTemplateName(last.template, true)}` : ''}${entry.count > 1 ? ` (${entry.count} in all)` : ''}`;
+    const startsUnticked = smsRecent(r.key) && !r.sent;   // the "recent" warning is about the NEXT text, not one just sent
+    add(startsUnticked ? 'sms-last' : 'sms-meta', startsUnticked ? `${when} — recent, so it starts unticked` : when);
+  } else add('sms-meta', 'No texts logged yet');
+  const notes = smsNotes[r.key] || [];
+  const promise = smsLatestPromise(r.key);
+  if (promise) {
+    const passed = promise < smsTodayIso();
+    add(passed ? 'sms-last' : 'sms-meta', `📝 Promised to pay by ${smsFmtPromise(promise)}${passed ? ' — that date has passed' : ''}`);
+  } else if (notes.length) {
+    const t = notes[notes.length - 1].text;
+    add('sms-meta', `📝 Latest note: ${t.length > 60 ? t.slice(0, 57) + '…' : t}`);
+  }
+}
+
+function smsRenderHist(r) {
+  const items = ((smsLog[r.key] || {}).history || []).slice().reverse();
+  const notes = smsNotes[r.key] || [];
+  r.els.histSum.textContent = `Texts sent & notes (${items.length} text${items.length === 1 ? '' : 's'} · ${notes.length} note${notes.length === 1 ? '' : 's'})`;
+  const box = r.els.histBody;
+  box.innerHTML = '';
+
+  box.appendChild(smsEl('div', 'sms-hist-h', 'Texts sent'));
+  if (!items.length) box.appendChild(smsEl('div', 'sms-hist-empty', 'No texts logged for this customer yet.'));
+  for (const h of items) {
+    const item = smsEl('div', 'sms-hist-item');
+    item.appendChild(smsEl('div', 'sms-hist-top', `${smsFmtWhen(h.at)} · ${smsTemplateName(h.template)}${h.edited ? ' (edited)' : ''} · ${h.status === 'accepted' ? 'Accepted by Kudosity' : 'Sent'}`));
+    item.appendChild(smsEl('div', 'sms-hist-text', h.body || '(message not recorded)'));
+    box.appendChild(item);
+  }
+  box.appendChild(smsEl('div', 'sms-hist-empty', 'Replies can’t come back to the WNDRR sender name, so none are shown, and delivery receipts aren’t tracked yet. Use notes to record what the customer says.'));
+
+  box.appendChild(smsEl('div', 'sms-hist-h', 'Notes'));
+  if (!notes.length) box.appendChild(smsEl('div', 'sms-hist-empty', 'No notes yet.'));
+  for (const n of notes) {
+    const item = smsEl('div', 'sms-note-item');
+    item.appendChild(smsEl('span', 'sms-note-text', `${smsFmtDay(n.at)} — ${n.text}${n.promise ? ` (promised to pay by ${smsFmtPromise(n.promise)})` : ''}`));
+    const del = smsEl('button', 'sms-note-del', '×');
+    del.type = 'button';
+    del.title = 'Delete this note';
+    del.onclick = () => smsDeleteNote(r, n.id);
+    item.appendChild(del);
+    box.appendChild(item);
+  }
+  const form = smsEl('div', 'sms-note-form');
+  const text = document.createElement('input');
+  text.type = 'text';
+  text.maxLength = 300;
+  text.placeholder = 'Add a note, e.g. Promised payment Friday';
+  const promise = document.createElement('input');
+  promise.type = 'date';
+  promise.title = 'Date they promised to pay by (optional)';
+  const add = smsEl('button', '', 'Add note');
+  add.type = 'button';
+  add.onclick = () => smsAddNote(r, text, promise);
+  text.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); add.click(); } };
+  form.append(text, smsEl('span', 'sms-lab-inline', 'Promised by'), promise, add);
+  box.appendChild(form);
+  r.els.histErr = smsEl('div', 'sms-result bad');
+  box.appendChild(r.els.histErr);
+}
+
+async function smsAddNote(r, textEl, promiseEl) {
+  const text = textEl.value.trim();
+  if (!text) return;
+  try {
+    const res = await fetch('/.netlify/functions/customer-notes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerName: r.name, text, promise: promiseEl.value || '' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `Save failed (${res.status})`);
+    (smsNotes[r.key] = smsNotes[r.key] || []).push(data.note);
+    smsRefreshInfo(r);
+  } catch (err) {
+    r.els.histErr.textContent = `Note not saved: ${err.message}`;
+  }
+}
+
+async function smsDeleteNote(r, id) {
+  if (!window.confirm('Delete this note?')) return;
+  try {
+    const res = await fetch('/.netlify/functions/customer-notes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerName: r.name, deleteId: id }),
+    });
+    if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+    smsNotes[r.key] = (smsNotes[r.key] || []).filter((n) => n.id !== id);
+    if (!smsNotes[r.key].length) delete smsNotes[r.key];
+    smsRefreshInfo(r);
+  } catch (err) {
+    r.els.histErr.textContent = `Note not deleted: ${err.message}`;
+  }
+}
+
+// Fills the message from the chosen wording. Sending is never triggered here — switching only changes the preview.
+function smsRegenerate(r) {
+  const m = SMS.buildMessage({
+    template: r.template, greet: r.first.trim(), overdue: r.overdue, holdTotal: r.holdTotal,
+    currency: r.currency, country: r.country, priorReminders: r.priorCount,
+  });
+  r.message = m.text;
+  r.generated = m.text;
+  r.leftOut = m.leftOutPriorReminders;
+  r.greetUsed = r.first.trim() || 'there';
+  r.els.ta.value = r.message;
+  smsUpdateRow(r);
+}
+
+// Switching wording replaces the message — unless Brendan has edited it by hand, in which case he is asked first.
+function smsPickTemplate(r, key, quiet) {
+  if (r.sent || smsBusy || key === r.template) return true;
+  if (r.message.trim() !== r.generated.trim() && !quiet && !window.confirm(`Replace your edits with the ${smsTemplateName(key)} wording?`)) return false;
+  r.template = key;
+  smsRegenerate(r);
+  return true;
+}
+
+// "Wording for everyone" (only when several customers are in the dialog).
+function smsApplyAll(key) {
+  if (smsBusy) return;
+  const rows = smsRows.filter((r) => !r.sent);
+  const edited = rows.filter((r) => r.message.trim() !== r.generated.trim()).length;
+  if (edited && !window.confirm(`${edited} message${edited === 1 ? ' has' : 's have'} been edited by hand. Replace ${edited === 1 ? 'it' : 'them'} with the ${smsTemplateName(key)} wording?`)) return;
+  for (const r of rows) smsPickTemplate(r, key, true);
 }
 
 function smsUpdateRow(r) {
@@ -4089,6 +4372,21 @@ function smsUpdateRow(r) {
   e.row.classList.toggle('off', !r.include);
   e.input.classList.toggle('bad', !!r.mobile.trim() && !r.num.ok);
   e.nameInput.disabled = r.sent || smsBusy;
+
+  for (const k of SMS.TEMPLATE_ORDER) {
+    const b = e.tplBtns[k];
+    b.classList.toggle('on', r.template === k);
+    b.classList.toggle('sugg', !!r.suggest && r.suggest.template === k);
+    b.setAttribute('aria-checked', r.template === k ? 'true' : 'false');
+    b.disabled = r.sent || smsBusy;
+  }
+  if (r.suggest && !r.sent) {
+    e.sugg.style.display = '';
+    e.sugg.textContent = `Suggested: ${smsTemplateName(r.suggest.template)} — ${r.suggest.reason}. You choose.`;
+  } else e.sugg.style.display = 'none';
+  e.tplNote.textContent = r.template === 'final' && r.leftOut && r.message === r.generated && !r.sent
+    ? 'No earlier text to this customer is on record, so “despite previous reminders” is left out. Add it back if you have chased them by phone or email.'
+    : '';
 
   if (!r.first.trim()) { e.nameNote.className = 'sms-note warn'; e.nameNote.textContent = 'No first name on file — the text will say "Hi there,"'; }
   else if (r.firstSource) { e.nameNote.className = 'sms-note'; e.nameNote.textContent = `suggested from ${r.firstSource} — check it`; }
@@ -4129,7 +4427,9 @@ function smsRegreet(r) {
   const next = r.first.trim() || 'there';
   const prefix = `Hi ${r.greetUsed},`;
   if (!r.message.startsWith(prefix)) return;
+  const pristine = r.message === r.generated;   // an untouched template stays "untouched" after a name change
   r.message = `Hi ${next},` + r.message.slice(prefix.length);
+  if (pristine) r.generated = r.message;
   r.greetUsed = next;
   r.els.ta.value = r.message;
 }
@@ -4185,11 +4485,16 @@ async function smsPost(payload) {
   return data;
 }
 
+// One id per send click: if the same click is ever delivered twice, the server answers with the first result.
+function smsNewRequestId() {
+  return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 async function smsSendAll() {
   if (smsBusy) return;
   const todo = smsRows.filter((r) => r.include && smsCanSend(r));
   if (!todo.length) return;
-  const names = todo.slice(0, 8).map((r) => `• ${r.name} — ${r.num.display}`).join('\n') + (todo.length > 8 ? `\n…and ${todo.length - 8} more` : '');
+  const names = todo.slice(0, 8).map((r) => `• ${r.name} — ${r.num.display} — ${smsTemplateName(r.template, true)}`).join('\n') + (todo.length > 8 ? `\n…and ${todo.length - 8} more` : '');
   const recent = todo.filter((r) => smsRecent(r.key));
   const warn = recent.length ? `\n\n${recent.length === 1 ? `${recent[0].name} was` : `${recent.length} of these were`} already texted in the last 3 days.` : '';
   if (!window.confirm(`Send ${todo.length} text${todo.length === 1 ? '' : 's'} now?\n\n${names}${warn}\n\nThey go out immediately and can't be recalled.`)) return;
@@ -4200,14 +4505,21 @@ async function smsSendAll() {
   for (const r of todo) {
     r.els.result.className = 'sms-result';
     r.els.result.textContent = 'Sending…';
+    const body = r.message.trim();
     try {
-      const out = await smsPost({ customerName: r.name, to: r.mobile, message: r.message, country: r.country });
+      const out = await smsPost({
+        customerName: r.name, to: r.mobile, message: r.message, country: r.country,
+        template: r.template, customerId: r.customerId, accountNumber: r.accountNumber,
+        requestId: smsNewRequestId(), edited: body !== r.generated.trim(),
+      });
       r.sent = true; r.include = false; sent++;
       const prev = smsLog[r.key] || {};
-      smsLog[r.key] = { at: out.at, to: r.num.e164, count: (prev.count || 0) + 1 };
+      const entry = { at: out.at, to: r.num.e164, body, id: out.messageId, parts: out.parts, template: r.template, edited: body !== r.generated.trim(), status: 'accepted' };
+      smsLog[r.key] = { at: out.at, to: r.num.e164, count: (prev.count || 0) + 1, history: [...(prev.history || []), entry].slice(-20) };
       r.els.result.className = 'sms-result ok';
       r.els.result.textContent = `Sent ✓ to ${out.to}`;
       r.els.input.disabled = true; r.els.ta.disabled = true;
+      smsRefreshInfo(r);
       await smsPersistMobile(r);
     } catch (err) {
       failed++;
@@ -5137,7 +5449,7 @@ async function init() {
   // needs this in place to apply a saved email/name override instead of
   // Xero's default.
   await loadStatementRecipientsMap();
-  loadSmsLog().then(renderCustomersTable); // for the "texted" tags — not needed before anything else can happen
+  Promise.all([loadSmsLog(), loadSmsNotes()]).then(() => { renderCustomersTable(); refreshSmsHistLink(); }); // for the "texted" tags and notes — not needed before anything else can happen
   try {
     await loadCustomers();
   } catch (err) {

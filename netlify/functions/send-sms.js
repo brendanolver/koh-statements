@@ -4,7 +4,9 @@ const { smsLogStore } = require('./lib/blob-store');
 // Sends one overdue-chase text through Kudosity (formerly Transmit SMS) and remembers that it went.
 //
 //   GET   → the log: { "CUSTOMER NAME": { at, to, count, history:[{at,to,body,id,parts}] } }  (the page shows "Texted 9 Nov")
-//   POST  → { customerName, to, message, country, test }  sends one text.
+//   POST  → { customerName, to, message, country, test, template, customerId, accountNumber, requestId, edited }  sends one text.
+//           template = friendly | firm | final (which wording was chosen); requestId = one id per click, so a retry of the
+//           same click can never send twice; edited = the message was changed by hand after the template filled it in.
 //
 // Needs, in Netlify → Site configuration → Environment variables:
 //   KUDOSITY_API_KEY, KUDOSITY_API_SECRET   – Kudosity → Settings → API settings (the key is shown there; the secret is one you set)
@@ -21,7 +23,8 @@ const KUDOSITY_URL = 'https://api.transmitsms.com/send-sms.json';
 const TEST_KEY = '__TEST__';            // test texts are logged here so they count towards the daily limit too
 const DOUBLE_CLICK_MS = 60 * 1000;      // the same customer can't be texted twice inside a minute
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HISTORY_KEPT = 10;
+const HISTORY_KEPT = 20;
+const TEMPLATE_KEYS = ['friendly', 'firm', 'final'];
 
 const json = (statusCode, obj) => ({ statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) });
 const normName = (name) => String(name || '').trim().toUpperCase();
@@ -61,19 +64,24 @@ exports.handler = async (event) => {
 
     let body;
     try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid JSON body' }); }
-    const { customerName, to, message, country, test } = body;
+    const { customerName, to, message, country, test, template, customerId, accountNumber, requestId, edited } = body;
 
     const num = SMS.normaliseMobile(to, country);
     if (!num.ok) return json(400, { error: num.note });
     const check = SMS.validateMessage(message);
     if (!check.ok) return json(400, { error: check.reason });
     const text = String(message).trim();
+    if (template !== undefined && template !== null && template !== '' && !TEMPLATE_KEYS.includes(template)) return json(400, { error: 'Unknown template' });
+    const reqId = typeof requestId === 'string' && requestId.length > 0 && requestId.length <= 80 ? requestId : '';
 
     const key = test ? TEST_KEY : normName(customerName);
     if (!key) return json(400, { error: 'Missing customerName' });
 
     const log = (await store.get('log', { type: 'json' })) || {};
     const now = Date.now();
+    // The same click arriving twice (a retry after a slow reply, say) is answered with the first result and sends nothing.
+    const already = reqId && ((log[key] && log[key].history) || []).find((h) => h.requestId === reqId);
+    if (already) return json(200, { ok: true, duplicate: true, to: num.display, messageId: already.id, parts: already.parts, at: already.at, test: !!test });
     if (!test && log[key] && log[key].at && now - Date.parse(log[key].at) < DOUBLE_CLICK_MS) {
       return json(409, { error: 'That customer was texted a moment ago — not sending it twice.' });
     }
@@ -114,7 +122,12 @@ exports.handler = async (event) => {
       at,
       to: num.e164,
       count: (prev.count || 0) + 1,
-      history: [...(prev.history || []), { at, to: num.e164, body: text, id: data.message_id, parts: data.sms }].slice(-HISTORY_KEPT),
+      history: [...(prev.history || []), {
+        at, to: num.e164, body: text, id: data.message_id, parts: data.sms,
+        template: template || '', customerId: customerId ? String(customerId) : '', accountNumber: accountNumber ? String(accountNumber) : '',
+        requestId: reqId, edited: !!edited,
+        status: 'accepted',   // Kudosity took the message; real delivery status isn't tracked (replies can't come back to a sender name)
+      }].slice(-HISTORY_KEPT),
     };
     await store.setJSON('log', log);
 

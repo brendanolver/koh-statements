@@ -76,9 +76,14 @@ function smsLogStore() {
   return namedStore('sms-log');
 }
 
+// Statements tab: Brendan's own notes about a customer's account ("promised payment Friday") — see customer-notes.js.
+function customerNotesStore() {
+  return namedStore('customer-notes');
+}
+
 // Snapshot of the Xero-derived debtors rows served by debtors-feed.js.
 function debtorsFeedStore() {
   return namedStore('debtors-feed');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, amexRulesStore, smsLogStore, debtorsFeedStore };
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, amexRulesStore, smsLogStore, customerNotesStore, debtorsFeedStore };
