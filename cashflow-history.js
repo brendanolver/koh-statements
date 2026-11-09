@@ -230,7 +230,7 @@
     const s = b.byScenario[scn];
     // manual receipts count as other income and manual payments as other out, so every forecast dollar lands in a column
     const online = s.online, wholesale = s.wholesale, otherIn = s.otherIn + (s.manualIn || 0);
-    const stock = s.stock, cards = s.cards, bas = s.bas || 0, otherOut = s.marketing + s.otherOut + s.cardCredit + (s.manualOut || 0);
+    const stock = s.stock, cards = s.cards, bas = (s.bas || 0) + (s.basCredit || 0), otherOut = s.marketing + s.otherOut + s.cardCredit + (s.manualOut || 0);
     return {
       month: b.month, partial: b.start !== b.month + '-01',
       online, wholesale, otherIn, totalIn: online + wholesale + otherIn,

@@ -12,7 +12,8 @@ const near = (a, b, tol = 0.01, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg
 
 const TODAY = '2026-11-09';
 // out: 0 keeps operating-cost growth out of the way unless a test is about it
-const quiet = { scenarios: { base: { out: 0 }, worst: { out: 0 }, best: { out: 0 } } };
+// (advertising-as-%-of-sales and the card routing are pinned off here; they have their own tests in cashflow-cards.test.js)
+const quiet = { marketingPctOfOnline: 0, cardRoute: { marketing: 'auto', bas: 'auto' }, scenarios: { base: { out: 0 }, worst: { out: 0 }, best: { out: 0 } } };
 const base = (over = {}) => ({ today: TODAY, cashToday: 100000, ar: [], ap: [], amOrders: [], amPOs: null, termsByCustomer: {}, shopify: null, history: null, overrides: {}, settings: quiet, ...over });
 const items = (r, line, scn = 'base') => r.scenarios[scn].items.filter((i) => i.line === line);
 const total = (r, line, scn = 'base') => items(r, line, scn).reduce((a, i) => a + i.amount, 0);

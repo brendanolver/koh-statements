@@ -61,7 +61,7 @@ function sanitise(doc) {
   const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po|card):[\w:-]{1,120}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);
   if (dates.length) out.payDates = Object.fromEntries(dates);
   const st = doc && typeof doc.settings === 'object' && doc.settings ? doc.settings : {};
-  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'nzdPerAud', 'cashThreshold', 'onlineConversion', 'lumiLoanBalance', 'lumiLimit', 'minCash', 'staleBillDays', 'basPayDay', 'debtorDaysOverride', 'lyOn', 'lyWholesale', 'lyStock', 'lyMarketing', 'lyOtherOut']) {
+  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'nzdPerAud', 'cashThreshold', 'onlineConversion', 'lumiLoanBalance', 'lumiLimit', 'minCash', 'staleBillDays', 'basPayDay', 'debtorDaysOverride', 'stockFollowsSales', 'marketingPctOfOnline', 'onlineGst', 'lyOn', 'lyWholesale', 'lyStock', 'lyMarketing', 'lyOtherOut']) {
     const n = Number(st[k]);
     if (st[k] !== undefined && st[k] !== null && st[k] !== '' && Number.isFinite(n)) out.settings[k] = n;
   }
@@ -79,6 +79,12 @@ function sanitise(doc) {
     if (adjustments.length >= 100) break;
   }
   if (adjustments.length) out.adjustments = adjustments;
+  // Which Amex pays for what: line -> last 4 digits of a card, 'bank' (straight from the bank) or 'auto' (what the history shows).
+  if (st.cardRoute && typeof st.cardRoute === 'object') {
+    const route = {};
+    for (const line of ['marketing', 'otherOut', 'bas']) { const v = st.cardRoute[line]; if (typeof v === 'string' && /^(\d{2,6}|bank|auto)$/.test(v)) route[line] = v; }
+    if (Object.keys(route).length) out.settings.cardRoute = route;
+  }
   if (st.cardTerms && typeof st.cardTerms === 'object') {
     out.settings.cardTerms = {};
     for (const [last4, t] of Object.entries(st.cardTerms).slice(0, 10)) {

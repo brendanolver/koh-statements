@@ -14,7 +14,8 @@ const TODAY = '2026-09-20'; // planned months: Oct 2026 … Aug 2027, from Oct 2
 // The engine's default operating-cost growth is now +5% (Base) with Worst +10% / Best 0%. These tests pin the older maths,
 // so they run with the earlier percentages unless a test sets its own.
 const LEGACY_OUT = { worst: { out: 5 }, base: { out: 0 }, best: { out: -5 } };
-const withLegacy = (settings) => { const s = JSON.parse(JSON.stringify(settings || {})); s.scenarios = s.scenarios || {}; for (const k of Object.keys(LEGACY_OUT)) s.scenarios[k] = Object.assign({}, LEGACY_OUT[k], s.scenarios[k] || {}); return s; };
+// (stock follows sales is pinned off here: these tests are about last year's pattern on its own — see cashflow-salesplan.test.js)
+const withLegacy = (settings) => { const s = JSON.parse(JSON.stringify(settings || {})); if (s.stockFollowsSales === undefined) s.stockFollowsSales = 0; s.scenarios = s.scenarios || {}; if (s.marketingPctOfOnline === undefined) s.marketingPctOfOnline = 0; s.cardRoute = Object.assign({ marketing: 'auto', bas: 'auto' }, s.cardRoute || {}); for (const k of Object.keys(LEGACY_OUT)) s.scenarios[k] = Object.assign({}, LEGACY_OUT[k], s.scenarios[k] || {}); return s; };
 const base = (over = {}) => ({ today: TODAY, cashToday: 100000, ar: [], ap: [], amOrders: [], amPOs: null, termsByCustomer: {}, shopify: null, history: null, overrides: {}, ...over, settings: withLegacy(over.settings) });
 const row = (o) => ({ wholesale: 0, stock: 0, marketing: 0, otherOut: 0, ...o });
 const LY = {

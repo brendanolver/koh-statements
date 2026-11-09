@@ -7656,7 +7656,7 @@ function cfRenderKpis() {
   const thr = r.settings.cashThreshold;
   const s = r.scenarios[cf.scen];
   const end30 = CFE.util.addDays(r.today, 30);
-  const conf = (line) => { let c = 0, t = 0; for (const it of s.items) if (it.line !== 'cardCredit' && it.date <= end30 && CFE.LINES_IN.includes(it.line) === (line === 'in') && CFE.LINES_OUT.includes(it.line) === (line === 'out')) { t += it.amount; if (it.status === 'confirmed') c += it.amount; } return t > 0 ? Math.round((c / t) * 100) : null; };
+  const conf = (line) => { let c = 0, t = 0; for (const it of s.items) if (it.line !== 'cardCredit' && it.line !== 'basCredit' && it.date <= end30 && CFE.LINES_IN.includes(it.line) === (line === 'in') && CFE.LINES_OUT.includes(it.line) === (line === 'out')) { t += it.amount; if (it.status === 'confirmed') c += it.amount; } return t > 0 ? Math.round((c / t) * 100) : null; };
   const inConf = conf('in'), outConf = conf('out');
   document.getElementById('cfKpis').innerHTML =
     cfKpi('Cash today', cfMoney(k.cashToday), cf.xero.cards.length ? `Bank cash · Amex owing ${cfMoney(cf.xero.cards.reduce((a, c) => a + Math.max(0, c.owed), 0))}` : 'AUD bank accounts', k.cashToday < 0 ? 'cfx-neg' : '') +
@@ -8475,7 +8475,7 @@ function cfdRenderDash() {
   cfdRenderBreakdown();
   cfdRenderSales();
   cfdRenderOverdue();
-  if (!cf.dash.formsDrawn) { cfdRenderForms(); cf.dash.formsDrawn = true; } else cfdRenderLumi();
+  if (!cf.dash.formsDrawn) { cfdRenderForms(); cf.dash.formsDrawn = true; } else { cfdRenderLumi(); cfdRenderAssumptions(); }
 }
 
 // The line under the title: when the data was read, whether each source worked, and anything missing or stale.
@@ -8735,6 +8735,8 @@ function cfdDrillHtml(key, rg) {
   const rows = [];
   if (key === 'bas') {
     for (const it of r.scenarios.base.items) if (it.line === 'bas' && it.date >= rg.from && it.date <= rg.to) rows.push({ label: `${cfdDateY(it.date)} — ${it.label}`, amount: it.amount, status: it.status, detail: it.meta && Number.isFinite(it.meta.gst) ? `GST ${cfMoney(it.meta.gst)} + PAYG ${cfMoney(it.meta.payg)}${it.meta.method ? ' · ' + it.meta.method : ''}` : `bill ${it.meta && it.meta.doc ? it.meta.doc : ''} due ${cfdDateY(it.date)}`, source: it.source });
+    const credit = CFE.explain(r, 'base', 'basCredit', rg.from, rg.to).total;
+    if (Math.abs(credit) > 0.5) rows.push({ label: 'Less: BAS charged to the Amex (it leaves the bank in the Amex payments instead)', amount: credit, status: 'assumption', source: 'Xero', detail: '' });
   } else {
     for (const line of g.lines) {
       if (line === 'cardCredit') continue;
@@ -8882,6 +8884,8 @@ const CFD_ASSUMPTIONS = [
   { key: 'online', label: 'Online sales growth', unit: '%', hint: "on last year's online bank deposits", get: (s) => (s.scenarios && s.scenarios.base && s.scenarios.base.online), def: 0 },
   { key: 'wholesale', label: 'Wholesale sales growth', unit: '%', hint: "on last year's wholesale receipts", get: (s) => (s.scenarios && s.scenarios.base && s.scenarios.base.wholesale), def: 0 },
   { key: 'out', label: 'Operating expense growth', unit: '%', hint: "on last year's costs (also grows the PAYG part of BAS)", get: (s) => (s.scenarios && s.scenarios.base && s.scenarios.base.out), def: 5 },
+  { key: 'stockFollowsSales', label: 'Stock follows sales growth', unit: '%', hint: (r) => cfdStockLinkHint(r), get: (s) => s.stockFollowsSales, def: 100 },
+  { key: 'marketingPctOfOnline', label: 'Advertising as % of online sales', unit: '%', hint: () => cfdMarketingHint(), get: (s) => s.marketingPctOfOnline, def: 37 },
   { key: 'debtorDaysOverride', label: 'Wholesale debtor days', unit: 'days', hint: 'blank = each customer\'s own average days to pay', get: (s) => s.debtorDaysOverride, def: null },
   { key: 'minCash', label: 'Minimum cash balance', unit: '$', hint: 'below this is Action required (red)', get: (s) => s.minCash, def: 30000 },
   { key: 'cashThreshold', label: 'Comfortable cash level', unit: '$', hint: 'below this is Watch closely (amber)', get: (s) => s.cashThreshold, def: 100000 },
@@ -8889,7 +8893,63 @@ const CFD_ASSUMPTIONS = [
   { key: 'basPayDay', label: 'BAS pay day', unit: 'day', hint: 'of the month (history shows the 21st–27th)', get: (s) => s.basPayDay, def: 25 },
   { key: 'staleBillDays', label: 'Stale bills after', unit: 'days', hint: 'overdue bills older than this are left out', get: (s) => s.staleBillDays, def: 180 },
 ];
-function cfdRenderAssumptions() {
+// The live effect of the "stock follows sales" setting, in plain words (base case).
+function cfdStockLinkHint() {
+  const r = cf.result, info = r && r.scenarios.base.notes.stockLink;
+  const pre = '100 = stock rises by the same % as forecast sales; 0 = stays at last year\'s level. ';
+  if (!info) return pre;
+  if (!info.months) return pre + "Needs last year's figures — still loading.";
+  const g = Math.round(info.growth * 1000) / 10, applied = Math.round((info.factor - 1) * 1000) / 10;
+  if (info.share <= 0) return pre + `Off — stock is planned at last year's level (forecast sales are ${g >= 0 ? '+' : ''}${g}% on last year).`;
+  return pre + (g <= 0 ? 'Right now forecast sales are not above last year, so stock stays at last year\'s level.' : `Right now forecast sales are +${g}% on last year, so planned stock payments are +${applied}%.`);
+}
+// Advertising as a share of online sales: what the setting means, what the last months actually were, and what it gives.
+function cfdMarketingHint() {
+  const r = cf.result;
+  const pre = "ex GST (online deposits ÷ 1.1); 0 = use last year's pattern instead. ";
+  if (!r) return pre;
+  let hist = '';
+  const ms = ((cf.year && cf.year.months) || []).filter((m) => !m.partial && m.eng && m.online > 0);
+  if (ms.length >= 3) {
+    const on = ms.reduce((a, m) => a + m.online, 0), mk = ms.reduce((a, m) => a + m.eng.marketing, 0), div = 1 + (r.settings.onlineGst || 0) / 100;
+    hist = `The last ${ms.length} months actually came to ${((mk / (on / div)) * 100).toFixed(1)}%. `;
+  }
+  const spend = r.scenarios.base.items.filter((i) => i.line === 'marketing').reduce((a, i) => a + i.amount, 0);
+  return pre + hist + (r.scenarios.base.notes.marketingFromSales ? `Forecast advertising over the next 12 months: ${cfMoney(spend)}.` : (r.settings.marketingPctOfOnline > 0 ? 'Waiting for an online forecast.' : 'Off.'));
+}
+// Which card a line goes on, in words (with that card's closing and due days).
+function cfdRouteHint(line) {
+  const r = cf.result, st = r.settings;
+  const route = (st.cardRoute && st.cardRoute[line]) || 'auto';
+  const ord = (n) => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
+  if (route === 'bank') return 'Paid straight from the bank, on the day.';
+  if (route === 'auto') {
+    if (line === 'bas') return "Treated as paid from the bank (the history can't tell which card a BAS is paid with).";
+    const sh = (cf.history && cf.history.cardShares && cf.history.cardShares[line]) || {};
+    return `Split as the last 13 weeks of spend: ${cf.xero.cards.map((c) => `···${c.last4} ${Math.round((sh[c.id] || 0) * 100)}%`).join(', ')}.`;
+  }
+  const t = (st.cardTerms && st.cardTerms[route]) || st.cardDefault;
+  return `Amex ···${route} closes on the ${ord(t.closeDay)} and is due on the ${ord(t.dueDay)}${t.dueMonthOffset ? ' of the month after' : ''}.${line === 'bas' ? ' Charged on or before the close day it waits for the next due date; charged after it, about a month longer.' : ''}`;
+}
+function cfdRouteRow(line, label, merged) {
+  const cur = (merged.cardRoute && merged.cardRoute[line]) || 'auto';
+  const opts = cf.xero.cards.map((c) => [c.last4, `Amex ···${c.last4}`]);
+  if (/^\d+$/.test(cur) && !opts.some((o) => o[0] === cur)) opts.push([cur, `Amex ···${cur}`]);
+  opts.push(['bank', 'Bank — no card'], ['auto', 'As the last 13 weeks show']);
+  return `<label class="cfd-as"><span class="cfd-as-l">${label}<small>${cfEsc(cfdRouteHint(line))}</small></span><span class="cfd-as-i"><select data-k="route|${line}" onchange="cfdOnRoute('${line}', this.value)">${opts.map((o) => `<option value="${cfEsc(o[0])}" ${o[0] === cur ? 'selected' : ''}>${cfEsc(o[1])}</option>`).join('')}</select></span></label>`;
+}
+// What the Amex cards end up carrying for the business under the current settings (base case).
+function cfdCardCarryNote() {
+  const o = cf.result.scenarios.base.notes.cardOwed;
+  if (!o || !Object.keys(o).length) return '';
+  const bits = Object.values(o).map((c) => `${cfEsc(c.name)} owes ${cfMoney(c.now)} now, about ${cfMoney(c.average)} on average and up to ${cfMoney(c.peak)} (${cfdDateY(c.peakDate)})`);
+  return `<div class="cfd-hint"><b>What the cards carry:</b> ${bits.join('; ')}. That is the cash the extra days keep in your bank — check it sits inside what Amex lets you spend.</div>`;
+}
+function cfdRenderAssumptions(force) {
+  const box = document.getElementById('cfdAssumptions');
+  const active = document.activeElement;
+  if (!force && box.contains(active) && active.dataset && active.dataset.k) return; // never pull a field out from under someone typing
+  const keep = active && box.contains(active) && active.dataset ? active.dataset.k : null;
   const s = cf.inputs.settings || {};
   const merged = cf.result ? cf.result.settings : CFE.mergeSettings(s);
   let calc = '';
@@ -8898,19 +8958,24 @@ function cfdRenderAssumptions() {
     const saved = a.get(s), cur = a.get(merged);
     const val = saved !== undefined && saved !== null && saved !== '' ? saved : (a.key === 'debtorDaysOverride' ? '' : cur);
     const shown = a.key === 'debtorDaysOverride' && val === '' ? '' : (a.unit === '$' ? Math.round(Number(val)).toLocaleString('en-AU') : val);
-    return `<label class="cfd-as"><span class="cfd-as-l">${a.label}<small>${a.hint}</small></span><span class="cfd-as-i">${a.unit === '$' ? '<em>$</em>' : ''}<input type="text" inputmode="decimal" value="${shown}" onchange="cfdOnAssump('${a.key}', this)">${a.unit && a.unit !== '$' ? `<em>${a.unit}</em>` : ''}</span></label>`;
+    return `<label class="cfd-as"><span class="cfd-as-l">${a.label}<small>${typeof a.hint === 'function' ? cfEsc(a.hint(merged)) : a.hint}</small></span><span class="cfd-as-i">${a.unit === '$' ? '<em>$</em>' : ''}<input type="text" inputmode="decimal" data-k="as|${a.key}" value="${shown}" onchange="cfdOnAssump('${a.key}', this)">${a.unit && a.unit !== '$' ? `<em>${a.unit}</em>` : ''}</span></label>`;
   }).join('');
-  document.getElementById('cfdAssumptions').innerHTML = `
+  const cards = cf.result && cf.xero ? `<div class="cfd-asgrid">${cfdRouteRow('marketing', 'Advertising is paid with', merged)}${cfdRouteRow('bas', 'BAS is paid with', merged)}</div>
+    <div class="cfd-hint">Australia Post and the rest of "Other cash out" follow the split of the last 13 weeks of card spend (${cf.xero.cards.map((c) => `···${c.last4} ${Math.round((((cf.history && cf.history.cardShares && cf.history.cardShares.otherOut) || {})[c.id] || 0) * 100)}%`).join(', ')}). Stock is paid from the bank.</div>
+    ${cfdCardCarryNote()}` : '';
+  box.innerHTML = `
     <summary><span class="cfx-card-title" style="margin:0">Assumptions</span><span class="cfx-hint" id="cfdAssumpState">changes apply straight away</span></summary>
     <div class="cfd-asgrid">${rows}</div>
+    ${cards}
     <div class="cfd-hint">${calc} Online sales come from last year's <b>net</b> bank deposits, so merchant fees are already taken off (and GST settles through the BAS), so there's no fee setting. Everything else — card terms, scenarios, monthly overrides — is under Advanced detail.</div>
     <button onclick="cfdResetAssumptions()">Reset assumptions to defaults</button>`;
+  if (keep) { const el = box.querySelector(`[data-k="${keep}"]`); if (el) { el.focus(); try { el.select(); } catch (e) {} } }
 }
 function cfdOnAssump(key, el) {
   const a = CFD_ASSUMPTIONS.find((x) => x.key === key);
   const raw = String(el.value).trim().replace(/[%$,\s]/g, '');
   const n = raw === '' ? null : Number(raw);
-  if (raw !== '' && !Number.isFinite(n)) { cfdRenderAssumptions(); return; }
+  if (raw !== '' && !Number.isFinite(n)) { setTimeout(() => cfdRenderAssumptions(true), 0); return; }
   cf.inputs.settings = cf.inputs.settings || {};
   const s = cf.inputs.settings;
   if (['online', 'wholesale', 'out'].includes(key)) {
@@ -8919,10 +8984,18 @@ function cfdOnAssump(key, el) {
   } else if (n === null) delete s[key]; else s[key] = n;
   cfSaveInputsDebounced();
   cfRefresh();
+  setTimeout(() => cfdRenderAssumptions(true), 0); // after focus has moved on, so the explanations beside each box update
+}
+function cfdOnRoute(line, value) {
+  cf.inputs.settings = cf.inputs.settings || {};
+  cf.inputs.settings.cardRoute = Object.assign({}, cf.inputs.settings.cardRoute || {}, { [line]: value });
+  cfSaveInputsDebounced();
+  cfRefresh();
+  setTimeout(() => cfdRenderAssumptions(true), 0);
 }
 function cfdResetAssumptions() {
   const s = cf.inputs.settings || {};
-  for (const k of ['debtorDaysOverride', 'minCash', 'cashThreshold', 'usdPerAud', 'basPayDay', 'staleBillDays']) delete s[k];
+  for (const k of ['debtorDaysOverride', 'stockFollowsSales', 'marketingPctOfOnline', 'cardRoute', 'minCash', 'cashThreshold', 'usdPerAud', 'basPayDay', 'staleBillDays']) delete s[k];
   if (s.scenarios && s.scenarios.base) for (const k of ['online', 'wholesale', 'out']) delete s.scenarios.base[k];
   cfSaveInputsDebounced();
   cfRefresh();

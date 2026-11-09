@@ -161,4 +161,63 @@ test('salesPlanCell: last year, forecast, known, typed, and the % the forecast w
   assert.strictEqual(CFE.salesPlanCell(r, 'online', '2025-01'), null, 'a month outside the forecast');
 });
 
+console.log('Stock follows sales');
+// last year: stock $100,000 a month alongside the sales above
+const lyStock = () => { const o = {}; for (let k = -12; k <= 0; k++) o[addMonths('2026-11', k)] = { wholesale: 200000, stock: 100000, marketing: 0, otherOut: 0 }; return o; };
+const withSales = (over = {}) => online({ lastYear: lyStock(), ...over });
+const expectedGrowth = (r, scn = 'base') => {
+  const nt = r.scenarios[scn].notes.onlineBasis; let planned = 0, last = 0;
+  for (let k = 1; k <= 11; k++) { const mk = addMonths('2026-11', k); last += 200000 + nt[mk]; planned += inMonth(r, 'online', mk, scn) + inMonth(r, 'wholesale', mk, scn); }
+  return planned / last - 1;
+};
+test('stock payments rise by the forecast sales growth over the planned months (one yearly figure), and say so', () => {
+  const r = CFE.buildForecast(withSales({ settings: sc({ online: 50 }) }));
+  const g = expectedGrowth(r), info = r.scenarios.base.notes.stockLink;
+  assert.ok(g > 0.05, 'sales growth should be clearly above zero: ' + g);
+  near(info.growth, g, 1e-9); near(info.factor, 1 + g, 1e-9);
+  near(inMonth(r, 'stock', '2026-12'), 100000 * (1 + g), 0.01);
+  near(inMonth(r, 'stock', '2027-06'), 100000 * (1 + g), 0.01, 'the same % every month — last year\'s pattern is kept');
+  const it = items(r, 'stock').find((i) => i.date === '2026-12-10');
+  assert.ok(/with sales\)/.test(it.label) && /because forecast sales are/.test(it.meta.method), it.label + ' | ' + it.meta.method);
+});
+test('the share is a setting: 0 keeps stock at last year\'s level, 50 takes half the growth, 100 all of it', () => {
+  const at = (v) => CFE.buildForecast(withSales({ settings: { ...sc({ online: 50 }), stockFollowsSales: v } }));
+  const g = expectedGrowth(at(100));
+  near(inMonth(at(0), 'stock', '2026-12'), 100000, 0.01);
+  near(inMonth(at(50), 'stock', '2026-12'), 100000 * (1 + 0.5 * g), 0.01);
+  near(inMonth(at(100), 'stock', '2026-12'), 100000 * (1 + g), 0.01);
+  assert.strictEqual(CFE.DEFAULT_SETTINGS.stockFollowsSales, 100, 'on by default');
+  assert.strictEqual(at(0).scenarios.base.notes.stockLink.factor, 1);
+});
+test('stock never falls because sales do — it is bought ahead and committed', () => {
+  const r = CFE.buildForecast(withSales({ settings: sc({ online: -30, wholesale: -10 }) }));
+  assert.ok(expectedGrowth(r) < 0, 'sales are down');
+  assert.strictEqual(r.scenarios.base.notes.stockLink.growth, 0);
+  near(inMonth(r, 'stock', '2026-12'), 100000, 0.01);
+});
+test('sales you typed on the Sales forecast card feed the link', () => {
+  const plain = CFE.buildForecast(withSales({ settings: sc({ online: 0 }) }));
+  const typed = CFE.buildForecast(withSales({ settings: sc({ online: 0 }), salesPlan: { online: { '2026-12': { amount: 3000000 } } } }));
+  assert.ok(typed.scenarios.base.notes.stockLink.growth > plain.scenarios.base.notes.stockLink.growth + 0.05);
+  near(typed.scenarios.base.notes.stockLink.growth, expectedGrowth(typed), 1e-9);
+});
+test('real stock bills already in Xero count towards the (higher) plan — nothing is counted twice — and the Stock % case still applies on top', () => {
+  const bill = { id: 'B1', contact: 'FACTORY', number: 'INV-1', amountDueAud: 40000, currency: 'AUD', dueDate: '2026-12-10' };
+  const r = CFE.buildForecast(withSales({ ap: [bill], settings: sc({ online: 50 }) }));
+  const g = expectedGrowth(r);
+  near(inMonth(r, 'stock', '2026-12'), 100000 * (1 + g), 0.01, 'the $40,000 bill is part of the month\'s plan, not added to it');
+  const r2 = CFE.buildForecast(withSales({ settings: sc({ online: 50, stock: 10 }) }));
+  near(inMonth(r2, 'stock', '2026-12'), 100000 * 1.1 * (1 + expectedGrowth(r2)), 0.01);
+});
+test('Worst and Best use their own sales: more growth in Best, less in Worst', () => {
+  const r = CFE.buildForecast(withSales({ settings: sc({ online: 50 }, { online: 0 }, { online: 100 }) }));
+  const gw = r.scenarios.worst.notes.stockLink.growth, gb = r.scenarios.base.notes.stockLink.growth, gbest = r.scenarios.best.notes.stockLink.growth;
+  assert.ok(gw < gb && gb < gbest, [gw, gb, gbest].join(' < '));
+});
+test('without last year there is nothing to link to — no stock plan, no crash', () => {
+  const r = CFE.buildForecast(online({ lastYear: null, settings: sc({ online: 50 }) }));
+  assert.strictEqual(r.scenarios.base.notes.stockLink.factor, 1);
+  assert.strictEqual(inMonth(r, 'stock', '2026-12'), 0);
+});
+
 console.log(`\n${n} passing`);

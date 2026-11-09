@@ -46,6 +46,23 @@ const call = async (httpMethod, body) => { const r = await fn.handler({ httpMeth
     assert.strictEqual(blank.debtorDaysOverride, undefined, 'a blank override means "use each customer\'s own history"');
     assert.strictEqual(blank.minCash, undefined);
   });
+  await test('the "stock follows sales" share is saved, including a 0 (= off) and a partial share; blank / junk is dropped', async () => {
+    assert.strictEqual(fn._sanitise({ settings: { stockFollowsSales: 0 } }).settings.stockFollowsSales, 0, 'a 0 means off and must be kept');
+    assert.strictEqual(fn._sanitise({ settings: { stockFollowsSales: '50' } }).settings.stockFollowsSales, 50);
+    assert.strictEqual(fn._sanitise({ settings: { stockFollowsSales: '' } }).settings.stockFollowsSales, undefined);
+    assert.strictEqual(fn._sanitise({ settings: { stockFollowsSales: 'all' } }).settings.stockFollowsSales, undefined);
+  });
+  await test('advertising as a % of online sales and which Amex pays for what are saved; bad routes are dropped', async () => {
+    const settings = { marketingPctOfOnline: 37, onlineGst: 10, cardRoute: { marketing: '1000', bas: '1003', otherOut: 'auto', evil: '1000' } };
+    assert.strictEqual((await call('POST', { settings })).status, 200);
+    const got = (await call('GET')).body.settings;
+    assert.deepStrictEqual([got.marketingPctOfOnline, got.onlineGst], [37, 10]);
+    assert.deepStrictEqual(got.cardRoute, { marketing: '1000', bas: '1003', otherOut: 'auto' });
+    assert.strictEqual(fn._sanitise({ settings: { marketingPctOfOnline: 0 } }).settings.marketingPctOfOnline, 0, '0 = off is kept');
+    assert.deepStrictEqual(fn._sanitise({ settings: { cardRoute: { marketing: 'bank', bas: '1003 ', otherOut: 5 } } }).settings.cardRoute, { marketing: 'bank' });
+    assert.strictEqual(fn._sanitise({ settings: { cardRoute: { marketing: 'visa' } } }).settings.cardRoute, undefined);
+    assert.strictEqual(fn._sanitise({ settings: {} }).settings.cardRoute, undefined);
+  });
   await test('manual adjustments are kept (amount > 0, real date, in/out, description) and tidied; bad ones are dropped', async () => {
     const adjustments = [
       { id: 'a1', desc: '  Extra stock payment ', amount: '40000', date: '2026-12-10', dir: 'out', category: 'Stock' },

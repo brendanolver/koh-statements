@@ -30,12 +30,13 @@
   // 'cards' = Amex statement payments leaving the bank on their due dates; 'cardCredit' = the (negative)
   // card spend that is already inside Marketing / Other cash out but isn't paid until the statement
   // is due — so the Cash out total is what actually leaves the bank, and both lines reconcile.
-  // 'bas' = the monthly GST + PAYG payment to the ATO, forecast on its own (never inside Other cash out);
+  // 'bas' = the monthly GST + PAYG payment to the ATO, forecast on its own (never inside Other cash out); 'basCredit' = the
+  // (negative) part of it that is charged to an Amex and so leaves the bank on the statement due date instead;
   // 'manualOut' = one-off payments the user has entered (incl. a planned Lumi repayment).
-  const LINES_OUT = ['stock', 'marketing', 'otherOut', 'cards', 'cardCredit', 'bas', 'manualOut'];
+  const LINES_OUT = ['stock', 'marketing', 'otherOut', 'cards', 'cardCredit', 'bas', 'basCredit', 'manualOut'];
   const INPUT_LINES = ['online', 'wholesale', 'otherIn', 'stock', 'marketing', 'otherOut']; // the ones you can override monthly
   const LINES = [...LINES_IN, ...LINES_OUT];
-  const LINE_LABELS = { online: 'Online sales', wholesale: 'Wholesale', otherIn: 'Other cash in', stock: 'Stock payments', marketing: 'Marketing', otherOut: 'Other cash out', cards: 'Amex payments', cardCredit: 'Charged to Amex (paid later)', bas: 'BAS (GST + PAYG)', manualIn: 'Manual adjustments (in)', manualOut: 'Manual adjustments (out)' };
+  const LINE_LABELS = { online: 'Online sales', wholesale: 'Wholesale', otherIn: 'Other cash in', stock: 'Stock payments', marketing: 'Marketing', otherOut: 'Other cash out', cards: 'Amex payments', cardCredit: 'Charged to Amex (paid later)', basCredit: 'BAS charged to Amex (paid later)', bas: 'BAS (GST + PAYG)', manualIn: 'Manual adjustments (in)', manualOut: 'Manual adjustments (out)' };
   // Which scenario percentage moves which line (see DEFAULT_SETTINGS.scenarios).
   const LINE_PCT_KEY = { online: 'online', wholesale: 'wholesale', stock: 'stock', marketing: 'out', otherOut: 'out' };
   // Lines that can be planned from last year's same month (settings flag that switches each one off).
@@ -66,6 +67,16 @@
     // Last year as the starting point: from next month on, Wholesale, Stock, Marketing and Other cash out are
     // planned as last year's same month x (1 + the scenario %). 1 = on, 0 = off (lyOn is the master switch).
     lyOn: 1, lyWholesale: 1, lyStock: 1, lyMarketing: 1, lyOtherOut: 1,
+    // Stock follows sales: planned stock payments rise by this share of the forecast sales growth on last year (100 = in step with
+    // sales, 0 = stay at last year's level). Stock never falls because sales do (it is bought ahead and committed).
+    stockFollowsSales: 100,
+    // Advertising (Social Media) as a % of ONLINE SALES EX GST. Online sales are bank deposits, which include GST, so ex-GST sales
+    // are deposits / (1 + onlineGst). 0 = off (advertising then follows last year's pattern / the recent run-rate instead).
+    marketingPctOfOnline: 37,
+    onlineGst: 10,
+    // Which Amex pays for what (by last 4 digits; 'bank' = paid straight from the bank, 'auto' = whatever the last 13 weeks of
+    // card spend show). Advertising on 1000 and BAS (+ other Australia Post-type spend, inside Other cash out) on 1003.
+    cardRoute: { marketing: '1000', bas: '1003' },
     scenarios: {
       // online / wholesale / stock / out are % changes (against last year's pattern, or the system forecast
       // where a line isn't using last year); delay is extra days customers take to pay.
@@ -82,6 +93,9 @@
     for (const k of Object.keys(s)) {
       if (k === 'scenarios') continue;
       if (saved[k] !== undefined && saved[k] !== null && saved[k] !== '' && Number.isFinite(Number(saved[k]))) s[k] = Number(saved[k]);
+    }
+    if (saved.cardRoute && typeof saved.cardRoute === 'object') {
+      for (const line of ['marketing', 'otherOut', 'bas']) { const v = saved.cardRoute[line]; if (typeof v === 'string' && /^(\d{2,6}|bank|auto)$/.test(v)) s.cardRoute[line] = v; }
     }
     for (const key of ['cardTerms']) {
       for (const [last4, t] of Object.entries((saved[key]) || {})) {
@@ -341,6 +355,23 @@
       for (let i = items.length - 1; i >= 0; i--) if (items[i].line === 'online' && !(items[i].amount > 0)) items.splice(i, 1);
     }
 
+    // -- Advertising as a share of online sales. The user's assumption is "advertising is about 37% of online sales ex GST":
+    // each forecast online day (bank deposits, which include GST) gives ex-GST sales of deposits / 1.1, and advertising for that
+    // day is the % of that. It follows the typed Sales forecast and each case's own online sales, and it replaces both last
+    // year's marketing pattern and the recent run-rate. With no online forecast (or the % at 0) those stay in charge.
+    const mktPct = Number(settings.marketingPctOfOnline) || 0;
+    const mktFromSales = mktPct > 0 && items.some((it) => it.line === 'online');
+    if (mktFromSales) {
+      lyMonths.marketing.clear();
+      const gstDiv = 1 + (Number(settings.onlineGst) || 0) / 100;
+      const pctShown = Math.round(mktPct * 10) / 10;
+      for (const it of items.filter((x) => x.line === 'online')) {
+        push('marketing', it.date, (it.amount / gstDiv) * (mktPct / 100), `Advertising (${pctShown}% of online sales ex GST)`, 'Your assumption', 'assumption',
+          { method: `${pctShown}% of that day's online sales ex GST (online deposits ÷ ${gstDiv.toFixed(2)}), ${it.label}` });
+      }
+      notes.marketingFromSales = { pct: mktPct, gstDiv };
+    }
+
     // -- Stock: Xero bills (converted to AUD) and Apparel Magic purchase orders
     for (const b of input.ap || []) {
       if (!(b.amountDueAud > 0)) continue;
@@ -399,7 +430,7 @@
 
     // -- Run-rate operating spend from Xero history (wages, rent, tax, cards…)
     const outMul = 1 + (sc.out || 0) / 100;
-    if (h.marketingPerWeek > 0) for (let i = 1; i <= input.horizonDays; i++) if (!inLy('marketing', addDays(today, i))) push('marketing', addDays(today, i), (h.marketingPerWeek / 7) * outMul, 'Recent marketing spend', 'Xero', 'assumption', { method: 'Xero card/bank spend, last 13 weeks' });
+    if (h.marketingPerWeek > 0 && !mktFromSales) for (let i = 1; i <= input.horizonDays; i++) if (!inLy('marketing', addDays(today, i))) push('marketing', addDays(today, i), (h.marketingPerWeek / 7) * outMul, 'Recent marketing spend', 'Xero', 'assumption', { method: 'Xero card/bank spend, last 13 weeks' });
     if (h.otherOutPerWeek > 0) for (let i = 1; i <= input.horizonDays; i++) if (!inLy('otherOut', addDays(today, i))) push('otherOut', addDays(today, i), (h.otherOutPerWeek / 7) * outMul, 'Recent operating spend', 'Xero', 'assumption', { method: 'Xero cash spent less bills, marketing & transfers, last 13 weeks' });
 
     // -- Last year's pattern: for each planned month, the plan is last year's same month x (1 + the scenario %).
@@ -409,7 +440,28 @@
     const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthLabel = (mk) => `${MON[Number(mk.slice(5)) - 1]} ${mk.slice(2, 4)}`;
     notes.lastYear = {};
+    // Stock follows sales. Stock is bought to sell, so if the forecast has sales well above last year, last year's stock
+    // payments would leave the forecast far too rosy. The growth used is the whole forecast's: online + wholesale sales over
+    // the planned months against the same months last year (including anything typed on the Sales forecast card), times the
+    // "stock follows sales" share, floored at 0. It is one yearly figure — not month by month — because stock is paid
+    // months before it sells, so a single month's sales spike (Black Friday) is not matched by stock paid in that month.
+    const stockLinkInfo = () => {
+      const share = Math.max(0, Number(settings.stockFollowsSales) || 0) / 100;
+      let planned = 0, last = 0, months = 0;
+      if (share > 0 && ly) {
+        for (let k = 1; k <= 11; k++) {
+          const mk = addMonths(m0, k), lyRow = ly[addMonths(mk, -12)];
+          if (!lyRow || !Number.isFinite(lyRow.wholesale)) continue;
+          months++;
+          last += lyRow.wholesale + (onlineBasis[mk] || 0);
+          planned += items.filter((it) => (it.line === 'online' || it.line === 'wholesale') && monthKey(it.date) === mk).reduce((a, it) => a + it.amount, 0);
+        }
+      }
+      const growth = last > 0 ? Math.max(0, planned / last - 1) : 0;
+      return { share, growth, factor: 1 + share * growth, planned, last, months };
+    };
     for (const line of Object.keys(LY_LINES)) {
+      const link = line === 'stock' ? (notes.stockLink = stockLinkInfo()) : null;
       // A typed wholesale $ amount for a month last year can't cover (or with "start from last year" off) still plans that month.
       const extra = [];
       if (line === 'wholesale') for (let k = 1; k <= 11; k++) { const mk = addMonths(m0, k), e = planFor('wholesale', mk); if (e && e.amount !== undefined && !lyMonths.wholesale.has(mk)) extra.push(mk); }
@@ -444,10 +496,16 @@
           if (lyVal === null) continue;
           const g = Number(growth[line] && growth[line][mk]);
           const mPct = Number.isFinite(g) ? Math.max(-100, g) : 0;
-          plan = lyVal * (1 + mPct / 100) * (1 + pct / 100);
+          const lf = link && link.factor > 1.00005 ? link.factor : 1;
+          plan = lyVal * (1 + mPct / 100) * (1 + pct / 100) * lf;
           // The month's own growth % comes first, and the Worst / Base / Best % is applied on top of it.
           label = mPct === 0 ? `Last year's ${monthLabel(lyMk)} pattern (${sgn(pct)})` : `Last year's ${monthLabel(lyMk)} pattern (${sgn(mPct)} month${pct !== 0 ? `, ${sgn(pct)} case` : ''})`;
-          const factors = mPct === 0 ? `x ${fac(pct)}` : `x ${fac(mPct)} for the month x ${fac(pct)} case`;
+          let factors = mPct === 0 ? `x ${fac(pct)}` : `x ${fac(mPct)} for the month x ${fac(pct)} case`;
+          if (lf !== 1) {
+            const lp = Math.round((lf - 1) * 1000) / 10;
+            label = label.replace(/\)$/, `, +${lp}% with sales)`);
+            factors += ` x (1 + ${lp}%) because forecast sales are ${Math.round(link.growth * 1000) / 10}% up on last year`;
+          }
           method = `Last year's ${monthLabel(lyMk)} ${LINE_LABELS[line].toLowerCase()} ${factors} = ${Math.round(plan).toLocaleString('en-AU')}, less ${Math.round(known).toLocaleString('en-AU')} already known`;
         }
         const gap = plan - known;
@@ -526,16 +584,27 @@
   // close day (everything owed at that moment, less any earlier statement still unpaid), and that
   // statement leaves the bank on its due date. The statement already closed today is worked out from
   // the balance owed less the charges since it closed. Mutates flows / items; returns nothing.
-  function scheduleCards(input, settings, flows, items, H) {
+  // Which card a line is charged to. `settings.cardRoute` pins a line to one card by its last 4 digits (or to the bank with 'bank');
+  // 'auto', no setting, or a card that doesn't exist falls back to the share of that line's spend the last 13 weeks put on each card.
+  function cardShareOf(input, settings, card, line) {
+    const route = settings.cardRoute && settings.cardRoute[line];
+    if (route && route !== 'auto') {
+      if (route === 'bank') return 0;
+      if ((input.cards || []).some((c) => c.last4 === route)) return card.last4 === route ? 1 : 0;
+    }
+    return (input.cardShares && input.cardShares[line] && input.cardShares[line][card.id]) || 0;
+  }
+
+  function scheduleCards(input, settings, flows, items, H, notes) {
     const { today } = input;
     const tomorrow = addDays(today, 1);
     for (const card of input.cards || []) {
       const t = (settings.cardTerms && settings.cardTerms[card.last4]) || settings.cardDefault;
       const label = `${card.name}${card.last4 ? ' ···' + card.last4 : ''}`;
-      const charges = new Array(H + 1).fill(0);
-      for (const line of ['marketing', 'otherOut']) {
-        const share = (input.cardShares && input.cardShares[line] && input.cardShares[line][card.id]) || 0;
-        if (share > 0) for (let i = 1; i <= H; i++) charges[i] += flows[line][i] * share;
+      const charges = new Array(H + 1).fill(0), basCharges = new Array(H + 1).fill(0);
+      for (const line of ['marketing', 'otherOut', 'bas']) {
+        const share = cardShareOf(input, settings, card, line);
+        if (share > 0) for (let i = 1; i <= H; i++) { const c = flows[line][i] * share; charges[i] += c; if (line === 'bas') basCharges[i] += c; }
       }
       const m0 = monthKey(today);
       const closes = [];
@@ -554,11 +623,13 @@
         if (d < tomorrow) d = tomorrow;
         sched.push({ date: d, amount: stmt0, close: L, due: due0, status: 'confirmed', overdue, paid: false });
       }
-      let owed = owed0;
+      let owed = owed0, peak = { amount: owed0, date: today }, owedSum = 0;
       for (let i = 1; i <= H; i++) {
         const d = addDays(today, i);
         owed += charges[i];
-        if (charges[i] > 0) { flows.cardCredit[i] -= charges[i]; items.push({ line: 'cardCredit', date: d, amount: -charges[i], label: `Charged to ${label} (paid on statement due date)`, source: 'Xero', status: 'assumption' }); }
+        const other = charges[i] - basCharges[i];
+        if (other > 0) { flows.cardCredit[i] -= other; items.push({ line: 'cardCredit', date: d, amount: -other, label: `Charged to ${label} (paid on statement due date)`, source: 'Xero', status: 'assumption' }); }
+        if (basCharges[i] > 0) { flows.basCredit[i] -= basCharges[i]; items.push({ line: 'basCredit', date: d, amount: -basCharges[i], label: `BAS charged to ${label} (paid on statement due date)`, source: 'Xero', status: 'assumption' }); }
         if (closes.includes(d)) {
           const pending = sched.filter((p) => !p.paid).reduce((a, p) => a + p.amount, 0);
           const amount = owed - pending;
@@ -575,7 +646,11 @@
           flows.cards[i] += p.amount;
           items.push({ line: 'cards', date: d, amount: p.amount, label: label, source: 'Xero', status: p.status, meta: { doc: `statement closing ${fmtDate(p.close)}`, due: p.due, overdue: p.overdue, pid: `card:${card.id}:${p.close}`, manualDate: !!(input.payDates && input.payDates[`card:${card.id}:${p.close}`]), card: card.id } });
         }
+        if (owed > peak.amount) peak = { amount: owed, date: d };
+        owedSum += owed;
       }
+      // How much each Amex owes at its highest (and on average) — what the card is carrying for the business.
+      if (notes) { (notes.cardOwed = notes.cardOwed || {})[card.last4 || card.id] = { name: label, peak: peak.amount, peakDate: peak.date, average: H > 0 ? owedSum / H : owed0, now: owed0 }; }
     }
   }
 
@@ -611,7 +686,7 @@
       }
     }
 
-    scheduleCards(input, settings, flows, items, H);
+    scheduleCards(input, settings, flows, items, H, notes);
 
     const balance = new Array(H + 1).fill(0);
     balance[0] = input.cashToday;
@@ -822,7 +897,7 @@
       { key: 'stock', label: 'Overseas stock suppliers', short: 'Stock suppliers', lines: ['stock'] },
       { key: 'cards', label: 'Amex card payments', short: 'Amex payments', lines: ['cards'] },
       { key: 'opex', label: 'Operating expenses', short: 'Operating expenses', lines: ['marketing', 'otherOut', 'cardCredit'] },
-      { key: 'bas', label: 'BAS (GST + PAYG)', short: 'BAS', lines: ['bas'] },
+      { key: 'bas', label: 'BAS (GST + PAYG)', short: 'BAS', lines: ['bas', 'basCredit'] },
       { key: 'other', label: 'Other scheduled payments (manual)', short: 'Other scheduled', lines: ['manualOut'] },
     ],
   };
@@ -872,7 +947,7 @@
     for (const g of GROUPS.outflows) {
       let amount = 0, count = 0;
       for (let d = from; d <= endDate; d = addDays(d, 1)) { const i = s.idx[d]; if (i !== undefined) for (const l of g.lines) amount += s.flows[l][i]; }
-      for (const it of s.items) if (it.line !== 'cardCredit' && g.lines.includes(it.line) && it.date >= from && it.date <= endDate) count++;
+      for (const it of s.items) if (it.line !== 'cardCredit' && it.line !== 'basCredit' && g.lines.includes(it.line) && it.date >= from && it.date <= endDate) count++;
       if (amount > 0) out.push({ key: g.key, label: g.label, short: g.short, amount, count });
     }
     let inflow = 0;
