@@ -183,6 +183,7 @@
     border-radius: 6px;
   }
   .send-status { font-size: 13px; color: var(--muted); }
+  .send-status.hold-note { color: #b42318; font-weight: 600; }
 
   .debtors-panel {
     max-width: 1100px;
@@ -1226,6 +1227,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     <input id="recipientInput" type="email" multiple placeholder="customer@email.com, ap@customer.com" oninput="onRecipientFieldChange()">
     <input id="recipientNameInput" type="text" placeholder="Recipient name" oninput="onRecipientFieldChange()">
     <span id="ccIndicator" class="send-status"></span>
+    <span id="holdIndicator" class="send-status hold-note"></span>
     <button class="primary" id="sendBtn" onclick="sendCurrentStatement()">Send Statement</button>
     <span id="sendStatus" class="send-status"></span>
   </div>
@@ -1871,6 +1873,7 @@ const els = {
   sendBtn: document.getElementById('sendBtn'),
   sendStatus: document.getElementById('sendStatus'),
   ccIndicator: document.getElementById('ccIndicator'),
+  holdIndicator: document.getElementById('holdIndicator'),
   debtorsStatus: document.getElementById('debtorsStatus'),
   debtorsRows: document.getElementById('debtorsRows'),
   customersRows: document.getElementById('customersRows'),
@@ -1972,10 +1975,26 @@ async function prepareQueueItem(item) {
   if (isQueued(item.id)) renderQueue();
 }
 
+// Which wording the statement email will use. 'urgent' = stock on hold AND overdue (the "release your stock once you're back
+// within terms" version); 'hold' = stock on hold but nothing overdue (standard email, nothing pushy); '' = no stock on hold.
+function holdEmailMode(data) {
+  if (!data || !(data.holdTotal > 0)) return '';
+  return computeAging(data.invoices).overdue > 0 ? 'urgent' : 'hold';
+}
+
+function holdEmailNote(data) {
+  const mode = holdEmailMode(data);
+  if (!mode) return '';
+  const amt = fmtMoneyWithCurrency(data.holdTotal, data.country);
+  return mode === 'urgent'
+    ? `📦 ${amt} stock on hold — the email will use the urgent "release your stock" wording`
+    : `📦 ${amt} stock on hold, nothing overdue — standard email wording`;
+}
+
 function queueStatusLabel(item) {
   switch (item.status) {
     case 'loading': return 'Loading…';
-    case 'ready': return 'Ready';
+    case 'ready': return holdEmailMode(item.data) === 'urgent' ? 'Ready · 📦 on hold' : 'Ready';
     case 'empty': return 'No open invoices';
     case 'sending': return 'Sending…';
     case 'sent': return 'Sent ✓';
@@ -2002,6 +2021,7 @@ function renderQueue() {
     const status = document.createElement('span');
     status.className = 'queue-row-status status-' + item.status;
     status.textContent = queueStatusLabel(item);
+    status.title = holdEmailNote(item.data);
 
     const emailInput = document.createElement('input');
     emailInput.type = 'email';
@@ -2058,6 +2078,8 @@ async function sendQueueItem(item) {
       recipientName: item.recipientName,
       balanceDue: total,
       overdue,
+      holdTotal: item.data.holdTotal || 0,
+      holdCount: item.data.holdCount || 0,
       invoiceCount: rows.length,
       currency: currencyFor(item.data.country),
     });
@@ -2323,6 +2345,18 @@ async function fetchOpenXeroInvoices(contactId) {
     if (rows.length < 100) break;
   }
   return all;
+}
+
+// One customer's stock on hold: their "Awaiting Approval" (SUBMITTED) invoices. The statement itself leaves these out;
+// the email uses the total to tell the customer their stock can't be released until they're back within terms.
+// Deliberately NOT swallowed on failure: quietly sending the softer standard wording to someone who does have stock on
+// hold would defeat the point, so an error here fails the statement the same way a failed invoice fetch does.
+async function fetchHeldXeroInvoices(contactId) {
+  const params = new URLSearchParams({ path: 'Invoices', ContactIDs: contactId, where: 'Type=="ACCREC" && Status=="SUBMITTED"' });
+  const { res, data } = await fetchXeroJson(`${XERO_PROXY}?${params}`);
+  if (!res.ok) throw new Error(data.error || data.Detail || `Xero held-stock fetch failed (${res.status})`);
+  const rows = data.Invoices || [];
+  return { holdTotal: rows.reduce((t, i) => t + (i.Total || 0), 0), holdCount: rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -3360,7 +3394,10 @@ async function buildStatementData(customer) {
     if (inv.xero_id) amByXeroId.set(String(inv.xero_id).toLowerCase(), inv);
   }
 
-  const xeroInvoices = await fetchOpenXeroInvoices(xeroContact.ContactID);
+  const [xeroInvoices, held] = await Promise.all([
+    fetchOpenXeroInvoices(xeroContact.ContactID),
+    fetchHeldXeroInvoices(xeroContact.ContactID),
+  ]);
   const creditNotes = allCreditNotes.filter((cn) => cn.Contact && cn.Contact.ContactID === xeroContact.ContactID);
 
   // Address block: AM's ship-to fields on the invoice itself (matches what
@@ -3382,6 +3419,9 @@ async function buildStatementData(customer) {
     addr2: [sample.city, sample.state, sample.postal_code, sample.country].filter(Boolean).join(' '),
     recipientEmail: (saved && saved.email) || xeroContact.EmailAddress || '',
     contactFirstName: xeroContact.FirstName || '',
+    // Stock on hold (Awaiting Approval invoices) — only ever used to word the email, not shown on the statement.
+    holdTotal: held.holdTotal,
+    holdCount: held.holdCount,
     // The name actually used in the email greeting — a saved override, or
     // Xero's FirstName as a sensible default until one's set.
     recipientName: (saved && saved.recipientName) || xeroContact.FirstName || '',
@@ -3505,6 +3545,7 @@ function renderStatement(data) {
   els.recipientInput.value = data.recipientEmail || '';
   els.recipientNameInput.value = data.recipientName || '';
   els.ccIndicator.textContent = (data.ccEmails && data.ccEmails.length) ? `+ CC: ${data.ccEmails.join(', ')}` : '';
+  els.holdIndicator.textContent = holdEmailNote(data);
   setSendStatus('');
 }
 
@@ -3667,11 +3708,11 @@ async function downloadQueueSelected() {
   }
 }
 
-async function sendStatementEmail({ html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }) {
+async function sendStatementEmail({ html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, holdTotal, holdCount, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }) {
   const res = await fetch('/.netlify/functions/send-statement', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }),
+    body: JSON.stringify({ html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, holdTotal, holdCount, invoiceCount, invoicePdfs, currency, xlsxBase64, ccEmails }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
@@ -3704,6 +3745,8 @@ async function sendCurrentStatement() {
       recipientName,
       balanceDue: total,
       overdue,
+      holdTotal: currentStatementData.holdTotal || 0,
+      holdCount: currentStatementData.holdCount || 0,
       invoiceCount: rows.length,
       currency: currencyFor(currentStatementData.country),
     });

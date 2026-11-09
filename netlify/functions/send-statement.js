@@ -1,61 +1,9 @@
 const JSZip = require('jszip');
 const { pdfFromSource } = require('./lib/pdf');
+const { emailBodyHtml, emailSubject } = require('./lib/statement-email');
 
 const RESEND_URL = 'https://api.resend.com/emails';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function fmtMoney(n) {
-  const v = Number(n || 0);
-  const abs = Math.abs(v).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return v < 0 ? `($${abs})` : `$${abs}`;
-}
-
-function todayFormatted() {
-  return new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-// Table-based, inline-styled — arbitrary CSS (flexbox/grid, like the full
-// statement uses) renders unreliably across email clients, so this body is
-// deliberately simpler than the statement itself; the PDF attachment is the
-// full detail.
-//
-// The collections-style "your account could be on hold" paragraph only
-// makes sense — and is only factually true — for a customer who actually
-// has an overdue balance, so it's conditional on overdue > 0 rather than
-// shown on every statement email (e.g. a fully-current customer getting a
-// courtesy copy of their statement shouldn't be told they're at risk of
-// being cut off).
-function emailBodyHtml({ customerName, contactFirstName, recipientName, balanceDue, overdue, attachedInvoiceCount, currency }) {
-  // recipientName is a saved override (or Brendan's own edit right before
-  // sending) and always wins; contactFirstName (Xero's on-file FirstName)
-  // is the older fallback, kept for a customer nothing's ever been set for.
-  const greetName = recipientName || contactFirstName || customerName;
-  const invoiceCopiesLine = attachedInvoiceCount > 0
-    ? `<tr><td style="padding:0 32px 16px;font-size:13px;color:#6b7280;line-height:1.6;">Copies of the ${attachedInvoiceCount} underlying invoice${attachedInvoiceCount === 1 ? '' : 's'} are included in the attached zip file.</td></tr>`
-    : '';
-  const overdueBlock = (overdue || 0) > 0 ? `
-<tr><td style="padding:0 32px 16px;font-size:13px;color:#1a1a1a;line-height:1.6;">You have received this email because you have overdue invoices &amp; your account could be on hold, which means we cannot deliver any more stock until the overdue invoices are paid.</td></tr>
-<tr><td style="padding:0 32px 16px;font-size:13px;color:#1a1a1a;line-height:1.6;">Can you please advise via return email when you will be making payment to bring your account back within our trading terms?</td></tr>` : '';
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-family:Arial,Helvetica,sans-serif;background:#f4f5f7;padding:24px 0;">
-<tr><td align="center">
-<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:6px;">
-<tr><td style="padding:32px 32px 8px;"><img src="https://koh-statements.netlify.app/logo.png" alt="KOH Industries" width="160" style="display:block;height:auto;"></td></tr>
-<tr><td style="padding:0 32px 24px;font-size:11px;color:#6b7280;letter-spacing:2px;">WNDRR</td></tr>
-<tr><td style="padding:0 32px 16px;font-size:14px;color:#1a1a1a;">Hi ${greetName},</td></tr>
-<tr><td style="padding:0 32px 16px;font-size:14px;color:#1a1a1a;line-height:1.5;">Here's your statement as at ${todayFormatted()} with amount outstanding of:</td></tr>
-<tr><td style="padding:0 32px 24px;">
-  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#6b7280;">Balance Due ${currency || 'AUD'}</div>
-  <div style="font-size:28px;font-weight:700;color:#0f5c4a;">${fmtMoney(balanceDue)}</div>
-</td></tr>
-${overdueBlock}
-${invoiceCopiesLine}
-<tr><td style="padding:0 32px 24px;font-size:13px;color:#1a1a1a;line-height:1.6;">If you have any questions, please let us know.</td></tr>
-<tr><td style="padding:0 32px 24px;font-size:13px;color:#1a1a1a;">Thanks,<br>Brendan Olver</td></tr>
-<tr><td style="padding:16px 32px 32px;border-top:1px solid #d8dbe0;font-size:12px;color:#6b7280;">KOH Industries Pty Ltd — Unit 5, 6 Builders Close, Wendouree Victoria 3355, Australia</td></tr>
-</table>
-</td></tr>
-</table>`;
-}
 
 // Fetches each underlying AM invoice PDF in parallel (one slow/failed
 // invoice shouldn't block the statement email from going out, so failures
@@ -87,7 +35,7 @@ async function buildInvoicesZipAttachment(invoicePdfs, customerName) {
   };
 }
 
-async function sendEmail({ recipientEmails, ccEmails, customerName, contactFirstName, recipientName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, currency }) {
+async function sendEmail({ recipientEmails, ccEmails, customerName, contactFirstName, recipientName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, holdTotal, holdCount, currency }) {
   const apiKey = (process.env.RESEND_API_KEY || '').trim();
   const from = (process.env.STATEMENTS_FROM_EMAIL || '').trim();
 
@@ -113,8 +61,8 @@ async function sendEmail({ recipientEmails, ccEmails, customerName, contactFirst
     from,
     to: recipientEmails, // Resend accepts an array — one or many recipients, same call either way
     reply_to: 'brendan@kohindustries.com',
-    subject: `Statement from KOH Industries — ${customerName}`,
-    html: emailBodyHtml({ customerName, contactFirstName, recipientName, balanceDue, overdue, attachedInvoiceCount: invoicesZip ? invoicesZip.count : 0, currency }),
+    subject: emailSubject({ customerName, holdTotal, overdue }),
+    html: emailBodyHtml({ customerName, contactFirstName, recipientName, balanceDue, overdue, holdTotal, holdCount, attachedInvoiceCount: invoicesZip ? invoicesZip.count : 0, currency }),
     attachments,
   };
   if (Array.isArray(ccEmails) && ccEmails.length > 0) {
@@ -150,7 +98,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, invoicePdfs, currency, xlsxBase64, ccEmails } = body;
+    const { html, customerName, contactFirstName, recipientName, recipientEmail, balanceDue, overdue, holdTotal, holdCount, invoicePdfs, currency, xlsxBase64, ccEmails } = body;
     if (!html || !customerName || !recipientEmail) {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing html, customerName, or recipientEmail' }) };
     }
@@ -167,7 +115,7 @@ exports.handler = async (event) => {
       pdfFromSource(html),
       buildInvoicesZipAttachment(invoicePdfs, customerName),
     ]);
-    const result = await sendEmail({ recipientEmails, ccEmails: validCcEmails, customerName, contactFirstName, recipientName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, currency });
+    const result = await sendEmail({ recipientEmails, ccEmails: validCcEmails, customerName, contactFirstName, recipientName, statementPdfBase64, invoicesZip, xlsxBase64, balanceDue, overdue, holdTotal, holdCount, currency });
 
     return {
       statusCode: 200,
