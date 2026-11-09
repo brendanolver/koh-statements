@@ -80,24 +80,30 @@
   }
 
   // Texts are sent under the sender name "WNDRR", and customers can't reply to a sender name — so every message says
-  // who it is from and tells them to email instead of "reply". Plain characters only (no emoji, curly quotes or dashes)
-  // so it keeps the cheap 160-character text size where it can.
+  // who it is from and gives Brendan's mobile and email to respond to instead of "reply". Plain characters only (no
+  // emoji, curly quotes or dashes) so it keeps the cheap 160-character text size where it can.
   // → { kind:'hold'|'overdue', text } or null when there is nothing overdue to chase.
   const CONTACT_EMAIL = 'brendan@kohindustries.com';
+  const CONTACT_PHONE = '0418 519939';          // Brendan's mobile, as in the signature on his other emails
 
-  function buildMessage({ greet, overdue, holdTotal, currency, contact }) {
+  // An Australian mobile is dialled as 04…, but from New Zealand it needs the +61.
+  function phoneFor(country) {
+    return countryOf(country) === 'NZ' ? '+61 418 519 939' : CONTACT_PHONE;
+  }
+
+  function buildMessage({ greet, overdue, holdTotal, currency, country, contact, phone }) {
     if (!(Number(overdue) > 0)) return null;
-    const email = contact || CONTACT_EMAIL;
+    const respond = `Please call ${phone || phoneFor(country)} or email ${contact || CONTACT_EMAIL} to let me know when you'll pay.`;
     const hi = `Hi ${greet || 'there'}, it's Brendan from WNDRR.`;
     if (Number(holdTotal) > 0) {
       return {
         kind: 'hold',
-        text: `${hi} Your account has ${money(overdue, currency)} overdue, so your ${money(holdTotal, currency)} of held stock can't be released. Pay today and we'll release it straight away. Please email ${email} with when you'll pay.`,
+        text: `${hi} Your account has ${money(overdue, currency)} overdue, so your ${money(holdTotal, currency)} of held stock can't be released. Pay today and we'll release it straight away. ${respond}`,
       };
     }
     return {
       kind: 'overdue',
-      text: `${hi} Your account has ${money(overdue, currency)} overdue. Please email ${email} with when you'll be making payment. Thanks`,
+      text: `${hi} Your account has ${money(overdue, currency)} overdue. ${respond}`,
     };
   }
 
@@ -131,6 +137,6 @@
     return { ok: true };
   }
 
-  root.SMS = { normaliseMobile, suggestMobile, buildMessage, money, segments, validateMessage, countryOf, CONTACT_EMAIL };
+  root.SMS = { normaliseMobile, suggestMobile, buildMessage, money, segments, validateMessage, countryOf, phoneFor, CONTACT_EMAIL, CONTACT_PHONE };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SMS;
 })(typeof window !== 'undefined' ? window : globalThis);

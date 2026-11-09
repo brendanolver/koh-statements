@@ -3876,7 +3876,7 @@ function smsRowFromData(data, recipientName) {
   const { overdue } = computeAging(data.invoices);
   const currency = currencyFor(data.country);
   const greet = recipientName || data.recipientName || data.contactFirstName || data.customerName;
-  const msg = SMS.buildMessage({ greet, overdue, holdTotal: data.holdTotal, currency });
+  const msg = SMS.buildMessage({ greet, overdue, holdTotal: data.holdTotal, currency, country: data.country });
   if (!msg) return null;
   const saved = (statementRecipientsMap[key] || {}).mobile || '';
   const guess = saved ? null : SMS.suggestMobile(data.phoneCandidates, data.country);
