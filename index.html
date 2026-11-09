@@ -2069,6 +2069,13 @@ const XERO_PROXY = '/.netlify/functions/xero-proxy';
 // app is a real candidate for this, not just whichever one happened to
 // get unlucky first, so this is the shared, generic version — one retry
 // after a pause, same tolerance already proven for bank transactions.
+// "Xero's daily limit has been reached — it resets around 10:23 am tomorrow", from the Retry-After seconds Xero sends.
+function xeroDailyLimitMessage(retryAfterSec) {
+  const when = new Date(Date.now() + retryAfterSec * 1000);
+  const t = when.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+  const sameDay = when.toDateString() === new Date().toDateString();
+  return `Xero's daily limit (5,000 calls) has been reached — it resets around ${t}${sameDay ? '' : ' tomorrow'}. Nothing is wrong with the app; this will load normally after that.`;
+}
 async function fetchXeroJson(url) {
   // Xero caps an org at 60 calls/minute (and 5 concurrent). Over that it
   // answers 429 with an EMPTY body and a Retry-After header — which is what
@@ -2090,17 +2097,11 @@ async function fetchXeroJson(url) {
       networkErr = err;
     }
     if (data !== null && !(res && res.status === 429)) return { res, data };
+    // Retry-After over a minute means Xero's DAILY 5,000-call limit has been used up, not the 60-calls-a-minute one. Waiting and
+    // retrying (4 tries, up to a minute apiece, for every call) only made the page look stuck for minutes — so say so straight away.
+    if (res && res.status === 429 && Number(res.headers.get('Retry-After')) > 60) throw new Error(xeroDailyLimitMessage(Number(res.headers.get('Retry-After'))));
     if (attempt >= MAX_ATTEMPTS) {
-      if (res && res.status === 429) {
-        const retryAfterSec = res && Number(res.headers.get('Retry-After'));
-        // Retry-After > 60 s means Xero's daily 5,000-call limit was hit
-        // (resets at midnight UTC), not just the 60-calls/min limit.
-        const isDaily = retryAfterSec > 60;
-        const hint = isDaily
-          ? `Daily Xero API limit reached — resets at midnight UTC (10 am AEST). Try again later.`
-          : `Xero rate limit reached (60 calls/min) — wait a minute and try again.`;
-        throw new Error(hint);
-      }
+      if (res && res.status === 429) throw new Error('Xero rate limit reached (60 calls/min) — wait a minute and try again.');
       throw new Error(networkErr ? networkErr.message : `Xero returned an empty response (${res ? res.status : 'no response'})`);
     }
     const retryAfter = res && Number(res.headers.get('Retry-After'));
