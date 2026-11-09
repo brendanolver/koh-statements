@@ -1103,7 +1103,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 .sms-foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; flex-wrap: wrap; }
 #smsSummary { flex: 1 1 220px; font-size: 13px; color: var(--muted); }
 #smsSummary.bad { color: #b42318; } #smsSummary.ok { color: #12915a; }
-.sms-tag { margin-left: 6px; font-size: 10px; font-weight: 600; color: #1d4ed8; background: #eaf1ff; border: 1px solid #c6d8fb; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+#statementsView table.debtors-table td.sms-cell { white-space: nowrap; font-size: 12.5px; color: var(--ink); }
 .sms-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 20px 10px; font-size: 13px; color: var(--muted); }
 .sms-tpls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
 .sms-tpl { position: relative; text-align: left; background: #fff; border: 1px solid #d8dbe0; border-radius: 8px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font-family: inherit; color: var(--ink); }
@@ -1302,13 +1302,14 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
             <th class="sortable" data-sort="name" onclick="setDebtorsSort('name')">Name<span class="sort-arrow"></span></th>
             <th class="sortable" data-sort="accountNumber" onclick="setDebtorsSort('accountNumber')">Account No.<span class="sort-arrow"></span></th>
             <th>Email</th>
-            <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')">Stock on Hold<span class="sort-arrow"></span></th>
-            <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')">Outstanding Balance<span class="sort-arrow"></span></th>
-            <th class="num sortable" data-sort="overdue" onclick="setDebtorsSort('overdue')">Overdue<span class="sort-arrow"></span></th>
+            <th class="sortable" data-sort="lastSms" onclick="setDebtorsSort('lastSms')" title="Date of the last text sent to this customer (most recent first when sorted)">Last SMS<span class="sort-arrow"></span></th>
+            <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')" title="Stock on hold — Awaiting Approval invoices in Xero">Hold<span class="sort-arrow"></span></th>
             <th class="num sortable age-col" data-sort="age0" onclick="setDebtorsSort('age0')" title="Overdue by up to 30 days (counted from the due date)">0–30 days<span class="sort-arrow"></span></th>
             <th class="num sortable age-col" data-sort="age1" onclick="setDebtorsSort('age1')" title="Overdue by 31–60 days">31–60 days<span class="sort-arrow"></span></th>
             <th class="num sortable age-col" data-sort="age2" onclick="setDebtorsSort('age2')" title="Overdue by 61–90 days">61–90 days<span class="sort-arrow"></span></th>
             <th class="num sortable age-col" data-sort="age3" onclick="setDebtorsSort('age3')" title="Overdue by more than 90 days">Over 90 days<span class="sort-arrow"></span></th>
+            <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')" title="Total outstanding balance">Outstanding<span class="sort-arrow"></span></th>
+            <th class="num sortable" data-sort="overdue" onclick="setDebtorsSort('overdue')" title="Total overdue (the four age columns add up to this)">Overdue<span class="sort-arrow"></span></th>
             <th class="no-print"></th>
           </tr>
         </thead>
@@ -3018,6 +3019,7 @@ function sortedDebtors() {
   const dir = debtorsSortDir === 'asc' ? 1 : -1;
   return debtors.slice().sort((a, b) => {
     if (debtorsSortField === 'name') return a.name.localeCompare(b.name) * dir;
+    if (debtorsSortField === 'lastSms') return (smsLastAt(a.name) - smsLastAt(b.name)) * dir;   // never texted counts as oldest
     return ((a[debtorsSortField] || 0) - (b[debtorsSortField] || 0)) * dir;
   });
 }
@@ -3212,7 +3214,7 @@ function renderCustomersTable() {
 
   els.customersRows.innerHTML = '';
   if (statementsAnyFilter() && shown.length === 0) {
-    els.customersRows.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:18px;">No customers match the filters you have picked.</td></tr>';
+    els.customersRows.innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--muted);padding:18px;">No customers match the filters you have picked.</td></tr>';
     return;
   }
   for (const d of shown) {
@@ -3240,14 +3242,6 @@ function renderCustomersTable() {
       flag.title = `${d.creditCount} unreconciled credit note${d.creditCount === 1 ? '' : 's'} (${fmtMoneyWithCurrency(d.creditTotal, d.country)} unallocated)`;
       nameTd.appendChild(flag);
     }
-    const texted = smsLog[normName(d.name)];
-    if (texted && texted.at && Date.now() - Date.parse(texted.at) < 14 * 86400000) {
-      const tag = document.createElement('span');
-      tag.className = 'sms-tag';
-      tag.textContent = `📱 ${smsFmtDay(texted.at)}`;
-      tag.title = `Texted ${new Date(texted.at).toLocaleString('en-AU')} (${texted.to})${texted.count > 1 ? ` — ${texted.count} texts in all` : ''}`;
-      nameTd.appendChild(tag);
-    }
     if (d.id) {
       // Already on the Statements tab — no tab switch needed, unlike the
       // equivalent click from a Debtors-tab card.
@@ -3261,6 +3255,17 @@ function renderCustomersTable() {
     emailTd.className = 'email-cell';
     emailTd.textContent = d.email || '—';
     if (d.email) emailTd.title = d.email;   // long addresses are cut off with … in the list; hover shows it in full
+
+    const smsTd = document.createElement('td');
+    smsTd.className = 'sms-cell';
+    const lastSms = smsLastText(normName(d.name));
+    if (lastSms) {
+      smsTd.textContent = smsFmtDay(lastSms.at);
+      const total = (smsLog[normName(d.name)] || {}).count || 0;
+      smsTd.title = `Last text ${smsFmtWhen(lastSms.at)}${lastSms.template ? ` · ${smsTemplateName(lastSms.template)}` : ''}${total > 1 ? ` — ${total} texts in all` : ''}`;
+    } else {
+      smsTd.textContent = '—';
+    }
 
     const holdTd = document.createElement('td');
     holdTd.className = 'num';
@@ -3304,10 +3309,11 @@ function renderCustomersTable() {
     tr.appendChild(nameTd);
     tr.appendChild(acctTd);
     tr.appendChild(emailTd);
+    tr.appendChild(smsTd);
     tr.appendChild(holdTd);
+    for (const td of ageTds) tr.appendChild(td);
     tr.appendChild(totalTd);
     tr.appendChild(overdueTd);
-    for (const td of ageTds) tr.appendChild(td);
     tr.appendChild(hideTd);
     els.customersRows.appendChild(tr);
   }
@@ -3328,7 +3334,7 @@ function renderCustomersTable() {
   const totalLine = (key) => Array.from(sumsByCurrency.entries()).map(([cur, s]) => `${fmtMoney(s[key])} ${cur}`).join('<br>');
   const totalTr = document.createElement('tr');
   totalTr.className = 'total-row';
-  totalTr.innerHTML = `<td></td><td>${statementsAnyFilter() ? `Total — ${shown.length} shown` : 'Total'}</td><td></td><td></td><td class="num">${statementsHoldOnly ? totalLine('hold') : ''}</td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td>${['age0', 'age1', 'age2', 'age3'].map((k) => `<td class="num age-col">${totalLine(k)}</td>`).join('')}<td class="no-print"></td>`;
+  totalTr.innerHTML = `<td></td><td>${statementsAnyFilter() ? `Total — ${shown.length} shown` : 'Total'}</td><td></td><td></td><td></td><td class="num">${statementsHoldOnly ? totalLine('hold') : ''}</td>${['age0', 'age1', 'age2', 'age3'].map((k) => `<td class="num age-col">${totalLine(k)}</td>`).join('')}<td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td><td class="no-print"></td>`;
   els.customersRows.appendChild(totalTr);
 }
 
@@ -4015,6 +4021,10 @@ function smsRecent(key) {
 function smsTemplateName(key, short) {
   const t = SMS.TEMPLATES[key];
   return t ? (short ? t.short : t.label) : (short ? 'custom' : 'Custom message');
+}
+function smsLastAt(name) {
+  const last = smsLastText(normName(name));
+  return last ? Date.parse(last.at) : 0;
 }
 function smsLastText(key) {
   const e = smsLog[key];
