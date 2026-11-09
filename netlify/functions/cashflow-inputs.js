@@ -40,6 +40,22 @@ function sanitise(doc) {
     }
   }
   if (Object.keys(growth).length) out.growth = growth;
+  // The Sales forecast card: for online and wholesale, month by month, EITHER a % on last year OR a dollar amount for the
+  // month (line -> YYYY-MM -> { pct } | { amount }). An amount wins if a month somehow has both.
+  const spIn = doc && doc.salesPlan && typeof doc.salesPlan === 'object' ? doc.salesPlan : {};
+  const salesPlan = {};
+  for (const line of ['online', 'wholesale']) {
+    const months = spIn[line];
+    if (!months || typeof months !== 'object') continue;
+    for (const [m, e] of Object.entries(months)) {
+      if (!/^\d{4}-\d{2}$/.test(m) || !e || typeof e !== 'object') continue;
+      const num = (v) => (v === undefined || v === null || v === '' || typeof v === 'boolean' ? NaN : Number(v));
+      const amount = num(e.amount), pct = num(e.pct);
+      if (Number.isFinite(amount) && amount >= 0 && amount <= 1e9) (salesPlan[line] = salesPlan[line] || {})[m] = { amount: Math.round(amount * 100) / 100 };
+      else if (Number.isFinite(pct) && pct >= -100 && pct <= 1000) (salesPlan[line] = salesPlan[line] || {})[m] = { pct: Math.round(pct * 100) / 100 };
+    }
+  }
+  if (Object.keys(salesPlan).length) out.salesPlan = salesPlan;
   // Expected payment date per bill / PO (id -> YYYY-MM-DD), capped so the document stays small.
   const pd = doc && typeof doc.payDates === 'object' && doc.payDates ? doc.payDates : {};
   const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po|card):[\w:-]{1,120}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);

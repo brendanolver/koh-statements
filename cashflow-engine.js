@@ -177,8 +177,20 @@
     return { perDay, lyDays, fallbackDays, recentPerDay: recent };
   }
 
+  // One month of the user's own sales forecast: { pct } (growth on last year) or { amount } (dollars for the month);
+  // null when nothing usable is typed. An amount wins if both are present.
+  function salesPlanEntry(sp, line, mk) {
+    const e = sp && sp[line] && sp[line][mk];
+    if (!e || typeof e !== 'object') return null;
+    const num = (v) => (v === undefined || v === null || v === '' ? NaN : Number(v));
+    const amount = num(e.amount), pct = num(e.pct);
+    if (Number.isFinite(amount) && amount >= 0) return { amount };
+    if (Number.isFinite(pct)) return { pct: Math.max(-100, pct) };
+    return null;
+  }
+
   // ------------------------------------------------------------ item building
-  const isForeign = (cur) => cur && String(cur).toUpperCase() !== 'AUD';
+  const isForeign =(cur) => cur && String(cur).toUpperCase() !== 'AUD';
   // Tax bills (BAS / PAYG) are cash out but not stock: they are their own line, "BAS (GST + PAYG)".
   const TAX_CONTACT_RE = /\bATO\b|AUSTRALIAN TAX|TAXATION OFFICE|\bPAYG\b/i;
 
@@ -195,6 +207,18 @@
     };
     const delay = sc.delay || 0;
     const notes = { excluded: [] };
+
+    // -- The user's own sales forecast (the Sales forecast card): per month, for online and wholesale, either a % on last
+    // year or a dollar amount for the month. In the base case the typed figure IS the forecast — it replaces the general
+    // growth % for that month rather than stacking on it. Worst and best sit either side by the same gap their % has from
+    // the base %, so the three cases still fan out around what was typed.
+    const sp = input.salesPlan || {};
+    const baseSc = settings.scenarios.base;
+    const rel = (key) => (1 + (sc[key] || 0) / 100) / Math.max(0.01, 1 + (baseSc[key] || 0) / 100);
+    const planFor = (line, mk) => salesPlanEntry(sp, line, mk);
+    const money0 = (n) => '$' + Math.round(n).toLocaleString('en-AU');
+    const pctTxt = (p) => `${p >= 0 ? '+' : '−'}${Math.abs(Math.round(p * 10) / 10)}%`;
+    notes.salesPlanSkipped = [];
 
     // -- Last year as the starting point: which future months are planned from last year, per line. The rest of
     // this month keeps the usual logic (known bills and orders dominate that short stretch), and so does any
@@ -246,30 +270,75 @@
       for (const l of o.lines) {
         const ship = l.d < today ? addDays(today, settings.shipLateDays) : l.d;
         const receipt = addDays(ship, terms + settings.arLateDays + delay);
-        push('wholesale', receipt, (l.v / oRate) * (1 + (o.gst || 0)) * (1 + (sc.wholesale || 0) / 100), o.cn, 'Apparel Magic', 'confirmed', { doc: o.po || o.id, ship, terms, order: o.id, currency: isForeign(o.cur) ? o.cur : undefined });
+        // (in a month with a typed wholesale forecast the base case leaves confirmed orders as they are — the typed figure is the growth)
+        push('wholesale', receipt, (l.v / oRate) * (1 + (o.gst || 0)) * (planFor('wholesale', monthKey(receipt)) ? rel('wholesale') : 1 + (sc.wholesale || 0) / 100), o.cn, 'Apparel Magic', 'confirmed', { doc: o.po || o.id, ship, terms, order: o.id, currency: isForeign(o.cur) ? o.cur : undefined });
       }
     }
 
     // -- Online: Shopify sales (or Xero run-rate when Shopify isn't connected)
     const conv = input.conversion;
+    // onlineBasis: what each month would be with no growth at all (last year's pattern), so a typed % and a typed $ can be
+    // shown against each other. It is the number the Sales forecast card calls "last year".
+    const onlineBasis = {};
+    const addBasis = (d, v) => { const mk = monthKey(d); onlineBasis[mk] = (onlineBasis[mk] || 0) + v; };
     if (input.shopifyFc && input.shopifyFc.hasData) {
       const ti = input.shopifyFc.targetInfo || {};
+      const baseOnline = Math.max(0.01, 1 + (baseSc.online || 0) / 100);
       for (const [d, v] of Object.entries(input.shopifyFc.perDay)) {
         const t = ti[monthKey(d)];
         const targeted = t && t.applied;
-        push('online', d, v * conv * (1 + (sc.online || 0) / 100), targeted ? `Shopify forecast (${t.pct >= 0 ? '+' : ''}${t.pct}% target vs last year)` : 'Shopify forecast', 'Shopify', 'assumption',
+        // a month with its own target replaces the general online % (the worst / best % sits around it) instead of stacking on it
+        push('online', d, v * conv * (1 + (sc.online || 0) / 100) / (targeted ? baseOnline : 1), targeted ? `Shopify forecast (${t.pct >= 0 ? '+' : ''}${t.pct}% target vs last year)` : 'Shopify forecast', 'Shopify', 'assumption',
           { method: targeted ? `last year's ${monthKey(addDays(d, -365))} sales × (1 ${t.pct >= 0 ? '+' : '−'} ${Math.abs(t.pct)}%)` : input.shopifyFc.method });
+        addBasis(d, v * conv);
       }
+      for (const [mk, t] of Object.entries(ti)) if (t.applied) onlineBasis[mk] = t.ly * conv;
     } else if (input.onlineLy && input.onlineLy.daily && input.onlineLy.from && input.onlineLy.from <= addDays(today, -360)) {
       const xf = xeroOnlineForecast(input.onlineLy.daily, today, input.horizonDays);
       notes.onlineMethod = { method: 'last year deposits', lyDays: xf.lyDays, fallbackDays: xf.fallbackDays };
       const pct = sc.online || 0;
       const sgn = `${pct >= 0 ? '+' : '−'}${Math.abs(pct)}%`;
-      for (const [d, v] of Object.entries(xf.perDay)) push('online', d, v * (1 + pct / 100), `Last year's online deposits (${sgn})`, 'Xero', 'assumption',
-        { method: `Last year's online bank deposits around the same day (7-day average, already net of fees) × (1 ${pct >= 0 ? '+' : '−'} ${Math.abs(pct)}%)` });
+      for (const [d, v] of Object.entries(xf.perDay)) {
+        push('online', d, v * (1 + pct / 100), `Last year's online deposits (${sgn})`, 'Xero', 'assumption',
+          { method: `Last year's online bank deposits around the same day (7-day average, already net of fees) × (1 ${pct >= 0 ? '+' : '−'} ${Math.abs(pct)}%)` });
+        addBasis(d, v);
+      }
     } else if (input.history && input.history.onlineReceiptsPerWeek > 0) {
       const perDay = input.history.onlineReceiptsPerWeek / 7;
-      for (let i = 1; i <= input.horizonDays; i++) push('online', addDays(today, i), perDay * (1 + (sc.online || 0) / 100), 'Recent receipts run-rate', 'Xero', 'assumption', { method: 'Xero receipts, last 13 weeks' });
+      for (let i = 1; i <= input.horizonDays; i++) { push('online', addDays(today, i), perDay * (1 + (sc.online || 0) / 100), 'Recent receipts run-rate', 'Xero', 'assumption', { method: 'Xero receipts, last 13 weeks' }); addBasis(addDays(today, i), perDay); }
+    }
+    notes.onlineBasis = onlineBasis;
+
+    // Typed online forecast, month by month. A % scales that month's daily pattern; a $ amount rescales the month so it adds
+    // up to exactly that (worst / best around it — see `rel`). With Shopify connected a typed % is applied by the Shopify
+    // forecast itself from last year's actual sales (see buildForecast), so only $ amounts are handled here in that case.
+    {
+      const baseOnline = Math.max(0.01, 1 + (baseSc.online || 0) / 100);
+      const m0o = monthKey(today);
+      for (const mk of Object.keys(sp.online || {})) {
+        const e = planFor('online', mk);
+        if (!e || mk < m0o) continue;
+        const its = items.filter((it) => it.line === 'online' && monthKey(it.date) === mk);
+        const label = e.amount !== undefined ? `Your forecast (${money0(e.amount)} for the month)` : `Your forecast (${pctTxt(e.pct)} on last year)`;
+        if (e.pct !== undefined) {
+          const t = input.shopifyFc && input.shopifyFc.targetInfo && input.shopifyFc.targetInfo[mk];
+          if (t && t.applied) continue;
+          if (!its.length) { notes.salesPlanSkipped.push({ line: 'online', month: mk, reason: 'no online forecast to apply the % to' }); continue; }
+          const f = (1 + e.pct / 100) / baseOnline;
+          for (const it of its) { it.amount *= f; it.label = label; it.source = 'Your forecast'; it.meta = { ...(it.meta || {}), method: `${(it.meta && it.meta.method) || 'Online forecast'} — you set this month to ${pctTxt(e.pct)} on last year` }; }
+        } else {
+          const target = e.amount * rel('online');
+          const have = its.reduce((a, it) => a + it.amount, 0);
+          if (have > 0) {
+            const f = target / have;
+            for (const it of its) { it.amount *= f; it.label = label; it.source = 'Your forecast'; it.meta = { ...(it.meta || {}), method: `You set online sales for the month to ${money0(e.amount)}; the daily pattern follows last year` }; }
+          } else if (target > 0) {
+            const days = []; for (let i = 1; i <= input.horizonDays; i++) if (monthKey(addDays(today, i)) === mk) days.push(addDays(today, i));
+            for (const d of days) push('online', d, target / days.length, label, 'Your forecast', 'assumption', { method: `You set online sales for the month to ${money0(e.amount)}, spread evenly` });
+          }
+        }
+      }
+      for (let i = items.length - 1; i >= 0; i--) if (items[i].line === 'online' && !(items[i].amount > 0)) items.splice(i, 1);
     }
 
     // -- Stock: Xero bills (converted to AUD) and Apparel Magic purchase orders
@@ -341,28 +410,57 @@
     const monthLabel = (mk) => `${MON[Number(mk.slice(5)) - 1]} ${mk.slice(2, 4)}`;
     notes.lastYear = {};
     for (const line of Object.keys(LY_LINES)) {
-      if (!lyMonths[line].size) continue;
+      // A typed wholesale $ amount for a month last year can't cover (or with "start from last year" off) still plans that month.
+      const extra = [];
+      if (line === 'wholesale') for (let k = 1; k <= 11; k++) { const mk = addMonths(m0, k), e = planFor('wholesale', mk); if (e && e.amount !== undefined && !lyMonths.wholesale.has(mk)) extra.push(mk); }
+      if (!lyMonths[line].size && !extra.length) continue;
       notes.lastYear[line] = [...lyMonths[line]].sort();
       const pct = sc[LINE_PCT_KEY[line]] || 0;
-      for (const mk of notes.lastYear[line]) {
+      for (const mk of [...notes.lastYear[line], ...extra].sort()) {
         const lyMk = addMonths(mk, -12);
-        const g = Number(growth[line] && growth[line][mk]);
-        const mPct = Number.isFinite(g) ? Math.max(-100, g) : 0;
-        const plan = ly[lyMk][line] * (1 + mPct / 100) * (1 + pct / 100);
+        const lyVal = ly && ly[lyMk] && Number.isFinite(ly[lyMk][line]) ? ly[lyMk][line] : null;
+        const typed = line === 'wholesale' ? planFor('wholesale', mk) : null;
         const known = items.filter((it) => it.line === line && monthKey(it.date) === mk).reduce((a, it) => a + it.amount, 0);
-        const gap = plan - known;
-        if (!(gap > 0)) continue;
         const nDays = Number(lastDayOfMonth(mk + '-01').slice(8));
-        // The month's own growth % comes first, and the Worst / Base / Best % is applied on top of it.
         const sgn = (p) => `${p >= 0 ? '+' : '−'}${Math.abs(p)}%`;
         const fac = (p) => `(1 ${p >= 0 ? '+' : '−'} ${Math.abs(p)}%)`;
-        const label = mPct === 0 ? `Last year's ${monthLabel(lyMk)} pattern (${sgn(pct)})` : `Last year's ${monthLabel(lyMk)} pattern (${sgn(mPct)} month${pct !== 0 ? `, ${sgn(pct)} case` : ''})`;
-        const factors = mPct === 0 ? `x ${fac(pct)}` : `x ${fac(mPct)} for the month x ${fac(pct)} case`;
-        const method = `Last year's ${monthLabel(lyMk)} ${LINE_LABELS[line].toLowerCase()} ${factors} = ${Math.round(plan).toLocaleString('en-AU')}, less ${Math.round(known).toLocaleString('en-AU')} already known`;
+        let plan, label, method;
+        if (typed) {
+          // The user's own wholesale figure for this month — the base case is exactly that (more only if invoices and orders
+          // already in Xero / Apparel Magic come to more, because those are real).
+          const r = rel('wholesale');
+          const caseNote = Math.abs(r - 1) > 1e-9 ? ` × (1 ${r >= 1 ? '+' : '−'} ${Math.abs(Math.round((r - 1) * 1000) / 10)}%) for this case` : '';
+          if (typed.amount !== undefined) {
+            plan = typed.amount * r;
+            label = `Your forecast (${money0(typed.amount)} for the month)`;
+            method = `You set wholesale collections for ${monthLabel(mk)} to ${money0(typed.amount)}${caseNote}, less ${money0(known)} already invoiced or ordered`;
+          } else {
+            if (lyVal === null) { notes.salesPlanSkipped.push({ line, month: mk, reason: 'no last year to apply the % to' }); continue; }
+            plan = lyVal * (1 + typed.pct / 100) * r;
+            label = `Your forecast (${pctTxt(typed.pct)} on last year)`;
+            method = `Last year's ${monthLabel(lyMk)} wholesale ${money0(lyVal)} × (1 ${typed.pct >= 0 ? '+' : '−'} ${Math.abs(typed.pct)}%)${caseNote} = ${money0(plan)}, less ${money0(known)} already invoiced or ordered`;
+          }
+        } else {
+          if (lyVal === null) continue;
+          const g = Number(growth[line] && growth[line][mk]);
+          const mPct = Number.isFinite(g) ? Math.max(-100, g) : 0;
+          plan = lyVal * (1 + mPct / 100) * (1 + pct / 100);
+          // The month's own growth % comes first, and the Worst / Base / Best % is applied on top of it.
+          label = mPct === 0 ? `Last year's ${monthLabel(lyMk)} pattern (${sgn(pct)})` : `Last year's ${monthLabel(lyMk)} pattern (${sgn(mPct)} month${pct !== 0 ? `, ${sgn(pct)} case` : ''})`;
+          const factors = mPct === 0 ? `x ${fac(pct)}` : `x ${fac(mPct)} for the month x ${fac(pct)} case`;
+          method = `Last year's ${monthLabel(lyMk)} ${LINE_LABELS[line].toLowerCase()} ${factors} = ${Math.round(plan).toLocaleString('en-AU')}, less ${Math.round(known).toLocaleString('en-AU')} already known`;
+        }
+        const gap = plan - known;
+        if (!(gap > 0)) continue;
         for (let day = 1; day <= nDays; day++) {
-          push(line, `${mk}-${String(day).padStart(2, '0')}`, gap / nDays, label, 'Last year', 'assumption', { method });
+          push(line, `${mk}-${String(day).padStart(2, '0')}`, gap / nDays, label, typed ? 'Your forecast' : 'Last year', 'assumption', { method });
         }
       }
+    }
+    // a typed wholesale % can't be applied to a month with no last-year figure to apply it to
+    for (let k = 1; k <= 11; k++) {
+      const mk = addMonths(m0, k), e = planFor('wholesale', mk);
+      if (e && e.pct !== undefined && !lyMonths.wholesale.has(mk) && !notes.salesPlanSkipped.some((s) => s.line === 'wholesale' && s.month === mk)) notes.salesPlanSkipped.push({ line: 'wholesale', month: mk, reason: 'no last year to apply the % to' });
     }
 
     // -- BAS: the monthly GST + PAYG payment to the ATO. Xero records it as a bill to "ATO" at the moment it is paid, so
@@ -537,7 +635,12 @@
       ? settings.onlineConversion / (settings.onlineConversion > 1.5 ? 100 : 1)
       : (input.history && input.history.conversion) || 0.97;
     full.conversion = conv;
-    if (input.shopify && input.shopify.daily) full.shopifyFc = shopifyForecast(input.shopify.daily, input.today, horizonDays, input.onlineTargets);
+    if (input.shopify && input.shopify.daily) {
+      // a typed online % is a growth target on last year's same month, which is exactly what the Shopify forecast takes
+      const targets = { ...(input.onlineTargets || {}) };
+      for (const mk of Object.keys((input.salesPlan && input.salesPlan.online) || {})) { const e = salesPlanEntry(input.salesPlan, 'online', mk); if (e && e.pct !== undefined) targets[mk] = e.pct; }
+      full.shopifyFc = shopifyForecast(input.shopify.daily, input.today, horizonDays, targets);
+    }
     const scenarios = {};
     for (const n of ['worst', 'base', 'best']) scenarios[n] = computeScenario(full, settings, n);
     return { today: input.today, cashToday: input.cashToday, horizonDays, settings, conversion: conv, shopifyFc: full.shopifyFc || null, scenarios, input: full };
@@ -661,6 +764,25 @@
     for (const it of s.items) if (it.line === line && it.date >= range[0] && it.date <= range[1]) sources[it.source] = (sources[it.source] || 0) + it.amount;
     const value = days.reduce((a, d) => a + s.flows[line][s.idx[d]], 0);
     return { month: mk, value, system: systemAtBase, manual: ov ? ov.value : null, source: ov ? 'Manual' : (Object.entries(sources).sort((a, b) => b[1] - a[1])[0] || [null])[0], sources, partial: mk === monthKey(result.today) };
+  }
+
+  // What the Sales forecast card shows for one month of online or wholesale: last year's figure, what the forecast now has
+  // for the month (base case), how much of that is already known (invoices / orders), what was typed, and the % the
+  // forecast works out to against last year. null for a month outside the forecast. Wholesale for the current month is
+  // not editable (known invoices dominate the rest of the month).
+  function salesPlanCell(result, line, mk) {
+    const cell = monthCell(result, 'base', line, mk);
+    if (!cell) return null;
+    const s = result.scenarios.base;
+    const days = s.dates.filter((d, i) => i > 0 && monthKey(d) === mk);
+    const known = s.items.filter((it) => it.line === line && it.status === 'confirmed' && it.date >= days[0] && it.date <= days[days.length - 1]).reduce((a, it) => a + it.amount, 0);
+    const lyRow = result.input.lastYear && result.input.lastYear[addMonths(mk, -12)];
+    const basis = line === 'online' ? (s.notes.onlineBasis && s.notes.onlineBasis[mk] !== undefined ? s.notes.onlineBasis[mk] : null) : (lyRow && Number.isFinite(lyRow.wholesale) ? lyRow.wholesale : null);
+    const entry = salesPlanEntry(result.input.salesPlan, line, mk);
+    const skipped = (s.notes.salesPlanSkipped || []).find((x) => x.line === line && x.month === mk) || null;
+    const editable = line === 'online' ? true : mk !== monthKey(result.today);
+    return { month: mk, line, forecast: cell.value, known, basis, entry, skipped, editable, partial: cell.partial,
+      forecastPct: basis > 0 ? (cell.value / basis - 1) * 100 : null, defaultPct: result.settings.scenarios.base[line] || 0 };
   }
 
   // ------------------------------------------------------------------ watch
@@ -844,7 +966,7 @@
 
   const CFE = {
     LINES, LINES_IN, LINES_OUT, INPUT_LINES, LINE_LABELS, DEFAULT_SETTINGS,
-    TAX_CONTACT_RE, findLoanBalance, mergeSettings, shopifyForecast, xeroOnlineForecast, buildForecast, buckets, kpis, explain, monthCell, watch,
+    TAX_CONTACT_RE, findLoanBalance, mergeSettings, shopifyForecast, xeroOnlineForecast, buildForecast, buckets, kpis, explain, monthCell, salesPlanEntry, salesPlanCell, watch,
     GROUPS, breakdown, belowRuns, drivers, outlook,
     util: { addDays, daysBetween, monthKey, addMonths, lastDayOfMonth, toIso, toMs, round2, money, fmtDate },
   };

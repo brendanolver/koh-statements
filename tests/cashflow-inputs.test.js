@@ -74,5 +74,22 @@ const call = async (httpMethod, body) => { const r = await fn.handler({ httpMeth
     assert.strictEqual(got.length, 100);
     assert.deepStrictEqual([got[0].desc.length, got[0].category.length], [80, 40]);
   });
+  await test('the sales forecast (online / wholesale, per month: a % OR an amount) is kept; junk is dropped; an amount wins over a %', async () => {
+    const salesPlan = {
+      online: { '2026-12': { pct: 150 }, '2027-01': { amount: '120000.456' }, '2027-02': { pct: -25.556 }, '2027-03': { pct: 'x' }, '2027-04': { pct: 5000 }, '2027-05': { pct: -150 }, 'dec': { pct: 5 }, '2027-06': { pct: '', amount: '' }, '2027-07': { pct: 10, amount: 500 }, '2027-08': { amount: -5 }, '2027-09': { amount: true }, '2027-10': 'text' },
+      wholesale: { '2026-12': { amount: 0 }, '2027-01': { pct: 0 } },
+      stock: { '2026-12': { pct: 5 } },
+      marketing: 'nope',
+    };
+    assert.strictEqual((await call('POST', { salesPlan })).status, 200);
+    const got = (await call('GET')).body.salesPlan;
+    assert.deepStrictEqual(got, {
+      online: { '2026-12': { pct: 150 }, '2027-01': { amount: 120000.46 }, '2027-02': { pct: -25.56 }, '2027-07': { amount: 500 } },
+      wholesale: { '2026-12': { amount: 0 }, '2027-01': { pct: 0 } },
+    });
+    assert.strictEqual(fn._sanitise({ salesPlan: {} }).salesPlan, undefined, 'nothing set → nothing stored');
+    assert.strictEqual(fn._sanitise({}).salesPlan, undefined);
+    assert.strictEqual(fn._sanitise({ salesPlan: 'nope' }).salesPlan, undefined);
+  });
   console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);
 })();

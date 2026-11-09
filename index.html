@@ -1226,10 +1226,31 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
 #cashflowView .cfd-ob-when em { font-style: normal; font-size: 11px; color: var(--muted); }
 #cashflowView .cfd-ob-when input { padding: 5px 8px; font-size: 13px; border: 1px solid #d8dbe0; border-radius: 6px; font-family: inherit; }
 #cashflowView .cfd-ob.stale { opacity: .75; }
+#cashflowView .cfd-sp2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+#cashflowView .cfd-sp { min-width: 0; }
+#cashflowView .cfd-sp-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+#cashflowView .cfd-sp-all { display: flex; align-items: center; gap: 6px; }
+#cashflowView .cfd-sp-all input { width: 128px; padding: 5px 8px; font-size: 12.5px; border: 1px solid #d8dbe0; border-radius: 6px; font-family: inherit; box-sizing: border-box; }
+#cashflowView .cfd-sp-all button[disabled] { color: #b5bac1; cursor: default; text-decoration: none; }
+#cashflowView table.cfd-sptable th, #cashflowView table.cfd-sptable td { padding: 6px 6px; vertical-align: top; }
+#cashflowView table.cfd-sptable td small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; line-height: 1.3; }
+#cashflowView table.cfd-sptable td.num { white-space: nowrap; }
+#cashflowView table.cfd-sptable td.num small { white-space: normal; }
+#cashflowView .cfd-sp-in { white-space: nowrap; text-align: right; }
+#cashflowView .cfd-sp-in em { font-style: normal; color: var(--muted); font-size: 12px; margin: 0 2px; }
+#cashflowView .cfd-spin { width: 54px; padding: 5px 6px; font-size: 12.5px; text-align: right; border: 1px solid var(--border); border-radius: 6px; background: #fff; font-variant-numeric: tabular-nums; font-family: inherit; box-sizing: border-box; }
+#cashflowView .cfd-sp-in:nth-child(4) .cfd-spin { width: 88px; }
+#cashflowView .cfd-spin::placeholder { color: #9aa0a8; opacity: 1; }
+#cashflowView .cfd-spin.on { border-color: #d9a441; background: #fffaf0; font-weight: 600; }
+#cashflowView .cfd-sp-na { color: var(--muted); font-size: 11.5px; }
+#cashflowView tr.cfd-sp-off td { color: var(--muted); }
+#cashflowView .cfd-sp-warn { color: #b45309 !important; }
+#cashflowView .cfd-sp-mine { color: #8a5a07 !important; }
+#cashflowView .cfd-sp-moved { background: #fff4e0; border: 1px solid #f3d9a6; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; line-height: 1.5; margin: 0 0 10px; }
 #cashflowView details.cfd-advanced { margin-top: 6px; }
 @media (max-width: 900px) {
   #cashflowView .cfd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #cashflowView .cfd-grid2, #cashflowView .cfd-asgrid { grid-template-columns: minmax(0, 1fr); }
+  #cashflowView .cfd-grid2, #cashflowView .cfd-asgrid, #cashflowView .cfd-sp2 { grid-template-columns: minmax(0, 1fr); }
   #cashflowView .cfd-chartwrap { height: 300px; }
 }
 @media (max-width: 560px) {
@@ -1243,6 +1264,12 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
   #cashflowView .cfd-barcell { display: none; }
   #cashflowView .cfd-adj { grid-template-columns: 70px minmax(0, 1fr) auto; }
   #cashflowView .cfd-ob { grid-template-columns: minmax(0, 1fr) auto; }
+  #cashflowView table.cfd-sptable th, #cashflowView table.cfd-sptable td { padding: 6px 3px; font-size: 12px; }
+  #cashflowView table.cfd-sptable th { font-size: 9.5px; letter-spacing: 0; }
+  #cashflowView .cfd-spin { width: 40px; padding: 5px 3px; font-size: 12px; }
+  #cashflowView .cfd-sp-in:nth-child(4) .cfd-spin { width: 62px; }
+  #cashflowView .cfd-sp-in em { display: none; }
+  #cashflowView .cfd-sp-all input { width: 112px; }
   #cashflowView .cfd-ob-when { grid-column: 1 / -1; justify-content: flex-start; }
 }
 </style>
@@ -1866,6 +1893,8 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
     </div>
 
     <details class="cfx-card cfx-details" id="cfdBreakdown"></details>
+
+    <div class="cfx-card" id="cfdSales"></div>
 
     <div class="cfx-card" id="cfdOverdue" style="display:none"></div>
 
@@ -7236,8 +7265,8 @@ const CF_SCEN_COLOURS = { worst: '#d0021b', base: '#0f5c4a', best: '#2e9e6b' };
 const cf = {
   loading: false, updatedAt: null,
   view: 'weeks13', scen: 'base',
-  inputs: { overrides: {}, settings: {}, payDates: {}, targets: { online: {} } },
-  loan: null,            // { name, balance, source } — the Lumi loan, from Xero's balance sheet when permitted
+  inputs: { overrides: {}, settings: {}, payDates: {}, targets: { online: {} }, salesPlan: {} },
+  loan: null,           // { name, balance, source } — the Lumi loan, from Xero's balance sheet when permitted
   xero: null,            // { cashToday, ar[], ap[], aud ids }
   history: null,         // { receiptsPerWeek, spendPerWeek, marketingPerWeek, topSpend[], weeks }
   am: { orders: null, pos: null, status: {}, },
@@ -7506,8 +7535,28 @@ async function cfLoadInputs() {
   try {
     const res = await fetch('/.netlify/functions/cashflow-inputs');
     const doc = await res.json();
-    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {}, targets: { online: (doc.targets && doc.targets.online) || {} }, growth: doc.growth || {}, adjustments: doc.adjustments || [] };
-  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {}, targets: { online: {} }, growth: {}, adjustments: [] }; }
+    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {}, targets: { online: (doc.targets && doc.targets.online) || {} }, growth: doc.growth || {}, adjustments: doc.adjustments || [], salesPlan: doc.salesPlan || {} };
+    cfMigrateSalesPlan(cf.inputs);
+  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {}, targets: { online: {} }, growth: {}, adjustments: [], salesPlan: {} }; }
+}
+// Earlier versions kept the online % per month as "Online sales target" (it only worked with Shopify connected, so it was being
+// ignored) and the wholesale % per month under "Growth on last year". Both now live in the Sales forecast card (`salesPlan`),
+// so whatever was saved there is moved across. Nothing is saved until something is edited; `cf.dash.moved` lists what moved.
+function cfMigrateSalesPlan(inputs) {
+  const sp = inputs.salesPlan = inputs.salesPlan || {};
+  const moved = [];
+  const take = (line, src) => {
+    for (const [mk, v] of Object.entries(src || {})) {
+      if (v === '' || v === null || !Number.isFinite(Number(v))) continue;
+      sp[line] = sp[line] || {};
+      if (!sp[line][mk]) { sp[line][mk] = { pct: Number(v) }; moved.push({ line, mk, pct: Number(v) }); }
+    }
+  };
+  take('online', inputs.targets && inputs.targets.online);
+  take('wholesale', inputs.growth && inputs.growth.wholesale);
+  inputs.targets = { online: {} };
+  if (inputs.growth) { delete inputs.growth.wholesale; if (!Object.keys(inputs.growth).length) delete inputs.growth; }
+  cf.dash.moved = moved;
 }
 function cfSaveInputsDebounced() {
   document.getElementById('cfSaveState').textContent = 'Saving…';
@@ -7553,7 +7602,7 @@ function cfBuildInput() {
     shopify: cf.shopify && cf.shopify.daily && Object.keys(cf.shopify.daily).length ? { daily: cf.shopify.daily } : null,
     history: cf.history ? { stockPerWeek: cf.history.stockPerWeek, onlineReceiptsPerWeek: cf.history.receiptsPerWeek, otherOutPerWeek: cf.history.otherOutPerWeek, marketingPerWeek: cf.history.marketingPerWeek, conversion: conv } : null,
     overrides: cf.inputs.overrides || {}, payDates: cf.inputs.payDates || {}, settings,
-    lastYear: cfLastYearInput(), growth: cf.inputs.growth || {},
+    lastYear: cfLastYearInput(), growth: cf.inputs.growth || {}, salesPlan: cf.inputs.salesPlan || {},
     // the dashboard's extras (each is null/empty until its data has arrived)
     bas: cfBasInput(), adjustments: cf.inputs.adjustments || [], onlineLy: cfOnlineLyInput(), payDaysByCustomer: cfPayDaysInput(),
   };
@@ -7902,22 +7951,14 @@ function cfRenderInputs() {
   const months = Array.from({ length: 12 }, (_, i) => CFE.util.addMonths(m0, i));
   let html = '<thead><tr><th></th>' + months.map((m, i) => `<th>${cfMonthLabel(m)}${i === 0 ? ' (rest)' : ''}</th>`).join('') + '</tr></thead><tbody>';
   const srcName = (s) => ({ 'Apparel Magic': 'Apparel Magic', Xero: 'Xero', Shopify: 'Shopify', Manual: 'Manual', 'Last year': 'Last year' }[s] || '');
-  // Growth targets set for the year: online sales vs the same month last year.
-  const lyMonth = (mk) => { let t = 0; const ly = CFE.util.addMonths(mk, -12); for (const d in ((cf.shopify && cf.shopify.daily) || {})) if (d.startsWith(ly)) t += cf.shopify.daily[d][0]; return t; };
-  const tg = (cf.inputs.targets && cf.inputs.targets.online) || {};
-  html += `<tr class="cfx-target-row"><td>Online sales target <span class="cfx-hint">(% vs last year)</span></td>`;
-  for (const mk of months) {
-    const v = tg[mk], ti = r.shopifyFc && r.shopifyFc.targetInfo && r.shopifyFc.targetInfo[mk];
-    const sub = !r.shopifyFc ? 'needs Shopify' : ti && ti.applied ? `LY ${cfMoneyCompact(ti.ly)} → ${cfMoneyCompact(ti.sales)} sales` : ti ? cfEsc(ti.reason) : `LY ${cfMoneyCompact(lyMonth(mk))} sales`;
-    html += `<td class="cfx-cell"><input type="text" inputmode="decimal" class="${v !== undefined ? 'on' : ''}" data-tmonth="${mk}" value="${v === undefined ? '' : v}" placeholder="—" onchange="cfOnTarget(this)"><small>${sub}</small></td>`;
-  }
-  html += '</tr>';
+  // Online and wholesale sales (a % on last year, or a $ amount, month by month) are on the dashboard's Sales forecast card.
+  html += `<tr class="cfx-sec-row"><td colspan="13">Online and wholesale sales by month <span class="cfx-hint">(% or $ — moved to the Sales forecast card at the top of this tab)</span></td></tr>`;
   // Growth on last year, month by month, for the lines planned from last year. The Worst / Base / Best % in the
   // scenario table is applied on top of whatever is set here.
   const lyIn = cfLastYearInput() || {};
   const gr = cf.inputs.growth || {};
   html += `<tr class="cfx-sec-row"><td colspan="13">Growth on last year, by month <span class="cfx-hint">(% — the Worst / Base / Best % in the scenario table below is applied on top)</span></td></tr>`;
-  for (const [line, name, flag] of [['wholesale', 'Wholesale', 'lyWholesale'], ['stock', 'Stock payments', 'lyStock'], ['marketing', 'Marketing', 'lyMarketing'], ['otherOut', 'Other cash out', 'lyOtherOut']]) {
+  for (const [line, name, flag] of [['stock', 'Stock payments', 'lyStock'], ['marketing', 'Marketing', 'lyMarketing'], ['otherOut', 'Other cash out', 'lyOtherOut']]) {
     const active = r.settings.lyOn && r.settings[flag];
     html += `<tr class="cfx-target-row"><td>${name} <input class="cfx-all" type="text" inputmode="decimal" placeholder="all" title="Type a % to fill every month in this row (0 clears the row)" data-gall="${line}" onchange="cfOnGrowthAll(this)"></td>`;
     months.forEach((mk, i) => {
@@ -8013,13 +8054,6 @@ function cfOnGrowthAll(el) {
     if (raw === '' || Number(raw) === 0) { if (g[line]) delete g[line][mk]; } else (g[line] = g[line] || {})[mk] = Number(raw);
   }
   if (g[line] && !Object.keys(g[line]).length) delete g[line];
-  cfRecompute(); cfRenderMain(); cfSaveInputsDebounced();
-}
-function cfOnTarget(el) {
-  const raw = el.value.trim().replace('%', '');
-  const tg = (cf.inputs.targets = cf.inputs.targets || { online: {} }).online = cf.inputs.targets.online || {};
-  if (raw === '') delete tg[el.dataset.tmonth];
-  else { const v = Number(raw); if (!Number.isFinite(v)) return; tg[el.dataset.tmonth] = v; }
   cfRecompute(); cfRenderMain(); cfSaveInputsDebounced();
 }
 function cfOnCardTerm(el) {
@@ -8439,6 +8473,7 @@ function cfdRenderDash() {
   cfdRenderControls();
   cfdDrawChart(o);
   cfdRenderBreakdown();
+  cfdRenderSales();
   cfdRenderOverdue();
   if (!cf.dash.formsDrawn) { cfdRenderForms(); cf.dash.formsDrawn = true; } else cfdRenderLumi();
 }
@@ -8892,6 +8927,118 @@ function cfdResetAssumptions() {
   cfSaveInputsDebounced();
   cfRefresh();
   cfdRenderAssumptions();
+}
+
+// ── Sales forecast: online and wholesale, month by month, as a % on last year or a $ amount ──────────────────────────────
+// Whichever is typed IS the forecast for that month (it replaces the general growth % from Assumptions for that month; it is
+// not added on top of it). The grey numbers are what the forecast is using right now. Saved in cf.inputs.salesPlan.
+const CFD_SALES = [
+  { line: 'online', title: 'Online sales', unit: 'bank deposits', ly: 'Last year', hint: "Last year's online bank deposits, day by day." },
+  { line: 'wholesale', title: 'Wholesale', unit: 'customer payments', ly: 'Last year', hint: "Last year's wholesale receipts. Invoices and orders already in Xero and Apparel Magic count towards each month, so they're never added twice." },
+];
+function cfdSalesMonths(line) {
+  const m0 = CFE.util.monthKey(cf.result.today);
+  return Array.from({ length: 12 }, (_, i) => CFE.util.addMonths(m0, i));
+}
+const cfdMoneyBoth = (n) => `<span class="cfd-l-long">${cfMoney(n)}</span><span class="cfd-l-short">${cfMoneyCompact(n)}</span>`;
+const cfdSignedPct = (p) => (p === null || p === undefined || !Number.isFinite(p) ? '' : `${p >= 0 ? '+' : '−'}${Math.abs(Math.round(p * 10) / 10)}%`);
+
+function cfdRenderSalesTable(def) {
+  const r = cf.result, line = def.line;
+  const m0 = CFE.util.monthKey(r.today);
+  const sp = (cf.inputs.salesPlan && cf.inputs.salesPlan[line]) || {};
+  const gen = r.settings.scenarios.base[line] || 0;
+  const rows = cfdSalesMonths(line).map((mk) => {
+    const c = CFE.salesPlanCell(r, line, mk);
+    if (!c) return '';
+    const e = c.entry, isNow = mk === m0;
+    const label = cfMonthLabel(mk) + (isNow && line === 'online' ? ' <small>(rest)</small>' : '');
+    if (!c.editable) {
+      return `<tr class="cfd-sp-off"><td>${label}</td><td class="num">${c.basis === null ? '—' : cfdMoneyBoth(c.basis)}</td><td colspan="2" class="cfd-sp-na">invoices and orders only</td><td class="num"><b>${cfdMoneyBoth(c.forecast)}</b></td></tr>`;
+    }
+    const pctPh = c.forecastPct === null ? (e ? '' : cfdSignedPct(gen).replace('+', '').replace('−', '-').replace('%', '')) : String(Math.round(c.forecastPct * 10) / 10);
+    const amtPh = Math.round(c.forecast).toLocaleString('en-AU');
+    const pctVal = e && e.pct !== undefined ? String(e.pct) : '';
+    const amtVal = e && e.amount !== undefined ? Math.round(e.amount).toLocaleString('en-AU') : '';
+    let note = '';
+    if (c.skipped) note = `<small class="cfd-sp-warn">${cfEsc(c.skipped.reason)} — type a $ amount instead</small>`;
+    else if (line === 'wholesale' && c.known > 0.5) {
+      const planned = e ? (e.amount !== undefined ? e.amount : (c.basis || 0) * (1 + e.pct / 100)) : (c.basis || 0) * (1 + gen / 100);
+      note = c.known > planned + 1 && e ? `<small class="cfd-sp-warn">${cfMoney(c.known)} already invoiced / ordered — more than your figure</small>` : `<small>${cfMoney(c.known)} already invoiced / ordered</small>`;
+    } else if (!e) note = `<small>${gen === 0 ? 'no growth' : cfdSignedPct(gen) + ' (general)'}</small>`;
+    else note = `<small class="cfd-sp-mine">your figure</small>`;
+    return `<tr class="${e ? 'typed' : ''}"><td>${label}</td><td class="num">${c.basis === null ? '<span class="cfd-sp-na">—</span>' : cfdMoneyBoth(c.basis)}</td>
+      <td class="cfd-sp-in"><input type="text" inputmode="decimal" class="cfd-spin ${pctVal !== '' ? 'on' : ''}" data-k="${line}|${mk}|pct" value="${cfEsc(pctVal)}" placeholder="${cfEsc(pctPh)}" aria-label="${def.title} % on last year, ${cfMonthLabel(mk)}" onchange="cfdOnSales('${line}','${mk}','pct',this)"><em>%</em></td>
+      <td class="cfd-sp-in"><em>$</em><input type="text" inputmode="decimal" class="cfd-spin ${amtVal !== '' ? 'on' : ''}" data-k="${line}|${mk}|amt" value="${cfEsc(amtVal)}" placeholder="${cfEsc(amtPh)}" aria-label="${def.title} dollar amount, ${cfMonthLabel(mk)}" onchange="cfdOnSales('${line}','${mk}','amt',this)"></td>
+      <td class="num"><b>${cfdMoneyBoth(c.forecast)}</b>${note}</td></tr>`;
+  }).join('');
+  const nTyped = Object.keys(sp).length;
+  const total = cfdSalesMonths(line).reduce((a, mk) => { const c = CFE.salesPlanCell(r, line, mk); return a + (c ? c.forecast : 0); }, 0);
+  return `<div class="cfd-sp">
+    <div class="cfd-sp-head"><div><b>${def.title}</b> <span class="cfx-hint">${def.unit} · next 12 months ${cfMoney(total)}</span></div>
+      <div class="cfd-sp-all"><input type="text" inputmode="decimal" placeholder="% for every month" aria-label="${def.title}: one % for every month" onchange="cfdSalesAll('${line}', this)"><button class="cfd-link" onclick="cfdSalesClear('${line}')" ${nTyped ? '' : 'disabled'}>Clear ${nTyped || ''} typed</button></div></div>
+    <div class="cfx-table-wrap"><table class="cfx-table cfd-table cfd-sptable"><thead><tr><th>Month</th><th class="num">${def.ly}</th><th class="num" title="Growth on the same time last year">% change</th><th class="num" title="Or type the dollars for the month">or $ amount</th><th class="num">Forecast</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </div>`;
+}
+
+function cfdRenderSales(force) {
+  const box = document.getElementById('cfdSales');
+  if (!box || !cf.result) return;
+  const active = document.activeElement;
+  if (!force && box.contains(active) && active !== document.body) return; // never pull a field out from under someone typing
+  const keep = active && box.contains(active) && active.dataset ? active.dataset.k : null;
+  const r = cf.result, b = r.settings.scenarios.base;
+  const moved = (cf.dash.moved || []);
+  const movedNote = moved.length ? `<div class="cfd-sp-moved">Your saved targets were moved in here: ${moved.slice(0, 6).map((m) => `${m.line === 'online' ? 'online' : 'wholesale'} ${cfMonthLabel(m.mk)} ${cfdSignedPct(m.pct)}`).join(', ')}${moved.length > 6 ? ` and ${moved.length - 6} more` : ''}. The online ones used to need Shopify, so until now they weren't being used.</div>` : '';
+  box.innerHTML = `<div class="cfx-card-head"><div class="cfx-card-title">Sales forecast <span class="cfx-sub">type a % on last year <b>or</b> a $ amount, for any month</span></div></div>
+    <div class="cfd-hint" style="margin:-4px 0 8px">Whatever you type is the forecast for that month — it replaces the general growth % rather than adding to it. The grey numbers show what the forecast is using now; months you leave blank use the general growth from Assumptions (online ${cfdSignedPct(b.online || 0) || '0%'}, wholesale ${cfdSignedPct(b.wholesale || 0) || '0%'}). Worst and best case still sit either side of what you type.</div>
+    ${movedNote}
+    <div class="cfd-sp2">${CFD_SALES.map(cfdRenderSalesTable).join('')}</div>`;
+  if (keep) { const el = box.querySelector(`[data-k="${keep}"]`); if (el) { el.focus(); try { el.select(); } catch (e) {} } }
+}
+
+// The forecast and table are redrawn AFTER the browser has moved focus to the next box (Tab or a click), so typing carries
+// straight on; redrawing inside the change event would delete the box that is about to get focus.
+function cfdSalesApply() {
+  cf.dash.moved = [];
+  cfSaveInputsDebounced();
+  clearTimeout(cf.dash.salesTimer);
+  cf.dash.salesTimer = setTimeout(() => { cfRefresh(); cfdRenderSales(true); }, 0);
+}
+function cfdOnSales(line, mk, kind, el) {
+  const raw = String(el.value).trim();
+  const sp = cf.inputs.salesPlan = cf.inputs.salesPlan || {};
+  const store = sp[line] = sp[line] || {};
+  if (raw === '') delete store[mk];
+  else if (kind === 'pct') {
+    const n = Number(raw.replace(/[%+\s,]/g, '').replace('−', '-'));
+    if (!Number.isFinite(n) || n < -100 || n > 1000) { setTimeout(() => cfdRenderSales(true), 0); return; }
+    store[mk] = { pct: n };
+  } else {
+    const v = cfParseAmt(raw);
+    if (v === undefined || v === null || v < 0 || v > 1e9) { setTimeout(() => cfdRenderSales(true), 0); return; }
+    store[mk] = { amount: v };
+  }
+  if (!Object.keys(store).length) delete sp[line];
+  cfdSalesApply();
+}
+// One % for every month you can edit (wholesale's current month is invoices only).
+function cfdSalesAll(line, el) {
+  const raw = String(el.value).trim();
+  if (raw === '') return;
+  const n = Number(raw.replace(/[%+\s,]/g, '').replace('−', '-'));
+  if (!Number.isFinite(n) || n < -100 || n > 1000) { el.value = ''; return; }
+  const sp = cf.inputs.salesPlan = cf.inputs.salesPlan || {};
+  const store = sp[line] = sp[line] || {};
+  const m0 = CFE.util.monthKey(cf.result.today);
+  for (const mk of cfdSalesMonths(line)) { if (line === 'wholesale' && mk === m0) continue; store[mk] = { pct: n }; }
+  el.value = '';
+  cfdSalesApply();
+}
+function cfdSalesClear(line) {
+  const sp = cf.inputs.salesPlan = cf.inputs.salesPlan || {};
+  delete sp[line];
+  cfdSalesApply();
 }
 
 // Redraw the old charts when Advanced detail is opened (they can't draw while hidden).
