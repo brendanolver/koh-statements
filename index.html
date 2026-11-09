@@ -337,6 +337,7 @@
   table.debtors-table th.num, table.debtors-table td.num { text-align: right; }
   table.debtors-table .name-cell { cursor: pointer; font-weight: 600; }
   table.debtors-table .name-cell:hover { text-decoration: underline; }
+  .hold-filter-btn.on { background: #fff3e0; color: #e65100; border-color: #ffcc80; font-weight: 600; }
   .hold-badge {
     display: inline-block;
     font-size: 10px;
@@ -807,7 +808,8 @@ body.app-ui .app-name { font-family: var(--font-mono); font-size: 11px; letter-s
         component-specific button rule above still wins) ---- */
 :where(body.app-ui) button { border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; transition: background .12s, border-color .12s, box-shadow .12s; }
 body.app-ui button:not([class]):hover:not(:disabled),
-body.app-ui button.hidden-customers-btn:hover:not(:disabled) { background: var(--inset); }
+body.app-ui button.hidden-customers-btn:hover:not(:disabled),
+body.app-ui button.hold-filter-btn:not(.on):hover:not(:disabled) { background: var(--inset); }
 body.app-ui button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 body.app-ui button:focus-visible, body.app-ui input:focus-visible, body.app-ui select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 body.app-ui input[type="text"], body.app-ui input[type="email"], body.app-ui input[type="month"],
@@ -1187,7 +1189,8 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
       <div class="sec-title" style="margin-bottom:0;">All Customers</div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        <button onclick="selectAllOverdue()">Select All Overdue</button>
+        <button id="holdOnlyBtn" class="hold-filter-btn" onclick="toggleHoldOnly()" aria-pressed="false" title="Show only customers who have stock on hold (Awaiting Approval invoices in Xero)">📦 Stock on hold (0)</button>
+        <button id="selectOverdueBtn" onclick="selectAllOverdue()">Select All Overdue</button>
         <button class="hidden-customers-btn" onclick="toggleHiddenPanel('hiddenCustomersPanelStatements')" title="Customers hidden from Debtors, Statements, and their totals — e.g. gone into administration">Hidden customers (0)</button>
       </div>
     </div>
@@ -1928,7 +1931,7 @@ function toggleQueue(customer) {
 // limit being tripped. Fully sequential is slower but reliable; the queue
 // panel already shows live per-row progress, so there's nothing to wait on.
 async function selectAllOverdue() {
-  const targets = debtors.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id));
+  const targets = debtors.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id) && (!statementsHoldOnly || d.holdTotal > 0));
   for (const d of targets) {
     const item = { id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country, status: 'loading', data: null, recipientEmail: '', recipientName: '', error: '' };
     queue.push(item);
@@ -3042,16 +3045,35 @@ function renderDebtorsStats() {
   }
 }
 
+// "📦 Stock on hold" filter on the Statements tab: when on, only customers with held stock are listed, the totals row
+// follows the list, and the Select-overdue button acts on that list only (its label says so).
+let statementsHoldOnly = false;
+function toggleHoldOnly() {
+  statementsHoldOnly = !statementsHoldOnly;
+  renderCustomersTable();
+}
+
 // Statements tab — plain browsing list, no Stop/Clear (that's the Debtors
 // tab's job via the card grid). Sortable, with the queue checkbox.
 function renderCustomersTable() {
+  const holdBtn = document.getElementById('holdOnlyBtn');
+  holdBtn.textContent = `📦 Stock on hold (${debtors.filter((d) => d.holdTotal > 0).length})`;
+  holdBtn.classList.toggle('on', statementsHoldOnly);
+  holdBtn.setAttribute('aria-pressed', statementsHoldOnly ? 'true' : 'false');
+  document.getElementById('selectOverdueBtn').textContent = statementsHoldOnly ? 'Select Overdue On Hold' : 'Select All Overdue';
+  const shown = sortedDebtors().filter((d) => !statementsHoldOnly || d.holdTotal > 0);
+
   for (const th of document.querySelectorAll('#statementsView .debtors-table th.sortable')) {
     const arrow = th.querySelector('.sort-arrow');
     arrow.textContent = th.dataset.sort === debtorsSortField ? (debtorsSortDir === 'asc' ? '▲' : '▼') : '';
   }
 
   els.customersRows.innerHTML = '';
-  for (const d of sortedDebtors()) {
+  if (statementsHoldOnly && shown.length === 0) {
+    els.customersRows.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">No customers have stock on hold right now.</td></tr>';
+    return;
+  }
+  for (const d of shown) {
     const tr = document.createElement('tr');
 
     const checkboxTd = document.createElement('td');
@@ -3131,17 +3153,18 @@ function renderCustomersTable() {
   // Totals row — grouped by currency so AUD and NZD balances are never
   // silently added together as if they were the same unit.
   const sumsByCurrency = new Map();
-  for (const d of debtors) {
+  for (const d of shown) {
     const cur = currencyFor(d.country);
-    if (!sumsByCurrency.has(cur)) sumsByCurrency.set(cur, { total: 0, overdue: 0 });
+    if (!sumsByCurrency.has(cur)) sumsByCurrency.set(cur, { total: 0, overdue: 0, hold: 0 });
     const s = sumsByCurrency.get(cur);
     s.total += d.total || 0;
     s.overdue += d.overdue || 0;
+    s.hold += d.holdTotal || 0;
   }
   const totalLine = (key) => Array.from(sumsByCurrency.entries()).map(([cur, s]) => `${fmtMoney(s[key])} ${cur}`).join(' + ');
   const totalTr = document.createElement('tr');
   totalTr.className = 'total-row';
-  totalTr.innerHTML = `<td></td><td>Total</td><td></td><td></td><td></td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td><td class="no-print"></td>`;
+  totalTr.innerHTML = `<td></td><td>${statementsHoldOnly ? 'Total — stock on hold only' : 'Total'}</td><td></td><td></td><td class="num">${statementsHoldOnly ? totalLine('hold') : ''}</td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td><td class="no-print"></td>`;
   els.customersRows.appendChild(totalTr);
 }
 
