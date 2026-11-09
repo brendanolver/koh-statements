@@ -13,8 +13,9 @@
  *   - Amex payments = money moved into the credit-card accounts (their BankSummary "cash received" less any
  *     direct refunds), i.e. what left the bank to pay the cards.
  *   - Stock payments = supplier bill payments, less the bills that were paid with a card (those left the
- *     bank later, as part of the Amex payment). Other out is the rest of what left the bank: wages, tax,
- *     drawings, loan repayments, anything paid direct.
+ *     bank later, as part of the Amex payment). BAS = payments on bills to the ATO (GST + PAYG), kept on their own
+ *     line so last year's BAS isn't also hiding inside the operating-cost baseline. Other out is the rest of what
+ *     left the bank: wages, super, drawings, loan repayments, anything paid direct.
  *
  * Loaded by index.html as a plain script (window.CFH) and by tests/cashflow-history.test.js.
  */
@@ -124,6 +125,11 @@
         + sum(arPay.filter((p) => inM(p) && onlineRe.test(p.contact)), (p) => p.aud);
       const wholesale = sum(arPay.filter((p) => inM(p) && !onlineRe.test(p.contact)), (p) => p.aud);
       const otherIn = received - online - wholesale; // loans, owner money, transfers in — whatever else arrived
+      // Day by day, for the online forecast from last year's bank deposits (only days with money).
+      const onlineDaily = {};
+      for (const t of recvBank.filter((t) => onlineRe.test(t.contact))) onlineDaily[t.date] = (onlineDaily[t.date] || 0) + t.amount;
+      for (const p of arPay.filter((p) => inM(p) && onlineRe.test(p.contact))) onlineDaily[p.date] = (onlineDaily[p.date] || 0) + p.aud;
+      for (const d of Object.keys(onlineDaily)) { if (onlineDaily[d] > 0) onlineDaily[d] = r2(onlineDaily[d]); else delete onlineDaily[d]; }
 
       // Cash out
       const cardsReceived = sum(cardRows, (r) => r.rec), cardsSpent = sum(cardRows, (r) => r.sp);
@@ -134,7 +140,8 @@
       const cardPaidBills = Math.max(0, cardsSpent - cardDirectSpend); // bills settled with a card rather than the bank
       const supplierPaid = sum(apPay.filter((p) => inM(p) && !taxRe.test(p.contact)), (p) => p.aud);
       const stock = Math.max(0, supplierPaid - cardPaidBills);
-      const otherOut = spent - stock - cardPayments;
+      const basPaid = sum(apPay.filter((p) => inM(p) && taxRe.test(p.contact)), (p) => p.aud); // GST + PAYG paid to the ATO
+      const otherOut = spent - stock - cardPayments - basPaid;
       // The same month in the forecast engine's own terms, which count spend when it is charged (card spend
       // included) rather than when it leaves the bank: Stock = every supplier payment however it was paid,
       // Marketing / Other out = direct spend from the bank plus card spend. This is what a forecast month is
@@ -153,7 +160,8 @@
         partial: mk === monthKey(input.today),
         opening: r2(opening), closing: r2(closing),
         online: r2(online), wholesale: r2(wholesale), otherIn: r2(otherIn), totalIn: r2(received),
-        stock: r2(stock), cards: r2(cardPayments), otherOut: r2(otherOut), totalOut: r2(spent),
+        stock: r2(stock), cards: r2(cardPayments), bas: r2(basPaid), otherOut: r2(otherOut), totalOut: r2(spent),
+        onlineDaily,
         net: r2(received - spent),
         memo: {
           cardMarketing: r2(cardMarketing),
@@ -163,6 +171,7 @@
           online: r2(online), wholesale: r2(wholesale), stock: r2(supplierPaid),
           marketing: r2(bankMarketing + cardMarketing),
           otherOut: r2(Math.max(0, otherOut - bankMarketing + cardDirectSpend - cardMarketing)),
+          bas: r2(basPaid),
         },
         check: { unmatchedIn: r2(unmatchedIn), unmatchedOut: r2(unmatchedOut), noSummary: rows.length === 0 },
       });
@@ -175,22 +184,57 @@
   }
 
   // ---------------------------------------------------------------------------------------------
+  // BAS profile, from the bills Xero holds for the ATO (each is dated the day the BAS is paid, with GST, deferred GST and PAYG
+  // on separate lines). bills = [{ date, total, lines:[{ AccountCode, LineAmount }] }]; recByMonth = { 'YYYY-MM': online + wholesale
+  // cash received } for the months we have.
+  //   gstRatio  — what share of the PREVIOUS month's sales receipts the GST payment has been, in the current run of monthly
+  //               payments (the median over the months of that run, at least 3, never more than 12%). The run is the latest
+  //               stretch of GST payments no more than 50 days apart, so quarterly payments from before the business moved to
+  //               monthly BAS don't skew it. null when there isn't enough monthly history.
+  //   gstMonthlyAvg — a fallback: the 12 months' GST payments ÷ 12.     paygMonthly — the last 3 months' PAYG ÷ 3.
+  //   billMonths — months that already have an ATO bill, so nothing is estimated on top of a real one.
+  const median = (a) => { const s = a.slice().sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const daysApart = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+  function basProfile(bills, recByMonth, today, codes) {
+    const GST = new Set((codes && codes.gst) || ['820', '821', '822']), PAYG = new Set((codes && codes.payg) || ['825']);
+    const sumLines = (b, set) => (b.lines || []).filter((l) => set.has(String(l.AccountCode))).reduce((a, l) => a + (Number(l.LineAmount) || 0), 0);
+    const rows = (bills || []).filter((b) => b && b.date).map((b) => ({ date: b.date, total: Number(b.total) || 0, hasLines: (b.lines || []).length > 0, gst: sumLines(b, GST), payg: sumLines(b, PAYG) })).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const paid = rows.filter((b) => b.date <= today);
+    const cut = (days) => { const d = new Date(Date.parse(today + 'T00:00:00Z') - days * 86400000).toISOString().slice(0, 10); return (b) => b.date >= d; };
+    const year = paid.filter(cut(365)), quarter = paid.filter(cut(90));
+    const withLines = year.some((b) => b.hasLines);
+    const gstMonthlyAvg = Math.max(0, withLines ? year.reduce((a, b) => a + b.gst, 0) / 12 : year.reduce((a, b) => a + b.total, 0) / 12);
+    const paygMonthly = Math.max(0, withLines ? quarter.reduce((a, b) => a + b.payg, 0) / 3 : 0);
+    // the current run of monthly GST payments
+    const g = paid.filter((b) => b.gst > 0);
+    let run = [];
+    for (let i = g.length - 1; i >= 0; i--) { if (run.length && daysApart(g[i].date, run[0].date) > 50) break; run.unshift(g[i]); }
+    const byMonth = {};
+    for (const b of run) byMonth[monthKey(b.date)] = (byMonth[monthKey(b.date)] || 0) + b.gst;
+    const ratios = Object.entries(byMonth).map(([m, gst]) => { const rec = recByMonth && recByMonth[addMonths(m, -1)]; return rec > 0 ? gst / rec : null; }).filter((x) => x !== null && x > 0);
+    const current = run.length && daysApart(run[run.length - 1].date, today) <= 75;   // the latest payment is recent: the monthly pattern is still going
+    const gstRatio = current && ratios.length >= 3 ? Math.min(0.12, median(ratios)) : null;
+    return { gstRatio, gstRatioMonths: ratios.length, gstMonthlyAvg, paygMonthly, billMonths: [...new Set(rows.map((b) => monthKey(b.date)))], count: rows.length };
+  }
+
+  // ---------------------------------------------------------------------------------------------
   // Table rows for the Year view: the actual months, then the forecast months from the engine's
   // monthly buckets (CFE.buckets(result, 'months12')) for one scenario, each with the same month a
   // year earlier alongside.
   // The forecast's lines map onto the bank basis like this: Stock = stock, Amex payments = cards, and
   // Other out = marketing + other cash out + card credit (the card spend that is paid later through
   // the Amex payments, entered as a negative so it isn't counted twice).
-  const FIELDS = ['online', 'wholesale', 'otherIn', 'totalIn', 'stock', 'cards', 'otherOut', 'totalOut', 'net', 'closing'];
+  const FIELDS = ['online', 'wholesale', 'otherIn', 'totalIn', 'stock', 'cards', 'bas', 'otherOut', 'totalOut', 'net', 'closing'];
 
   function forecastRow(b, scn) {
     const s = b.byScenario[scn];
-    const online = s.online, wholesale = s.wholesale, otherIn = s.otherIn;
-    const stock = s.stock, cards = s.cards, otherOut = s.marketing + s.otherOut + s.cardCredit;
+    // manual receipts count as other income and manual payments as other out, so every forecast dollar lands in a column
+    const online = s.online, wholesale = s.wholesale, otherIn = s.otherIn + (s.manualIn || 0);
+    const stock = s.stock, cards = s.cards, bas = s.bas || 0, otherOut = s.marketing + s.otherOut + s.cardCredit + (s.manualOut || 0);
     return {
       month: b.month, partial: b.start !== b.month + '-01',
       online, wholesale, otherIn, totalIn: online + wholesale + otherIn,
-      stock, cards, otherOut, totalOut: stock + cards + otherOut,
+      stock, cards, bas, otherOut, totalOut: stock + cards + bas + otherOut,
       net: s.net, closing: s.closing,
     };
   }
@@ -216,6 +260,6 @@
     return t;
   }
 
-  root.CFH = { buildMonthly, parseBankSummary, monthsFor, paymentsOf, forecastRow, yearRows, totals, xeroIso, monthKey, addMonths, lastDayOfMonth, FIELDS, DEFAULT_ONLINE_RE, DEFAULT_MARKETING_RE, DEFAULT_TAX_RE };
+  root.CFH = { buildMonthly, basProfile, parseBankSummary, monthsFor, paymentsOf, forecastRow, yearRows, totals, xeroIso, monthKey, addMonths, lastDayOfMonth, FIELDS, DEFAULT_ONLINE_RE, DEFAULT_MARKETING_RE, DEFAULT_TAX_RE };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.CFH;
 })(typeof window !== 'undefined' ? window : globalThis);

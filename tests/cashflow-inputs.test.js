@@ -36,5 +36,43 @@ const call = async (httpMethod, body) => { const r = await fn.handler({ httpMeth
     assert.strictEqual(fn._sanitise({ growth: {} }).growth, undefined, 'nothing set → nothing stored');
     assert.strictEqual(fn._sanitise({}).growth, undefined);
   });
+  await test('the dashboard assumptions are saved: thresholds, stale-bill days, BAS pay day, debtor days, Lumi limit', async () => {
+    const settings = { minCash: 45000, cashThreshold: 120000, staleBillDays: 90, basPayDay: 21, debtorDaysOverride: 42, lumiLimit: 500000, lumiLoanBalance: 390715.15, scenarios: { base: { online: 20, wholesale: 5, out: 5 } } };
+    assert.strictEqual((await call('POST', { settings })).status, 200);
+    const got = (await call('GET')).body.settings;
+    assert.deepStrictEqual([got.minCash, got.cashThreshold, got.staleBillDays, got.basPayDay, got.debtorDaysOverride, got.lumiLimit, got.lumiLoanBalance], [45000, 120000, 90, 21, 42, 500000, 390715.15]);
+    assert.deepStrictEqual(got.scenarios.base, { online: 20, wholesale: 5, out: 5 });
+    const blank = fn._sanitise({ settings: { debtorDaysOverride: '', minCash: 'lots' } }).settings;
+    assert.strictEqual(blank.debtorDaysOverride, undefined, 'a blank override means "use each customer\'s own history"');
+    assert.strictEqual(blank.minCash, undefined);
+  });
+  await test('manual adjustments are kept (amount > 0, real date, in/out, description) and tidied; bad ones are dropped', async () => {
+    const adjustments = [
+      { id: 'a1', desc: '  Extra stock payment ', amount: '40000', date: '2026-12-10', dir: 'out', category: 'Stock' },
+      { id: 'a2', desc: 'Lumi drawdown', amount: 150000.456, date: '2026-12-15', dir: 'in', category: 'Lumi drawdown' },
+      { id: 'bad id!', desc: 'No category', amount: 5, date: '2027-01-01', dir: 'out' },
+      { id: 'b1', desc: 'zero', amount: 0, date: '2026-12-10', dir: 'out' },
+      { id: 'b2', desc: 'negative', amount: -5, date: '2026-12-10', dir: 'out' },
+      { id: 'b3', desc: 'bad date', amount: 5, date: '10/12/2026', dir: 'out' },
+      { id: 'b4', desc: 'bad dir', amount: 5, date: '2026-12-10', dir: 'up' },
+      { id: 'b5', desc: '   ', amount: 5, date: '2026-12-10', dir: 'out' },
+      null, 'text', 42,
+    ];
+    assert.strictEqual((await call('POST', { adjustments })).status, 200);
+    const got = (await call('GET')).body.adjustments;
+    assert.deepStrictEqual(got, [
+      { id: 'a1', desc: 'Extra stock payment', amount: 40000, date: '2026-12-10', dir: 'out', category: 'Stock' },
+      { id: 'a2', desc: 'Lumi drawdown', amount: 150000.46, date: '2026-12-15', dir: 'in', category: 'Lumi drawdown' },
+      { id: 'adj-3', desc: 'No category', amount: 5, date: '2027-01-01', dir: 'out', category: '' },
+    ]);
+    assert.strictEqual(fn._sanitise({}).adjustments, undefined, 'none set → nothing stored');
+    assert.strictEqual(fn._sanitise({ adjustments: 'nope' }).adjustments, undefined);
+  });
+  await test('at most 100 adjustments, long descriptions and categories are cut', async () => {
+    const many = Array.from({ length: 130 }, (_, i) => ({ id: 'x' + i, desc: 'd'.repeat(200), amount: 1, date: '2026-12-10', dir: 'out', category: 'c'.repeat(100) }));
+    const got = fn._sanitise({ adjustments: many }).adjustments;
+    assert.strictEqual(got.length, 100);
+    assert.deepStrictEqual([got[0].desc.length, got[0].category.length], [80, 40]);
+  });
   console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);
 })();

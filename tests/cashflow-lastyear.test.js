@@ -11,7 +11,11 @@ const test = (name, fn) => { try { fn(); n++; console.log('  ok  ' + name); } ca
 const near = (a, b, tol = 0.01, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg || ''} expected ${b}, got ${a}`);
 
 const TODAY = '2026-09-20'; // planned months: Oct 2026 … Aug 2027, from Oct 2025 … Aug 2026
-const base = (over = {}) => ({ today: TODAY, cashToday: 100000, ar: [], ap: [], amOrders: [], amPOs: null, termsByCustomer: {}, shopify: null, history: null, overrides: {}, settings: null, ...over });
+// The engine's default operating-cost growth is now +5% (Base) with Worst +10% / Best 0%. These tests pin the older maths,
+// so they run with the earlier percentages unless a test sets its own.
+const LEGACY_OUT = { worst: { out: 5 }, base: { out: 0 }, best: { out: -5 } };
+const withLegacy = (settings) => { const s = JSON.parse(JSON.stringify(settings || {})); s.scenarios = s.scenarios || {}; for (const k of Object.keys(LEGACY_OUT)) s.scenarios[k] = Object.assign({}, LEGACY_OUT[k], s.scenarios[k] || {}); return s; };
+const base = (over = {}) => ({ today: TODAY, cashToday: 100000, ar: [], ap: [], amOrders: [], amPOs: null, termsByCustomer: {}, shopify: null, history: null, overrides: {}, ...over, settings: withLegacy(over.settings) });
 const row = (o) => ({ wholesale: 0, stock: 0, marketing: 0, otherOut: 0, ...o });
 const LY = {
   '2025-10': row({ wholesale: 30000, stock: 50000, marketing: 40000, otherOut: 20000 }),

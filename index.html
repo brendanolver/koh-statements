@@ -1132,6 +1132,119 @@ details.sms-hist > summary { cursor: pointer; font-size: 12px; font-weight: 600;
 button.linklike { border: none; background: transparent; color: #1d4ed8; font-size: 13px; cursor: pointer; padding: 4px 2px; text-decoration: underline; font-weight: 500; }
 @media (max-width: 760px) { .sms-row { grid-template-columns: 1fr; } .sms-tpls { grid-template-columns: 1fr; } }
 @media print { .sms-modal { display: none !important; } }
+
+/* ---- Cash Flow dashboard ---- */
+#cashflowView .cfd-status { margin: -8px 0 14px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+#cashflowView .cfd-status-row { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+#cashflowView .cfd-status b { color: var(--ink); font-weight: 600; }
+#cashflowView .cfd-bad { color: #b42318; font-weight: 600; }
+#cashflowView .cfd-wait { color: #b45309; }
+#cashflowView .cfd-note { color: #7a4a05; background: #fff8e8; border: 1px solid #f3dfae; border-radius: 8px; padding: 6px 10px; line-height: 1.45; }
+#cashflowView .cfd-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 5px 0 12px; vertical-align: -1px; }
+#cashflowView .cfd-legend i:first-child { margin-left: 0; }
+#cashflowView .cfd-legend i.a { background: #16181c; }
+#cashflowView .cfd-legend i.k { background: #0f5c4a; }
+#cashflowView .cfd-legend i.e { background: repeating-linear-gradient(45deg, #0f5c4a 0 2px, #cfe6dd 2px 4px); }
+#cashflowView .cfd-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+#cashflowView .cfd-kpi { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+#cashflowView .cfd-kpi-label { font-size: 11.5px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+#cashflowView .cfd-kpi-value { font-size: 25px; font-weight: 650; letter-spacing: -.02em; margin-top: 4px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#cashflowView .cfd-kpi-sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+#cashflowView .cfd-kpi.red .cfd-kpi-value { color: #d0021b; }
+#cashflowView .cfd-kpi.amber .cfd-kpi-value { color: #c2760a; }
+#cashflowView .cfd-kpi.green .cfd-kpi-value { color: #12915a; }
+#cashflowView .cfd-callout { display: flex; gap: 12px; align-items: flex-start; border: 1px solid; border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
+#cashflowView .cfd-callout.red { background: #fdecea; border-color: #f5c6cb; }
+#cashflowView .cfd-callout.amber { background: #fff4e0; border-color: #f3d9a6; }
+#cashflowView .cfd-callout.green { background: #e8f6ef; border-color: #bfe3cf; }
+#cashflowView .cfd-pill { flex: 0 0 auto; color: #fff; font-size: 11.5px; font-weight: 700; padding: 3px 11px; border-radius: 999px; white-space: nowrap; }
+#cashflowView .cfd-callout p { margin: 0 0 6px; font-size: 13.5px; line-height: 1.5; }
+#cashflowView .cfd-callout p:last-child { margin-bottom: 0; }
+#cashflowView .cfd-chartwrap { height: 380px; }
+#cashflowView .cfd-rangeopt { margin-left: auto; font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+#cashflowView .cfd-sum { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+#cashflowView .cfd-sum b { color: var(--ink); } #cashflowView .cfd-sum b.pos { color: #12915a; } #cashflowView .cfd-sum b.neg { color: #d0021b; }
+#cashflowView details.cfx-details > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#cashflowView .cfd-bd { margin-top: 12px; }
+#cashflowView .cfd-table { margin-bottom: 14px; }
+#cashflowView .cfd-l-short { display: none; }
+#cashflowView .cfd-table th, #cashflowView .cfd-table td { padding: 8px 10px; }
+#cashflowView .cfd-table td.num, #cashflowView .cfd-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#cashflowView .cfd-table td.neg { color: #d0021b; }
+#cashflowView tr.cfd-grp { cursor: pointer; }
+#cashflowView tr.cfd-grp:hover { background: #fafaf8; }
+#cashflowView tr.cfd-grp.open { background: #f1f6f4; }
+#cashflowView .cfd-barcell { width: 30%; }
+#cashflowView .cfd-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; min-width: 4px; }
+#cashflowView .cfd-bar i.k { background: #0f5c4a; }
+#cashflowView .cfd-bar i.e { background: repeating-linear-gradient(45deg, #0f5c4a 0 2px, #cfe6dd 2px 4px); }
+#cashflowView .cfd-tag { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+#cashflowView .cfd-tag.known { background: #e1f3ea; color: #0f6b46; }
+#cashflowView .cfd-tag.est { background: #eef0f2; color: #5b616a; }
+#cashflowView .cfd-tag.mix { background: #fff1d6; color: #8a5a07; }
+#cashflowView .cfd-tag.none { color: #b5bac1; }
+#cashflowView .cfd-hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 6px 0; }
+#cashflowView .cfd-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #12915a; }
+#cashflowView .cfd-dot.amber { background: #c2760a; } #cashflowView .cfd-dot.red { background: #d0021b; }
+#cashflowView .cfd-link { border: none; background: transparent; color: #1d4ed8; font-size: 12.5px; cursor: pointer; padding: 2px 4px; text-decoration: underline; }
+#cashflowView details.cfd-sub { margin-top: 6px; }
+#cashflowView details.cfd-sub > summary { cursor: pointer; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+#cashflowView .cfd-drillbox { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 4px 0 14px; background: #fcfcfb; }
+#cashflowView .cfd-drillhead { font-size: 12px; font-weight: 700; letter-spacing: .02em; margin-bottom: 6px; }
+#cashflowView .cfd-drillrow { display: grid; grid-template-columns: 78px minmax(0, 1fr) 86px 92px; gap: 8px; align-items: baseline; padding: 5px 0; border-top: 1px solid #f0f0ec; font-size: 12.5px; }
+#cashflowView .cfd-drillrow:first-of-type { border-top: none; }
+#cashflowView .cfd-dl small { display: block; color: var(--muted); font-size: 11px; line-height: 1.35; }
+#cashflowView .cfd-dsrc { color: var(--muted); font-size: 11.5px; }
+#cashflowView .cfd-damt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+#cashflowView .cfd-grid2 { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; }
+#cashflowView .cfd-grid2 > .cfx-card { margin-bottom: 14px; }
+#cashflowView .cfd-adj { display: grid; grid-template-columns: 82px minmax(0, 1fr) auto auto auto; gap: 8px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid #f0f0ec; font-size: 13px; }
+#cashflowView .cfd-adj.past { opacity: .6; }
+#cashflowView .cfd-adj small { display: block; color: var(--muted); font-size: 11px; }
+#cashflowView .cfd-adjamt { font-variant-numeric: tabular-nums; font-weight: 600; }
+#cashflowView .cfd-adjamt.pos { color: #12915a; }
+#cashflowView .cfd-adjform { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 12px; }
+#cashflowView .cfd-adjform input, #cashflowView .cfd-adjform select, #cashflowView .cfd-lumi input { width: 100%; box-sizing: border-box; }
+#cashflowView .cfd-adjform input, #cashflowView .cfd-adjform select, #cashflowView .cfd-lumi input, #cashflowView .cfd-as-i input { padding: 7px 9px; font-size: 13px; border: 1px solid #d8dbe0; border-radius: 6px; font-family: inherit; min-width: 0; }
+#cashflowView .cfd-adjform input[type="text"]:first-child { grid-column: 1 / -1; }
+#cashflowView .cfd-result { font-size: 12.5px; color: #b42318; min-height: 16px; margin-top: 6px; }
+#cashflowView .cfd-lumi { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 8px; }
+#cashflowView .cfd-lumi label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+#cashflowView .cfd-lumi-avail { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; color: var(--muted); border-top: 1px solid #f0f0ec; padding-top: 8px; }
+#cashflowView .cfd-lumi-avail b { color: var(--ink); font-size: 18px; }
+#cashflowView .cfd-lumi-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+#cashflowView .cfd-asgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; margin: 14px 0 10px; }
+#cashflowView .cfd-as { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; }
+#cashflowView .cfd-as-l small { display: block; color: var(--muted); font-size: 11px; line-height: 1.35; font-weight: 400; }
+#cashflowView .cfd-as-i { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+#cashflowView .cfd-as-i input { width: 92px; text-align: right; }
+#cashflowView .cfd-as-i em { font-style: normal; color: var(--muted); font-size: 12px; }
+#cashflowView .cfd-ob { display: grid; grid-template-columns: minmax(0, 1fr) 100px 210px; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid #f0f0ec; font-size: 13px; }
+#cashflowView .cfd-ob-who small { display: block; color: var(--muted); font-size: 11.5px; }
+#cashflowView .cfd-ob-amt { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+#cashflowView .cfd-ob-when { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+#cashflowView .cfd-ob-when em { font-style: normal; font-size: 11px; color: var(--muted); }
+#cashflowView .cfd-ob-when input { padding: 5px 8px; font-size: 13px; border: 1px solid #d8dbe0; border-radius: 6px; font-family: inherit; }
+#cashflowView .cfd-ob.stale { opacity: .75; }
+#cashflowView details.cfd-advanced { margin-top: 6px; }
+@media (max-width: 900px) {
+  #cashflowView .cfd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #cashflowView .cfd-grid2, #cashflowView .cfd-asgrid { grid-template-columns: minmax(0, 1fr); }
+  #cashflowView .cfd-chartwrap { height: 300px; }
+}
+@media (max-width: 560px) {
+  #cashflowView .cfd-kpi-value { font-size: 21px; }
+  #cashflowView .cfd-l-long { display: none; } #cashflowView .cfd-l-short { display: inline; }
+  #cashflowView .cfd-table th, #cashflowView .cfd-table td { padding: 8px 6px; }
+  #cashflowView .cfd-table td:first-child { white-space: normal; }
+  #cashflowView .cfd-drillrow { grid-template-columns: 70px minmax(0, 1fr) 84px; }
+  #cashflowView .cfd-dsrc { display: none; }
+  #cashflowView .cfd-callout { flex-direction: column; gap: 8px; }
+  #cashflowView .cfd-barcell { display: none; }
+  #cashflowView .cfd-adj { grid-template-columns: 70px minmax(0, 1fr) auto; }
+  #cashflowView .cfd-ob { grid-template-columns: minmax(0, 1fr) auto; }
+  #cashflowView .cfd-ob-when { grid-column: 1 / -1; justify-content: flex-start; }
+}
 </style>
 </head>
 <body class="app-ui">
@@ -1732,6 +1845,40 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
     <button id="cfRefreshBtn" onclick="loadCashflowData(true)">Refresh</button>
   </div>
 
+  <div id="cfDash">
+    <div class="cfd-status" id="cfdStatus">Loading…</div>
+    <div class="cfd-kpis" id="cfdKpis"></div>
+    <div class="cfd-callout" id="cfdCallout" style="display:none"></div>
+
+    <div class="cfx-card">
+      <div class="cfx-card-head">
+        <div class="cfx-card-title">Cash balance <span class="cfx-sub">same time last year · this year so far · forecast</span></div>
+        <div class="cfx-controls"><div class="cfx-seg" id="cfdViewSeg"></div></div>
+      </div>
+      <div class="cfx-chart-wrap cfd-chartwrap"><canvas id="cfdChart"></canvas></div>
+      <div class="cfx-legend">
+        <span><i style="background:#16181c"></i>Actual (bank)</span>
+        <span><i style="background:#12915a"></i><i style="background:#c2760a"></i><i style="background:#d0021b"></i>Forecast, coloured green / amber / red</span>
+        <span><i style="background:#9aa0a8"></i>Same time last year</span>
+        <span><i style="background:rgba(208,2,27,.7)"></i>Minimum cash</span>
+        <label class="cfd-rangeopt"><input type="checkbox" id="cfdRange" onchange="cfdSetRange(this.checked)"> show worst / best case range</label>
+      </div>
+    </div>
+
+    <details class="cfx-card cfx-details" id="cfdBreakdown"></details>
+
+    <div class="cfx-card" id="cfdOverdue" style="display:none"></div>
+
+    <div class="cfd-grid2">
+      <div class="cfx-card" id="cfdAdjust"></div>
+      <div class="cfx-card" id="cfdLumi"></div>
+    </div>
+
+    <details class="cfx-card cfx-details" id="cfdAssumptions"></details>
+  </div>
+
+  <details class="cfx-card cfx-details cfd-advanced" id="cfAdvanced" ontoggle="cfdAdvancedToggled(this)">
+    <summary><span class="cfx-card-title" style="margin:0">Advanced detail</span><span class="cfx-hint">Worst / Base / Best scenarios, monthly overrides, last-year table, card terms and data sources</span></summary>
   <div id="cfBanner" class="cfx-banner" style="display:none"></div>
 
   <div class="cfx-kpis" id="cfKpis"></div>
@@ -1796,6 +1943,7 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
   <details class="cfx-card cfx-details">
     <summary><span class="cfx-card-title" style="margin:0">Accounting detail &amp; data sources</span></summary>
     <div id="cfDetail"></div>
+  </details>
   </details>
 </div>
 
@@ -7173,7 +7321,7 @@ async function cfLoadXeroCore() {
   const fx = {}; // AUD-per-foreign helper: Xero's CurrencyRate is foreign units per 1 AUD
   const ar = arRaw.map((i) => ({
     id: i.InvoiceID, number: i.InvoiceNumber, contact: (i.Contact && i.Contact.Name) || 'Unknown',
-    amountDue: i.AmountDue || 0, currency: i.CurrencyCode || 'AUD', rate: i.CurrencyRate || null, dueDate: cfIso(i.DueDate), invoiceDate: cfIso(i.Date),
+    contactId: (i.Contact && i.Contact.ContactID) || '', amountDue: i.AmountDue || 0, currency: i.CurrencyCode || 'AUD', rate: i.CurrencyRate || null, dueDate: cfIso(i.DueDate), invoiceDate: cfIso(i.Date),
     online: CF_ONLINE_CONTACT_RE.test((i.Contact && i.Contact.Name) || ''),
   })).filter((i) => i.dueDate);
   const ap = apRaw.map((i) => {
@@ -7358,8 +7506,8 @@ async function cfLoadInputs() {
   try {
     const res = await fetch('/.netlify/functions/cashflow-inputs');
     const doc = await res.json();
-    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {}, targets: { online: (doc.targets && doc.targets.online) || {} }, growth: doc.growth || {} };
-  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {}, targets: { online: {} }, growth: {} }; }
+    cf.inputs = { overrides: doc.overrides || {}, settings: doc.settings || {}, payDates: doc.payDates || {}, targets: { online: (doc.targets && doc.targets.online) || {} }, growth: doc.growth || {}, adjustments: doc.adjustments || [] };
+  } catch (e) { cf.inputs = { overrides: {}, settings: {}, payDates: {}, targets: { online: {} }, growth: {}, adjustments: [] }; }
 }
 function cfSaveInputsDebounced() {
   document.getElementById('cfSaveState').textContent = 'Saving…';
@@ -7406,6 +7554,8 @@ function cfBuildInput() {
     history: cf.history ? { stockPerWeek: cf.history.stockPerWeek, onlineReceiptsPerWeek: cf.history.receiptsPerWeek, otherOutPerWeek: cf.history.otherOutPerWeek, marketingPerWeek: cf.history.marketingPerWeek, conversion: conv } : null,
     overrides: cf.inputs.overrides || {}, payDates: cf.inputs.payDates || {}, settings,
     lastYear: cfLastYearInput(), growth: cf.inputs.growth || {},
+    // the dashboard's extras (each is null/empty until its data has arrived)
+    bas: cfBasInput(), adjustments: cf.inputs.adjustments || [], onlineLy: cfOnlineLyInput(), payDaysByCustomer: cfPayDaysInput(),
   };
 }
 
@@ -7925,6 +8075,7 @@ function cfRenderMain(skipInputs) {
   cfDrawChart();
   cfRenderYear();
   cfSetStatus();
+  cfdRenderDash();
 }
 
 function cfRefresh() { cfRecompute(); cfRenderMain(); }
@@ -7973,7 +8124,7 @@ async function cfLoadYear(force) {
   const finalBefore = CFE.util.addDays(today, -CF_YEAR_FINAL_DAYS);
   const isFinal = (mk) => CFH.lastDayOfMonth(mk) < finalBefore;
   let cached = {};
-  if (!force) { try { const c = JSON.parse(localStorage.getItem(CF_YEAR_KEY) || 'null'); if (c && c.v === 2 && c.sig === sig) cached = c.months || {}; } catch (e) {} }
+  if (!force) { try { const c = JSON.parse(localStorage.getItem(CF_YEAR_KEY) || 'null'); if (c && c.v === 3 && c.sig === sig) cached = c.months || {}; } catch (e) {} }
   const have = {};
   for (const mk of months) if (isFinal(mk) && cached[mk]) have[mk] = cached[mk];
   const need = months.filter((mk) => !have[mk]);
@@ -8012,7 +8163,7 @@ async function cfLoadYear(force) {
     try {
       const store = {};
       for (const m of merged) if (isFinal(m.month)) store[m.month] = m;
-      localStorage.setItem(CF_YEAR_KEY, JSON.stringify({ v: 2, sig, months: store }));
+      localStorage.setItem(CF_YEAR_KEY, JSON.stringify({ v: 3, sig, months: store }));
     } catch (e) {}
     y.months = merged; y.warnings = warnings; y.state = 'ok'; y.loadedAt = Date.now();
     if (cf.result) cfRefresh(); // the forecast plans from last year's months, which it can only do now
@@ -8049,15 +8200,15 @@ function cfRenderYear() {
     const base = cfMonthLabel(r.month);
     return r.partial ? `${base} <span class="cfx-hint">${r.kind === 'actual' ? 'so far' : 'rest of month'}</span>` : base;
   };
-  const F = [['online', false], ['wholesale', false], ['otherIn', false], ['totalIn', true], ['stock', false], ['cards', false], ['otherOut', false], ['totalOut', true], ['net', true], ['closing', true]];
+  const F = [['online', false], ['wholesale', false], ['otherIn', false], ['totalIn', true], ['stock', false], ['cards', false], ['bas', false], ['otherOut', false], ['totalOut', true], ['net', true], ['closing', true]];
   const cell = (r, f, strong) => {
     const v = r[f];
     const neg = (f === 'net' || f === 'closing') && v < 0;
     const ly = r.lastYear ? `<div class="cfx-ly">LY ${money(r.lastYear[f])}</div>` : '';
     return `<td class="${strong ? 'cfx-strong ' : ''}${neg ? 'cfx-neg' : ''}${f === 'totalIn' || f === 'stock' || f === 'net' ? ' cfx-gap' : ''}">${money(v)}${ly}</td>`;
   };
-  let html = '<thead><tr><th>Month</th><th>Online</th><th>Wholesale</th><th>Other in</th><th class="cfx-gap-h">Total in</th><th>Stock payments</th><th>Amex payments</th><th>Other out</th><th>Total out</th><th class="cfx-gap-h">Net cash</th><th>Closing cash</th></tr></thead><tbody>';
-  const section = (title) => `<tr class="cfx-sec"><td colspan="11">${title}</td></tr>`;
+  let html = '<thead><tr><th>Month</th><th>Online</th><th>Wholesale</th><th>Other in</th><th class="cfx-gap-h">Total in</th><th>Stock payments</th><th>Amex payments</th><th>BAS</th><th>Other out</th><th>Total out</th><th class="cfx-gap-h">Net cash</th><th>Closing cash</th></tr></thead><tbody>';
+  const section = (title) => `<tr class="cfx-sec"><td colspan="12">${title}</td></tr>`;
   const totalRow = (name, rs) => { const t = CFH.totals(rs); return `<tr class="cfx-total"><td>${name}</td>${F.map(([f]) => `<td class="${(f === 'net' || f === 'closing') && t[f] < 0 ? 'cfx-neg' : ''}">${money(t[f])}</td>`).join('')}</tr>`; };
   const actual = rows.filter((r) => r.kind === 'actual'), forecast = rows.filter((r) => r.kind === 'forecast');
   html += section('Last 12 months — actual (from Xero)');
@@ -8137,6 +8288,7 @@ async function loadCashflowData(force) {
     cf.shopify = null;
     cf.history = null;
     cf.loan = null;
+    cf.bas = null;
     cf.historyState = 'loading';
     await cfLoadInputs();
     await cfLoadXeroCore();
@@ -8151,6 +8303,9 @@ async function loadCashflowData(force) {
       cfLoadShopify().then(cfRefresh),
       cfLoadLoan().then(cfRefresh),
       cfEnsureHistory(cf.view).then(() => cfDrawChart()),
+      cfLoadBas().then(cfRefresh),
+      cfEnsureDtp().then(cfRefresh),
+      Promise.all([cfEnsureHistory(cf.dash.view), cf.dash.view === 'weeks13' ? cfdEnsureLyWeekly() : Promise.resolve()]).then(() => cfdDrawChart()),
     ];
     await Promise.all(later);
     cf.updatedAt = new Date();
@@ -8164,6 +8319,583 @@ async function loadCashflowData(force) {
   cf.loading = false;
   btn.disabled = false;
 }
+
+// ── Dashboard: the simple view ───────────────────────────────────────────────
+// A plain-English front end over the forecast engine (cashflow-engine.js): four numbers, one chart that shows when cash is
+// tight, a collapsed breakdown of what moves it, manual one-offs and a few assumptions. Everything detailed (scenarios, monthly
+// overrides, last year's table, data sources) is still there under "Advanced detail". Nothing here writes to Xero.
+const CFD_LEVELS = { green: { label: 'Comfortable', colour: '#12915a' }, amber: { label: 'Watch closely', colour: '#c2760a' }, red: { label: 'Action required', colour: '#d0021b' } };
+const CFD_PAST_DAYS = { weeks13: 91, months6: 122, months12: 183 };   // how much actual history sits left of "today"
+const CFD_CATEGORIES = ['Stock payment', 'Operating expense', 'Customer receipt', 'Supplier payment delayed', 'Lumi drawdown', 'Lumi repayment', 'Other'];
+cf.dash = { view: 'months12', showRange: false, period: null, drill: null, lyWeekly: null, chart: null, editing: null, formsDrawn: false };
+try {
+  const v = localStorage.getItem('cfd_view');
+  if (CF_VIEWS.some((x) => x[0] === v)) cf.dash.view = v;
+  cf.dash.showRange = localStorage.getItem('cfd_range') === '1';
+} catch (e) {}
+cf.bas = null;           // BAS history read from the ATO bills in Xero (see cfLoadBas)
+
+const cfdDateY = (iso) => (cf.xero ? new Date(iso + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', ...(iso.slice(0, 4) !== cf.xero.today.slice(0, 4) ? { year: 'numeric' } : {}), timeZone: 'UTC' }) : iso);
+
+// ── Extra data the dashboard's forecast uses ─────────────────────────────────
+// BAS: Xero holds each payment as a bill to the contact "ATO", dated the day it is paid, with GST, deferred GST and PAYG
+// on separate lines (account codes from this chart of accounts: 820 GST, 821 GST adjustments, 822 deferred GST, 825 PAYG).
+// The bills are read here; what they mean (the GST share of last month's sales, PAYG, months already billed) is worked out in
+// CFH.basProfile (cashflow-history.js, unit-tested).
+async function cfLoadBas() {
+  const today = cf.xero.today;
+  const cached = cfCacheGet('bas2_' + today, 6 * 3600 * 1000);
+  if (cached) { cf.bas = cached; return; }
+  try {
+    const contacts = (await cfXero({ path: 'Contacts', where: 'Name.StartsWith("ATO") OR Name.Contains("Taxation")' })).Contacts || [];
+    const ids = contacts.filter((c) => CFE.TAX_CONTACT_RE.test(c.Name || '')).map((c) => c.ContactID);
+    if (!ids.length) { cf.bas = { none: true }; return; }
+    const since = CFE.util.addDays(today, -430);
+    const bills = await cfXeroAll('Invoices', `Type=="ACCPAY" && Date>=DateTime(${Number(since.slice(0, 4))},${Number(since.slice(5, 7))},${Number(since.slice(8, 10))})`, 'Invoices', { ContactIDs: ids.join(',') });
+    // keep just what the BAS profile needs (cashflow-history.js → CFH.basProfile)
+    cf.bas = {
+      bills: bills.filter((b) => b.Status !== 'VOIDED' && b.Status !== 'DELETED')
+        .map((b) => ({ date: cfIso(b.Date), total: b.Total || 0, lines: (b.LineItems || []).map((l) => ({ AccountCode: l.AccountCode, LineAmount: l.LineAmount })) }))
+        .filter((b) => b.date),
+    };
+    cfCacheSet('bas2_' + today, cf.bas);
+  } catch (e) { cf.bas = { error: e.message }; }
+}
+
+// Each customer's average days from invoice date to payment — the Debtors tab already works this out (12 months of paid
+// invoices); the forecast uses it to time collections. Waits for that load if the Debtors tab started it first.
+async function cfEnsureDtp() {
+  if (dtp.state !== 'ok') loadDaysToPay();
+  for (let i = 0; i < 200 && dtp.loading; i++) await cfSleep(300);
+}
+
+// Last year's weekly closing balances — only for the 13-week chart (one BankSummary per week, cached for the session).
+async function cfdEnsureLyWeekly() {
+  if (cf.dash.lyWeekly || !cf.xero) return;
+  const { today, bankIds: ids } = cf.xero;
+  const cached = cfCacheGet('lyweekly_' + today, 6 * 3600 * 1000);
+  if (cached) { cf.dash.lyWeekly = cached; return; }
+  const jobs = [];
+  for (let k = 0; k <= 13; k++) { const to = CFE.util.addDays(today, -364 + 7 * k); jobs.push({ to, from: CFE.util.addDays(to, -6) }); }
+  const out = [];
+  let next = 0;
+  await Promise.all([0, 1, 2].map(async () => {
+    while (next < jobs.length) {
+      const j = jobs[next++];
+      try { out.push({ to: j.to, closing: await cfBankSummary(j.from, j.to, ids) }); } catch (e) { /* a missing week just leaves a gap */ }
+    }
+  }));
+  cf.dash.lyWeekly = out.sort((a, b) => (a.to < b.to ? -1 : 1));
+  if (out.length === jobs.length) cfCacheSet('lyweekly_' + today, cf.dash.lyWeekly);
+}
+
+// What the engine is handed (see cfBuildInput) — each is null until its data has arrived.
+function cfBasInput() {
+  if (!cf.bas || cf.bas.none || cf.bas.error || !cf.xero) return null;
+  const ms = cf.year && cf.year.months;
+  const recByMonth = {};
+  let recMonthAvg = 0;
+  if (ms) {
+    for (const m of ms) recByMonth[m.month] = (m.online || 0) + (m.wholesale || 0);
+    const done = ms.filter((m) => !m.partial).slice(-12);
+    if (done.length >= 6) recMonthAvg = done.reduce((t, m) => t + (m.online || 0) + (m.wholesale || 0), 0) / done.length;
+  }
+  return { ...CFH.basProfile(cf.bas.bills, recByMonth, cf.xero.today), recByMonth, recMonthAvg };
+}
+function cfOnlineLyInput() {
+  const ms = cf.year && cf.year.months;
+  if (!ms || !ms.length) return null;
+  const daily = {};
+  for (const m of ms) if (m.onlineDaily) Object.assign(daily, m.onlineDaily);
+  return Object.keys(daily).length ? { daily, from: ms[0].month + '-01' } : null;
+}
+function cfPayDaysInput() {
+  if (!dtp.byContact || !cf.xero) return null;
+  const out = {};
+  for (const i of cf.xero.ar) {
+    if (!i.contactId || !i.contact) continue;
+    const a = DDP.avg(dtp.byContact[i.contactId]);
+    if (a && a.n >= 3) out[i.contact.toUpperCase()] = { n: a.n, days: a.days };
+  }
+  return out;
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+function cfdSet(id, html) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.contains(document.activeElement) && document.activeElement !== document.body) return; // never pull a field out from under someone typing
+  el.innerHTML = html;
+}
+
+function cfdRenderDash() {
+  const r = cf.result;
+  if (!r) return;
+  const o = CFE.outlook(r, 'base');
+  cf.dash.outlook = o;
+  cfdRenderStatus(o);
+  cfdRenderKpis(o);
+  cfdRenderCallout(o);
+  cfdRenderControls();
+  cfdDrawChart(o);
+  cfdRenderBreakdown();
+  cfdRenderOverdue();
+  if (!cf.dash.formsDrawn) { cfdRenderForms(); cf.dash.formsDrawn = true; } else cfdRenderLumi();
+}
+
+// The line under the title: when the data was read, whether each source worked, and anything missing or stale.
+function cfdRenderStatus(o) {
+  const x = cf.xero, r = cf.result, notes = [];
+  const s = cf.am.status;
+  const yearOk = cf.year.state === 'ok';
+  const t = cf.updatedAt ? cf.updatedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : '…';
+  const part = (ok, text, bad) => `<span class="${ok === true ? '' : ok === false ? 'cfd-bad' : 'cfd-wait'}">${ok === true ? '✓' : ok === false ? '✗' : '…'} ${text}${ok === false && bad ? ` — ${bad}` : ''}</span>`;
+  const bits = [`<span><b>Updated ${t}</b></span>`, part(true, 'Xero')];
+  bits.push(part(!s.orders ? null : s.orders.state === 'ok' ? true : s.orders.state === 'loading' ? null : false, 'Apparel Magic', s.orders && s.orders.message));
+  bits.push(part(yearOk ? true : cf.year.state === 'failed' ? false : null, "Last year's figures", cf.year.error));
+  bits.push(part(!cf.bas ? null : cf.bas.none ? false : cf.bas.error ? false : true, 'BAS history', cf.bas && cf.bas.none ? 'no ATO bills found, so no BAS is forecast' : cf.bas && cf.bas.error));
+  if (cf.shopify && (cf.shopify.error || cf.shopify.configured === false)) bits.push(part(false, 'Shopify', "not connected — online sales use last year's bank deposits"));
+  if (!yearOk) notes.push("Last year's figures are still loading, so the forecast will change once they arrive (online sales and costs use recent averages until then).");
+  const stale = r.scenarios.base.notes.excluded.filter((e) => /stale/.test(e.kind));
+  if (stale.length) notes.push(`${stale.length} supplier bill${stale.length === 1 ? '' : 's'} overdue by more than ${r.settings.staleBillDays} days (${cfMoney(stale.reduce((a, e) => a + e.amount, 0))}) ${stale.length === 1 ? 'is' : 'are'} left out as stale — set a payment date under Advanced detail if ${stale.length === 1 ? 'it is' : 'they are'} real.`);
+  const noPo = cf.am.status.pos && cf.am.status.pos.state === 'error';
+  if (noPo) notes.push('Apparel Magic purchase orders could not be read — supplier payments come from Xero bills and last year\'s pattern only.');
+  const legend = '<span class="cfd-legend"><i class="a"></i>Actual <i class="k"></i>Known (bills, invoices, statements, your entries) <i class="e"></i>Estimated</span>';
+  document.getElementById('cfdStatus').innerHTML = `<div class="cfd-status-row">${bits.join('')}</div><div class="cfd-status-row">${legend}</div>${notes.map((n) => `<div class="cfd-note">⚠ ${cfEsc(n)}</div>`).join('')}`;
+}
+
+function cfdKpi(label, value, sub, level) {
+  return `<div class="cfd-kpi ${level || ''}"><div class="cfd-kpi-label">${label}</div><div class="cfd-kpi-value">${value}</div><div class="cfd-kpi-sub">${sub || ''}</div></div>`;
+}
+function cfdRenderKpis(o) {
+  const r = cf.result, st = r.settings;
+  const updated = cf.updatedAt ? cf.updatedAt.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : '';
+  const below = (v) => (v < st.minCash ? ` · below your ${cfMoney(st.minCash)} minimum` : v < st.cashThreshold ? ` · below ${cfMoney(st.cashThreshold)}` : '');
+  const delta = o.position90 - o.cashToday;
+  document.getElementById('cfdKpis').innerHTML =
+    cfdKpi('Current cash at bank', cfMoney(o.cashToday), `Business account (AUD) · read from Xero at ${updated}<br>Excludes the Amex cards, PayPal and transfers`, o.todayLevel) +
+    cfdKpi('Lowest cash — next 90 days', cfMoney(o.lowest90.value), `on ${cfdDateY(o.lowest90.date)}${below(o.lowest90.value)}`, o.levelAt(o.lowest90.value)) +
+    cfdKpi('Cash in 90 days', cfMoney(o.position90), `${delta >= 0 ? '+' : '−'}${cfMoney(Math.abs(delta))} vs today · ${cfdDateY(o.position90Date)}`, o.levelAt(o.position90)) +
+    cfdKpi('Tightest upcoming period', cfEsc(o.tightest.label), `low point ${cfMoney(o.tightest.low.value)} on ${cfdDateY(o.tightest.low.date)}${below(o.tightest.low.value)}`, o.levelAt(o.tightest.low.value));
+}
+
+function cfdRenderCallout(o) {
+  const L = CFD_LEVELS[o.level];
+  const el = document.getElementById('cfdCallout');
+  el.className = 'cfd-callout ' + o.level;
+  el.style.display = '';
+  el.innerHTML = `<span class="cfd-pill" style="background:${L.colour}">${L.label}</span><div>${o.messages.map((m) => `<p>${cfEsc(m.text)}</p>`).join('')}</div>`;
+}
+
+function cfdRenderControls() {
+  document.getElementById('cfdViewSeg').innerHTML = CF_VIEWS.map(([k, l]) => `<button class="${cf.dash.view === k ? 'on' : ''}" onclick="cfdSetView('${k}')">${l}</button>`).join('');
+  document.getElementById('cfdRange').checked = !!cf.dash.showRange;
+}
+function cfdSetView(v) {
+  cf.dash.view = v; cf.dash.period = null; cf.dash.drill = null;
+  try { localStorage.setItem('cfd_view', v); } catch (e) {}
+  cfdRenderDash();
+  Promise.all([cfEnsureHistory(v), v === 'weeks13' ? cfdEnsureLyWeekly() : Promise.resolve()]).then(() => cfdDrawChart());
+}
+function cfdSetRange(on) {
+  cf.dash.showRange = !!on;
+  try { localStorage.setItem('cfd_range', on ? '1' : '0'); } catch (e) {}
+  cfdDrawChart();
+}
+
+// ── Chart ────────────────────────────────────────────────────────────────────
+// One shared daily date axis. Last year's balance is plotted 364 days later (52 weeks, so weekdays line up), which puts
+// "this time last year" directly under today's forecast. Sparse points (month-ends, week-ends) are joined by straight lines.
+function cfdDrawChart(o) {
+  const r = cf.result;
+  const canvas = document.getElementById('cfdChart');
+  if (!r || !canvas || typeof Chart === 'undefined' || canvas.offsetParent === null) return;   // tab hidden — drawn on next show
+  o = o || cf.dash.outlook || CFE.outlook(r, 'base');
+  const U = CFE.util, view = cf.dash.view, today = r.today, st = r.settings;
+  const bk = CFE.buckets(r, view);
+  const H = U.daysBetween(today, bk[bk.length - 1].end);
+  const past = CFD_PAST_DAYS[view];
+  const start = U.addDays(today, -past);
+  const grid = [];
+  for (let i = -past; i <= H; i++) grid.push(U.addDays(today, i));
+  const todayIdx = past, N = grid.length;
+  const spread = (pts) => {
+    const out = new Array(N).fill(null);
+    const s = pts.filter((p) => Number.isFinite(p.y)).sort((a, b) => (a.date < b.date ? -1 : 1));
+    for (let k = 0; k < s.length; k++) {
+      const a = s[k], b = s[k + 1], da = U.daysBetween(start, a.date);
+      if (!b) { if (da >= 0 && da < N) out[da] = a.y; break; }
+      const db = U.daysBetween(start, b.date);
+      for (let i = Math.max(0, da); i <= Math.min(N - 1, db); i++) out[i] = a.y + (b.y - a.y) * ((i - da) / (db - da || 1));
+    }
+    return out;
+  };
+  // actual: BankSummary closings (weekly or monthly) up to today
+  const histRows = (view === 'weeks13' ? cf.hist.weekly : cf.hist.monthly) || [];
+  const actualPts = histRows.filter((p) => p.to <= today && p.to >= start).map((p) => ({ date: p.to, y: p.closing })).concat([{ date: today, y: r.cashToday }]);
+  const actual = spread(actualPts).map((v, i) => (i <= todayIdx ? v : null));
+  const radius = new Array(N).fill(0);
+  for (const p of actualPts) { const i = U.daysBetween(start, p.date); if (i >= 0 && i < N) radius[i] = 3; }
+  // last year, shifted forward 364 days
+  let lyPts = [];
+  if (view === 'weeks13') lyPts = (cf.dash.lyWeekly || []).map((p) => ({ date: U.addDays(p.to, 364), y: p.closing }));
+  else if (cf.year.months && cf.year.months.length) {
+    const ms = cf.year.months;
+    lyPts.push({ date: U.addDays(U.addDays(ms[0].month + '-01', -1), 364), y: ms[0].opening });
+    for (const m of ms) lyPts.push({ date: U.addDays(m.partial ? today : U.lastDayOfMonth(m.month + '-01'), 364), y: m.closing });
+  }
+  const lastYear = spread(lyPts).map((v, i) => (i < todayIdx ? null : v));
+  const fcOf = (name) => grid.map((d, i) => (i < todayIdx ? null : r.scenarios[name].balance[i - todayIdx]));
+  const forecast = fcOf('base');
+  const colourAt = (v) => CFD_LEVELS[o.levelAt(v)].colour;
+  const datasets = [
+    { label: 'Last year', data: lastYear, borderColor: '#9aa0a8', borderWidth: 2, borderDash: [2, 3], pointRadius: 0, tension: 0, spanGaps: false, order: 4 },
+    { label: 'Actual', data: actual, borderColor: '#16181c', backgroundColor: '#16181c', borderWidth: 2.4, pointRadius: radius, pointHoverRadius: 4, tension: 0, spanGaps: false, order: 1 },
+    { label: 'Forecast', data: forecast, borderColor: '#0f5c4a', borderWidth: 3, borderDash: [7, 4], pointRadius: 0, tension: 0, spanGaps: false, order: 2, segment: { borderColor: (c) => colourAt(c.p1.parsed.y) } },
+  ];
+  if (cf.dash.showRange) {
+    datasets.push({ label: 'Worst case', data: fcOf('worst'), borderColor: 'rgba(208,2,27,.45)', borderWidth: 1.4, pointRadius: 0, tension: 0, order: 5 });
+    datasets.push({ label: 'Best case', data: fcOf('best'), borderColor: 'rgba(18,145,90,.45)', borderWidth: 1.4, pointRadius: 0, tension: 0, order: 6, fill: '-1', backgroundColor: 'rgba(15,92,74,.06)' });
+  }
+  datasets.push({ label: 'Minimum', data: grid.map(() => st.minCash), borderColor: 'rgba(208,2,27,.7)', borderWidth: 1.4, borderDash: [5, 4], pointRadius: 0, order: 7, isThreshold: true });
+  datasets.push({ label: 'Comfortable', data: grid.map(() => st.cashThreshold), borderColor: 'rgba(18,145,90,.55)', borderWidth: 1.2, borderDash: [2, 4], pointRadius: 0, order: 8, isThreshold: true });
+  // the lowest point in view, marked
+  let low = { v: Infinity, i: 0 };
+  for (let i = 1; i <= H; i++) { const v = r.scenarios.base.balance[i]; if (v < low.v) low = { v, i }; }
+  const lowIdx = todayIdx + low.i;
+
+  const plugin = {
+    id: 'cfdMarks',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea: a, scales: { x } } = chart;
+      const x0 = x.getPixelForValue(todayIdx);
+      ctx.save(); ctx.fillStyle = 'rgba(15,92,74,0.04)'; ctx.fillRect(x0, a.top, a.right - x0, a.bottom - a.top); ctx.restore();
+    },
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea: a, scales: { x, y } } = chart;
+      const px = (i) => x.getPixelForValue(i), py = (v) => y.getPixelForValue(v);
+      ctx.save();
+      ctx.font = '600 10.5px -apple-system, Helvetica, Arial, sans-serif'; ctx.fillStyle = '#8a8f98'; ctx.textBaseline = 'top';
+      ctx.textAlign = 'right'; ctx.fillText('ACTUAL', px(todayIdx) - 8, a.top + 6);
+      ctx.textAlign = 'left'; ctx.fillText('FORECAST', px(todayIdx) + 8, a.top + 6);
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = '#9aa0a8'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(px(todayIdx), a.top); ctx.lineTo(px(todayIdx), a.bottom); ctx.stroke(); ctx.setLineDash([]);
+      const dot = (i, v, col) => { ctx.beginPath(); ctx.arc(px(i), py(v), 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = col; ctx.stroke(); };
+      dot(todayIdx, r.cashToday, '#16181c');
+      if (low.i > 0) {
+        dot(lowIdx, low.v, colourAt(low.v));
+        ctx.font = '600 11.5px -apple-system, Helvetica, Arial, sans-serif'; ctx.fillStyle = colourAt(low.v); ctx.textBaseline = 'top';
+        ctx.textAlign = px(lowIdx) > a.right - 120 ? 'right' : 'left';
+        ctx.fillText(`Lowest ${cfMoneyCompact(low.v)} · ${cfdDateY(grid[lowIdx])}`, px(lowIdx) + (ctx.textAlign === 'right' ? -4 : 4), py(low.v) + 9);
+      }
+      ctx.restore();
+    },
+  };
+  if (cf.dash.chart) cf.dash.chart.destroy();
+  cf.dash.chart = new Chart(canvas, {
+    type: 'line', data: { labels: grid, datasets }, plugins: [plugin],
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      layout: { padding: { top: 22, right: 22, bottom: 4, left: 2 } },
+      scales: {
+        x: {
+          grid: { color: (c) => (view === 'weeks13' ? ((c.index - todayIdx) % 7 === 0 ? 'rgba(0,0,0,0.05)' : 'transparent') : (grid[c.index] && grid[c.index].endsWith('-01') ? 'rgba(0,0,0,0.05)' : 'transparent')) },
+          ticks: {
+            autoSkip: false, maxRotation: 0, color: '#6b6f76', font: { size: 11 },
+            callback: (v, i) => {
+              const d = grid[i];
+              if (!d) return '';
+              if (i === todayIdx) return 'Today';
+              if (view === 'weeks13') return (i - todayIdx) % 7 === 0 && Math.abs(i - todayIdx) > 3 ? cfDateLabel(d) : '';
+              return d.endsWith('-01') && Math.abs(i - todayIdx) > 8 ? cfMonthLabel(d.slice(0, 7)) : '';
+            },
+          },
+        },
+        y: { grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { color: '#6b6f76', font: { size: 11 }, callback: (v) => cfMoneyCompact(v) } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: (i) => !i.dataset.isThreshold && i.raw !== null && i.raw !== undefined,
+          callbacks: {
+            title: (items) => {
+              if (!items.length) return '';
+              const d = grid[items[0].dataIndex], i = items[0].dataIndex;
+              return cfdDateY(d) + (i < todayIdx ? ' (actual)' : i === todayIdx ? ' — today' : ' (forecast)');
+            },
+            label: (c) => {
+              const v = c.raw;
+              if (c.dataset.label === 'Forecast') return ` Forecast: ${cfMoney(v)} · ${CFD_LEVELS[o.levelAt(v)].label}`;
+              if (c.dataset.label === 'Last year') return ` Same time last year: ${cfMoney(v)}`;
+              return ` ${c.dataset.label}: ${cfMoney(v)}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// ── Breakdown: what moves the cash ───────────────────────────────────────────
+function cfdRange() {
+  const r = cf.result, bk = CFE.buckets(r, cf.dash.view);
+  const p = cf.dash.period;
+  return p ? { from: p.from, to: p.to, label: p.label } : { from: bk[0].start, to: bk[bk.length - 1].end, label: cf.dash.view === 'weeks13' ? 'the next 13 weeks' : cf.dash.view === 'months6' ? 'the next 6 months' : 'the next 12 months' };
+}
+function cfdTag(row) {
+  if (!(row.amount > 0.5)) return '<span class="cfd-tag none">—</span>';
+  const k = row.known / row.amount;
+  return k >= 0.95 ? '<span class="cfd-tag known">Known</span>' : k <= 0.05 ? '<span class="cfd-tag est">Estimated</span>' : `<span class="cfd-tag mix">${Math.round(k * 100)}% known</span>`;
+}
+function cfdBar(row, max) {
+  if (!(row.amount > 0.5)) return '';
+  const w = Math.max(3, Math.round((Math.abs(row.amount) / max) * 100));
+  return `<span class="cfd-bar" style="width:${w}%"><i class="k" style="flex:${Math.max(0, row.known)} 0 0"></i><i class="e" style="flex:${Math.max(0, row.estimated)} 0 0"></i></span>`;
+}
+function cfdRenderBreakdown() {
+  const r = cf.result, rg = cfdRange();
+  const b = CFE.breakdown(r, 'base', rg.from, rg.to);
+  const max = Math.max(1, ...b.inflows.concat(b.outflows).map((x) => Math.abs(x.amount)));
+  const row = (x, kind) => `<tr class="cfd-grp ${cf.dash.drill === x.key ? 'open' : ''}" onclick="cfdDrill('${x.key}')" title="Click to see what's behind this number"><td><span class="cfd-l-long">${cfEsc(x.label)}</span><span class="cfd-l-short">${cfEsc(x.short)}</span></td><td class="num">${cfMoney(kind === 'out' ? -x.amount : x.amount)}</td><td class="cfd-barcell">${cfdBar(x, max)}</td><td>${cfdTag(x)}</td></tr>`;
+  const summary = `<span class="cfx-card-title" style="margin:0">Where the money moves <span class="cfx-sub">${cfEsc(rg.label)}</span></span><span class="cfd-sum">in <b class="pos">${cfMoney(b.totalIn)}</b> · out <b>${cfMoney(b.totalOut)}</b> · net <b class="${b.net < 0 ? 'neg' : 'pos'}">${b.net < 0 ? '−' : '+'}${cfMoney(Math.abs(b.net))}</b></span>`;
+  const bk = CFE.buckets(r, cf.dash.view);
+  const o = cf.dash.outlook;
+  const periodRows = bk.map((p) => {
+    const s = p.byScenario.base, lv = o.levelAt(s.closing);
+    const label = p.month ? cfMonthLabel(p.month) : 'Wk ' + cfDateLabel(p.start);
+    const sel = cf.dash.period && cf.dash.period.from === p.start;
+    return `<tr class="cfd-grp ${sel ? 'open' : ''}" onclick="cfdPickPeriod('${p.start}','${p.end}','${cfEsc(label)}')"><td>${cfEsc(label)}</td><td class="num">${cfMoney(s.in)}</td><td class="num">${cfMoney(-s.out)}</td><td class="num ${s.net < 0 ? 'neg' : ''}">${s.net < 0 ? '−' : ''}${cfMoney(Math.abs(s.net))}</td><td class="num"><span class="cfd-dot ${lv}"></span>${cfMoney(s.closing)}</td></tr>`;
+  }).join('');
+  const html = `<summary>${summary}</summary>
+    <div class="cfd-bd">
+      <div class="cfx-table-wrap"><table class="cfx-table cfd-table"><thead><tr><th>Cash in</th><th class="num">Amount</th><th></th><th></th></tr></thead><tbody>${b.inflows.map((x) => row(x, 'in')).join('')}</tbody></table></div>
+      <div class="cfx-table-wrap"><table class="cfx-table cfd-table"><thead><tr><th>Cash out</th><th class="num">Amount</th><th></th><th></th></tr></thead><tbody>${b.outflows.map((x) => row(x, 'out')).join('')}</tbody></table></div>
+      <div class="cfd-hint">Click any line to see the invoices, bills, statements and estimates behind it. “Known” = something that exists (an invoice, bill, card statement or your own entry); “Estimated” = last year's pattern and your assumptions.</div>
+      <div id="cfdDrill">${cf.dash.drill ? cfdDrillHtml(cf.dash.drill, rg) : ''}</div>
+      <details class="cfd-sub"><summary>${cf.dash.view === 'weeks13' ? 'Week by week' : 'Month by month'} <span class="cfx-hint">— click a ${cf.dash.view === 'weeks13' ? 'week' : 'month'} to look at just that period</span></summary>
+        <div class="cfx-table-wrap"><table class="cfx-table cfd-table"><thead><tr><th>${cf.dash.view === 'weeks13' ? 'Week from' : 'Month'}</th><th class="num">In</th><th class="num">Out</th><th class="num">Net</th><th class="num">Closing cash</th></tr></thead><tbody>${periodRows}</tbody></table></div>
+        ${cf.dash.period ? '<button class="cfd-link" onclick="cfdPickPeriod(null)">← back to the whole range</button>' : ''}
+      </details>
+    </div>`;
+  const box = document.getElementById('cfdBreakdown');
+  const wasOpen = box.open;
+  const subOpen = box.querySelector('details.cfd-sub') && box.querySelector('details.cfd-sub').open;
+  box.innerHTML = html;
+  box.open = wasOpen;
+  if (subOpen) box.querySelector('details.cfd-sub').open = true;
+}
+function cfdPickPeriod(from, to, label) {
+  cf.dash.period = from ? { from, to, label } : null;
+  cfdRenderBreakdown();
+}
+function cfdDrill(key) {
+  cf.dash.drill = cf.dash.drill === key ? null : key;
+  cfdRenderBreakdown();
+}
+// The items behind one group, biggest first. BAS lists each payment with its GST / PAYG split.
+function cfdDrillHtml(key, rg) {
+  const r = cf.result, g = [...CFE.GROUPS.inflows, ...CFE.GROUPS.outflows].find((x) => x.key === key);
+  if (!g) return '';
+  const rows = [];
+  if (key === 'bas') {
+    for (const it of r.scenarios.base.items) if (it.line === 'bas' && it.date >= rg.from && it.date <= rg.to) rows.push({ label: `${cfdDateY(it.date)} — ${it.label}`, amount: it.amount, status: it.status, detail: it.meta && Number.isFinite(it.meta.gst) ? `GST ${cfMoney(it.meta.gst)} + PAYG ${cfMoney(it.meta.payg)}${it.meta.method ? ' · ' + it.meta.method : ''}` : `bill ${it.meta && it.meta.doc ? it.meta.doc : ''} due ${cfdDateY(it.date)}`, source: it.source });
+  } else {
+    for (const line of g.lines) {
+      if (line === 'cardCredit') continue;
+      for (const e of CFE.explain(r, 'base', line, rg.from, rg.to).rows) rows.push({ label: e.label, amount: e.amount, status: e.status, source: e.source, detail: [e.docs && e.docs.length ? `${e.docs.join(', ')}${e.count > e.docs.length ? '…' : ''}` : '', e.method || '', e.pid && e.date ? `pays ${cfdDateY(e.date)}${e.overdue ? ' (overdue)' : ''}` : ''].filter(Boolean).join(' · ') });
+    }
+    if (key === 'opex') {
+      const credit = CFE.explain(r, 'base', 'cardCredit', rg.from, rg.to).total;
+      if (Math.abs(credit) > 0.5) rows.push({ label: 'Less: spend charged to the Amex (it leaves the bank in the Amex payments instead)', amount: credit, status: 'assumption', source: 'Xero', detail: '' });
+    }
+  }
+  rows.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  const shown = rows.slice(0, 30);
+  return `<div class="cfd-drillbox"><div class="cfd-drillhead">${cfEsc(g.label)} — ${cfEsc(rg.label)}</div>${shown.map((x) => `<div class="cfd-drillrow"><span class="cfd-tag ${x.status === 'confirmed' ? 'known' : 'est'}">${x.status === 'confirmed' ? 'Known' : 'Estimated'}</span><span class="cfd-dl">${cfEsc(x.label)}${x.detail ? `<small>${cfEsc(x.detail)}</small>` : ''}</span><span class="cfd-dsrc">${cfEsc(x.source || '')}</span><span class="cfd-damt">${cfMoney(x.amount)}</span></div>`).join('') || '<div class="cfd-hint">Nothing in this period.</div>'}${rows.length > shown.length ? `<div class="cfd-hint">…and ${rows.length - shown.length} smaller items.</div>` : ''}</div>`;
+}
+
+// ── Overdue supplier bills: when are they really going to be paid? ───────────
+// Xero says these are overdue, so the forecast assumes they're paid a week from today — the one assumption here that is
+// really a decision. Each can be given its own expected payment date; a bill overdue beyond the "stale" limit is left out
+// until it is given a date.
+function cfdRenderOverdue() {
+  const box = document.getElementById('cfdOverdue');
+  const r = cf.result, x = cf.xero;
+  if (!r || !x) return;
+  const today = x.today, pd = cf.inputs.payDates || {};
+  const bills = x.ap.filter((b) => b.dueDate < today && b.amountDueAud > 0).sort((a, b) => b.amountDueAud - a.amountDueAud);
+  if (!bills.length) { box.style.display = 'none'; return; }
+  const U = CFE.util, st = r.settings;
+  const total = bills.reduce((t, b) => t + b.amountDueAud, 0);
+  const rows = bills.map((b) => {
+    const pid = 'ap:' + b.id, manual = pd[pid] || '';
+    const days = U.daysBetween(b.dueDate, today);
+    const stale = !manual && days > st.staleBillDays;
+    const assumed = manual || U.addDays(today, st.apOverduePayDays);
+    return `<div class="cfd-ob ${stale ? 'stale' : ''}"><span class="cfd-ob-who">${cfEsc(b.contact)}<small>${cfEsc(b.number || '')} · due ${cfdDateY(b.dueDate)} · ${days} days overdue${b.currency && b.currency !== 'AUD' ? ' · ' + b.currency : ''}</small></span><span class="cfd-ob-amt">${cfMoney(b.amountDueAud)}</span><span class="cfd-ob-when">${stale ? '<em>left out as stale</em>' : `<em>${manual ? 'you set' : 'assumed'}</em>`}<input type="date" min="${U.addDays(today, 1)}" value="${manual || (stale ? '' : assumed)}" onchange="cfdOnPayDate('${pid}', this.value, ${manual ? 'true' : 'false'})" title="When do you expect to pay this?"></span></div>`;
+  }).join('');
+  box.style.display = '';
+  cfdSet('cfdOverdue', `<div class="cfx-card-head"><div class="cfx-card-title">Overdue supplier bills <span class="cfx-sub">${bills.length} · ${cfMoney(total)}</span></div></div>
+    <div class="cfd-hint" style="margin:-4px 0 8px">Xero shows these as overdue, so the forecast assumes they're paid ${st.apOverduePayDays} days from today. If you've agreed something else with the supplier, set the date you actually expect to pay — the forecast moves straight away.</div>
+    ${rows}`);
+}
+function cfdOnPayDate(pid, iso, wasManual) {
+  if (iso && iso <= cf.xero.today) { cfdRenderOverdue(); return; }
+  cfSetPayDate(pid, iso || '');
+}
+
+// ── Manual adjustments, Lumi, assumptions ────────────────────────────────────
+function cfdRenderForms() {
+  cfdRenderAdjust();
+  cfdRenderLumi();
+  cfdRenderAssumptions();
+}
+
+function cfdAdjList() { return (cf.inputs.adjustments = cf.inputs.adjustments || []); }
+function cfdRenderAdjust() {
+  const list = cfdAdjList().slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+  const today = cf.xero ? cf.xero.today : '';
+  const e = cf.dash.editing ? list.find((a) => a.id === cf.dash.editing) : null;
+  const rows = list.map((a) => `<div class="cfd-adj ${a.date <= today ? 'past' : ''}"><span class="cfd-adjdate">${cfdDateY(a.date)}</span><span class="cfd-adjdesc">${cfEsc(a.desc)}${a.category ? `<small>${cfEsc(a.category)}</small>` : ''}${a.date <= today ? '<small class="cfd-bad">dated today or earlier — not counted</small>' : ''}</span><span class="cfd-adjamt ${a.dir === 'in' ? 'pos' : ''}">${a.dir === 'in' ? '+' : '−'}${cfMoney(a.amount)}</span><button class="cfd-link" onclick="cfdAdjEdit('${a.id}')">Edit</button><button class="cfd-link" onclick="cfdAdjDelete('${a.id}')">Remove</button></div>`).join('');
+  const sel = (v) => CFD_CATEGORIES.map((c) => `<option ${v === c ? 'selected' : ''}>${c}</option>`).join('');
+  document.getElementById('cfdAdjust').innerHTML = `
+    <div class="cfx-card-head"><div class="cfx-card-title">Manual adjustments</div></div>
+    <div class="cfd-hint" style="margin:-4px 0 10px">One-offs the forecast can't know about. They're added on top, on the date you enter — nothing is sent to Xero.</div>
+    ${rows || '<div class="cfd-hint">None yet.</div>'}
+    <div class="cfd-adjform" id="cfdAdjForm">
+      <input type="text" id="cfdAdjDesc" maxlength="80" placeholder="What is it? e.g. Extra stock payment" value="${e ? cfEsc(e.desc) : ''}">
+      <input type="text" id="cfdAdjAmt" inputmode="decimal" placeholder="Amount, e.g. 40000 or 40k" value="${e ? e.amount : ''}">
+      <input type="date" id="cfdAdjDate" value="${e ? e.date : ''}">
+      <select id="cfdAdjDir"><option value="out" ${e && e.dir === 'in' ? '' : 'selected'}>Cash out</option><option value="in" ${e && e.dir === 'in' ? 'selected' : ''}>Cash in</option></select>
+      <select id="cfdAdjCat"><option value="">Category (optional)</option>${sel(e ? e.category : '')}</select>
+      <button class="primary" onclick="cfdAdjSave()">${e ? 'Save changes' : 'Add'}</button>${e ? '<button onclick="cfdAdjCancel()">Cancel</button>' : ''}
+    </div>
+    <div class="cfd-result" id="cfdAdjMsg"></div>`;
+}
+function cfdAdjMsg(t) { const m = document.getElementById('cfdAdjMsg'); if (m) m.textContent = t || ''; }
+function cfdAdjSave() {
+  const desc = document.getElementById('cfdAdjDesc').value.trim();
+  const amt = cfParseAmt(document.getElementById('cfdAdjAmt').value);
+  const date = document.getElementById('cfdAdjDate').value;
+  const dir = document.getElementById('cfdAdjDir').value;
+  const category = document.getElementById('cfdAdjCat').value;
+  if (!desc) return cfdAdjMsg('Give it a short description.');
+  if (!(amt > 0)) return cfdAdjMsg('Enter an amount greater than zero (40000 or 40k).');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return cfdAdjMsg('Pick the date it will happen.');
+  if (date <= cf.xero.today) return cfdAdjMsg('That date has passed — pick a date from tomorrow on.');
+  const list = cfdAdjList();
+  if (cf.dash.editing) {
+    const a = list.find((x) => x.id === cf.dash.editing);
+    if (a) Object.assign(a, { desc, amount: amt, date, dir, category });
+    cf.dash.editing = null;
+  } else {
+    if (list.length >= 100) return cfdAdjMsg('That is the most (100) — remove an old one first.');
+    list.push({ id: 'adj-' + Date.now().toString(36), desc, amount: amt, date, dir, category });
+  }
+  cfSaveInputsDebounced();
+  cfRefresh();
+  cfdRenderAdjust();
+}
+function cfdAdjEdit(id) { cf.dash.editing = id; cfdRenderAdjust(); const f = document.getElementById('cfdAdjForm'); if (f) f.scrollIntoView({ block: 'nearest' }); }
+function cfdAdjCancel() { cf.dash.editing = null; cfdRenderAdjust(); }
+function cfdAdjDelete(id) {
+  cf.inputs.adjustments = cfdAdjList().filter((a) => a.id !== id);
+  if (cf.dash.editing === id) cf.dash.editing = null;
+  cfSaveInputsDebounced();
+  cfRefresh();
+  cfdRenderAdjust();
+}
+// "Plan a Lumi drawdown / repayment" just starts a manual adjustment with the right category.
+function cfdPlanLumi(kind) {
+  cf.dash.editing = null;
+  cfdRenderAdjust();
+  document.getElementById('cfdAdjDesc').value = kind === 'in' ? 'Lumi drawdown' : 'Lumi repayment';
+  document.getElementById('cfdAdjDir').value = kind;
+  document.getElementById('cfdAdjCat').value = kind === 'in' ? 'Lumi drawdown' : 'Lumi repayment';
+  document.getElementById('cfdAdjAmt').focus();
+}
+
+function cfdRenderLumi() {
+  const s = cf.inputs.settings || {};
+  const manual = s.lumiLoanBalance;
+  const owing = cf.loan && (manual === undefined || manual === null || manual === '') ? cf.loan.balance : (Number.isFinite(Number(manual)) && manual !== null && manual !== '' ? Number(manual) : null);
+  const limit = Number.isFinite(Number(s.lumiLimit)) && s.lumiLimit !== null && s.lumiLimit !== '' && s.lumiLimit !== undefined ? Number(s.lumiLimit) : null;
+  const avail = owing !== null && limit !== null ? limit - owing : null;
+  cfdSet('cfdLumi', `
+    <div class="cfx-card-head"><div class="cfx-card-title">Lumi facility</div></div>
+    <div class="cfd-lumi">
+      <label>Amount owing<input type="text" inputmode="decimal" id="cfdLumiOwing" value="${owing === null ? '' : Math.round(owing).toLocaleString('en-AU')}" placeholder="type it in" onchange="cfdOnLumi('lumiLoanBalance', this)"></label>
+      <label>Facility limit<input type="text" inputmode="decimal" id="cfdLumiLimit" value="${limit === null ? '' : Math.round(limit).toLocaleString('en-AU')}" placeholder="type it in" onchange="cfdOnLumi('lumiLimit', this)"></label>
+      <div class="cfd-lumi-avail"><span>Available</span><b>${avail === null ? '—' : cfMoney(avail)}</b></div>
+    </div>
+    <div class="cfd-hint">${cf.loan && (manual === undefined || manual === null || manual === '') ? 'Amount owing read from Xero.' : 'Xero can\'t report this yet (the app doesn\'t have permission to read the balance sheet), so type it in — it is saved.'} Lumi is only counted in the forecast when you plan a drawdown or repayment — borrowing is never assumed to cover a shortfall.</div>
+    <div class="cfd-lumi-btns"><button onclick="cfdPlanLumi('in')">Plan a drawdown</button><button onclick="cfdPlanLumi('out')">Plan a repayment</button></div>`);
+}
+function cfdOnLumi(key, el) {
+  const v = cfParseAmt(el.value);
+  if (v === undefined) return;
+  cf.inputs.settings = cf.inputs.settings || {};
+  if (v === null) delete cf.inputs.settings[key]; else cf.inputs.settings[key] = v;
+  cfSaveInputsDebounced();
+  cfRefresh();
+  cfdRenderLumi();
+}
+
+// The assumptions that matter. Each saves as soon as it changes and the whole forecast recalculates.
+const CFD_ASSUMPTIONS = [
+  { key: 'online', label: 'Online sales growth', unit: '%', hint: "on last year's online bank deposits", get: (s) => (s.scenarios && s.scenarios.base && s.scenarios.base.online), def: 0 },
+  { key: 'wholesale', label: 'Wholesale sales growth', unit: '%', hint: "on last year's wholesale receipts", get: (s) => (s.scenarios && s.scenarios.base && s.scenarios.base.wholesale), def: 0 },
+  { key: 'out', label: 'Operating expense growth', unit: '%', hint: "on last year's costs (also grows the PAYG part of BAS)", get: (s) => (s.scenarios && s.scenarios.base && s.scenarios.base.out), def: 5 },
+  { key: 'debtorDaysOverride', label: 'Wholesale debtor days', unit: 'days', hint: 'blank = each customer\'s own average days to pay', get: (s) => s.debtorDaysOverride, def: null },
+  { key: 'minCash', label: 'Minimum cash balance', unit: '$', hint: 'below this is Action required (red)', get: (s) => s.minCash, def: 30000 },
+  { key: 'cashThreshold', label: 'Comfortable cash level', unit: '$', hint: 'below this is Watch closely (amber)', get: (s) => s.cashThreshold, def: 100000 },
+  { key: 'usdPerAud', label: 'USD per 1 AUD', unit: '', hint: 'only used for purchase orders in USD', get: (s) => s.usdPerAud, def: 0.66 },
+  { key: 'basPayDay', label: 'BAS pay day', unit: 'day', hint: 'of the month (history shows the 21st–27th)', get: (s) => s.basPayDay, def: 25 },
+  { key: 'staleBillDays', label: 'Stale bills after', unit: 'days', hint: 'overdue bills older than this are left out', get: (s) => s.staleBillDays, def: 180 },
+];
+function cfdRenderAssumptions() {
+  const s = cf.inputs.settings || {};
+  const merged = cf.result ? cf.result.settings : CFE.mergeSettings(s);
+  let calc = '';
+  if (dtp.byContact) { const a = DDP.avg(DDP.combine(dtp.byContact, Object.keys(dtp.byContact))); if (a) calc = `Calculated from Xero: ${Math.round(a.days)} days on average across all customers.`; }
+  const rows = CFD_ASSUMPTIONS.map((a) => {
+    const saved = a.get(s), cur = a.get(merged);
+    const val = saved !== undefined && saved !== null && saved !== '' ? saved : (a.key === 'debtorDaysOverride' ? '' : cur);
+    const shown = a.key === 'debtorDaysOverride' && val === '' ? '' : (a.unit === '$' ? Math.round(Number(val)).toLocaleString('en-AU') : val);
+    return `<label class="cfd-as"><span class="cfd-as-l">${a.label}<small>${a.hint}</small></span><span class="cfd-as-i">${a.unit === '$' ? '<em>$</em>' : ''}<input type="text" inputmode="decimal" value="${shown}" onchange="cfdOnAssump('${a.key}', this)">${a.unit && a.unit !== '$' ? `<em>${a.unit}</em>` : ''}</span></label>`;
+  }).join('');
+  document.getElementById('cfdAssumptions').innerHTML = `
+    <summary><span class="cfx-card-title" style="margin:0">Assumptions</span><span class="cfx-hint" id="cfdAssumpState">changes apply straight away</span></summary>
+    <div class="cfd-asgrid">${rows}</div>
+    <div class="cfd-hint">${calc} Online sales come from last year's <b>net</b> bank deposits, so merchant fees are already taken off (and GST settles through the BAS), so there's no fee setting. Everything else — card terms, scenarios, monthly overrides — is under Advanced detail.</div>
+    <button onclick="cfdResetAssumptions()">Reset assumptions to defaults</button>`;
+}
+function cfdOnAssump(key, el) {
+  const a = CFD_ASSUMPTIONS.find((x) => x.key === key);
+  const raw = String(el.value).trim().replace(/[%$,\s]/g, '');
+  const n = raw === '' ? null : Number(raw);
+  if (raw !== '' && !Number.isFinite(n)) { cfdRenderAssumptions(); return; }
+  cf.inputs.settings = cf.inputs.settings || {};
+  const s = cf.inputs.settings;
+  if (['online', 'wholesale', 'out'].includes(key)) {
+    s.scenarios = s.scenarios || {}; s.scenarios.base = s.scenarios.base || {};
+    if (n === null) delete s.scenarios.base[key]; else s.scenarios.base[key] = n;
+  } else if (n === null) delete s[key]; else s[key] = n;
+  cfSaveInputsDebounced();
+  cfRefresh();
+}
+function cfdResetAssumptions() {
+  const s = cf.inputs.settings || {};
+  for (const k of ['debtorDaysOverride', 'minCash', 'cashThreshold', 'usdPerAud', 'basPayDay', 'staleBillDays']) delete s[k];
+  if (s.scenarios && s.scenarios.base) for (const k of ['online', 'wholesale', 'out']) delete s.scenarios.base[k];
+  cfSaveInputsDebounced();
+  cfRefresh();
+  cfdRenderAssumptions();
+}
+
+// Redraw the old charts when Advanced detail is opened (they can't draw while hidden).
+function cfdAdvancedToggled(el) { if (el.open) { cfDrawChart(); cfRenderYear(); } }
 
 // ── Drawings tab ─────────────────────────────────────────────────────────────
 const DW_ACCOUNTS = [{ code: '501', name: 'Drawings - Olver' }, { code: '502', name: 'Drawings - Kirby' }];

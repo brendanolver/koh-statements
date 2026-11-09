@@ -61,8 +61,29 @@ test('cash out: Amex payments are money into the cards (less refunds); card-paid
   assert.strictEqual(m.cards, 150 - 10, 'cards received 150, of which 10 was a refund');
   assert.strictEqual(m.stock, 90, 'supplier payments 90 + 50 (paid by card, 300 spent − 250 direct card spend) − 50; the ATO bill and the deleted payment are excluded');
   assert.strictEqual(m.totalOut, 400);
-  assert.strictEqual(m.otherOut, 400 - 90 - 140);
-  assert.strictEqual(m.stock + m.cards + m.otherOut, m.totalOut);
+  assert.strictEqual(m.bas, 40, 'the ATO bill payment is its own BAS column…');
+  assert.strictEqual(m.otherOut, 400 - 90 - 140 - 40, '…and is no longer inside Other out');
+  assert.strictEqual(m.stock + m.cards + m.bas + m.otherOut, m.totalOut);
+});
+test('BAS is kept out of the operating-cost baseline the forecast plans from (eng.otherOut), and reported alongside it', () => {
+  const m = jan();
+  assert.strictEqual(m.eng.bas, 40);
+  const withoutBas = H.buildMonthly({ ...input, apInvoices: input.apInvoices.filter((i) => i.Contact.Name !== 'Australian Taxation Office') }).months[0];
+  assert.strictEqual(m.eng.otherOut + m.eng.bas, withoutBas.eng.otherOut, 'the same cash, but the ATO payment sits in BAS instead of in the planning baseline');
+  assert.strictEqual(withoutBas.eng.bas, 0);
+  assert.strictEqual(m.eng.stock, withoutBas.eng.stock, 'and it is not stock either');
+});
+test('online deposits are kept day by day (bank receipts + invoice payments from online contacts), for the online forecast', () => {
+  const m = jan();
+  assert.deepStrictEqual(m.onlineDaily, { '2026-01-10': 200 }, 'the deleted receipt, the PayPal account and the $0 Afterpay payment are not in it');
+  const withPay = H.buildMonthly({ ...input, arInvoices: [...input.arInvoices, inv('Shopify', [['2026-01-10', 55.5], ['2026-01-11', 20]])] }).months[0];
+  assert.deepStrictEqual(withPay.onlineDaily, { '2026-01-10': 255.5, '2026-01-11': 20 });
+  assert.strictEqual(Math.round(Object.values(withPay.onlineDaily).reduce((a, b) => a + b, 0) * 100), Math.round(withPay.online * 100), 'the daily figures add up to the month');
+});
+test('forecast rows carry BAS in its own column and fold manual receipts / payments into other in / other out', () => {
+  const b = { month: '2026-03', start: '2026-03-01', byScenario: { base: { online: 1, wholesale: 2, otherIn: 3, manualIn: 4, stock: 5, cards: 6, marketing: 7, otherOut: 8, cardCredit: -9, bas: 10, manualOut: 11, net: 0, closing: 0 } } };
+  const r = H.forecastRow(b, 'base');
+  assert.deepStrictEqual([r.otherIn, r.bas, r.otherOut, r.totalIn, r.totalOut], [3 + 4, 10, 7 + 8 - 9 + 11, 1 + 2 + 7, 5 + 6 + 10 + (7 + 8 - 9 + 11)]);
 });
 test('net, opening and closing come straight from the bank summary (cards and PayPal are not cash)', () => {
   const m = jan();
@@ -123,4 +144,40 @@ test('totals add the flows and take the last closing balance', () => {
   assert.strictEqual(t.online, 600); assert.strictEqual(t.totalOut, 270); assert.strictEqual(t.closing, 1002);
 });
 
+// ---- BAS profile: quarterly BAS in the past, monthly since — modelled on the real pattern (round numbers) ----
+const bill = (date, gst, payg, extra) => ({ date, total: gst + payg + ((extra && extra.fee) || 0), lines: [gst ? { AccountCode: '820', LineAmount: gst } : null, extra && extra.deferred ? { AccountCode: '822', LineAmount: extra.deferred } : null, payg ? { AccountCode: '825', LineAmount: payg } : null, extra && extra.fee ? { AccountCode: '404', LineAmount: extra.fee } : null].filter(Boolean) });
+const BAS_BILLS = [
+  bill('2025-11-27', 104000, 13000, { fee: 4500 }), bill('2025-12-05', 0, 7000), bill('2026-03-05', 101000, 10000),          // quarterly era
+  bill('2026-05-21', 14000, 8000), bill('2026-05-26', 45000, 11000),                                                        // monthly from May: two bills in May
+  bill('2026-06-26', 74000, 9000), bill('2026-07-26', 80000, 13000), bill('2026-08-21', 181000, 14000), bill('2026-09-27', 37000, 10000), bill('2026-11-04', 40000, 11000, { deferred: 15000 }),
+];
+const REC = { '2026-04': 800000, '2026-05': 1100000, '2026-06': 1250000, '2026-07': 2180000, '2026-08': 840000, '2026-09': 700000, '2026-10': 750000, '2026-02': 600000, '2026-01': 700000 };
+test('BAS profile: the share of last month\'s receipts comes from the CURRENT monthly run only (quarterly payments are ignored)', () => {
+  const p = H.basProfile(BAS_BILLS, REC, '2026-11-09');
+  // monthly run = May … Nov: ratios 60/800=7.5%, 74/1100=6.7%, 80/1250=6.4%, 181/2180=8.3%, 37/840=4.4%, 55/700=7.9%  (Nov GST = 40k + deferred 15k, against Oct 750k = 7.3%)
+  assert.strictEqual(p.gstRatioMonths, 6);
+  assert.ok(p.gstRatio > 0.065 && p.gstRatio < 0.075, `median ratio ${p.gstRatio}`);
+  assert.deepStrictEqual(p.billMonths.slice(-3), ['2026-08', '2026-09', '2026-11']);
+});
+test('BAS profile: GST counts the GST, GST-adjustment and deferred-GST lines; PAYG is the last 3 months ÷ 3; fees are ignored', () => {
+  const p = H.basProfile(BAS_BILLS, REC, '2026-11-09');
+  const gstYear = 104000 + 101000 + 14000 + 45000 + 74000 + 80000 + 181000 + 37000 + 40000 + 15000;   // bills dated in the last 365 days
+  assert.ok(Math.abs(p.gstMonthlyAvg - gstYear / 12) < 1, `${p.gstMonthlyAvg} vs ${gstYear / 12}`);
+  assert.ok(Math.abs(p.paygMonthly - (14000 + 10000 + 11000) / 3) < 1, 'Aug 21 + Sep 27 + Nov 4 are the PAYG lines in the last 90 days');
+});
+test('BAS profile: too little monthly history, no receipts for those months, or an old last payment means no ratio (the average is used instead)', () => {
+  assert.strictEqual(H.basProfile(BAS_BILLS.slice(0, 5), REC, '2026-05-30').gstRatio, null, 'only 1–2 monthly payments so far');
+  assert.strictEqual(H.basProfile(BAS_BILLS, {}, '2026-11-09').gstRatio, null, 'no receipts to compare with');
+  assert.strictEqual(H.basProfile(BAS_BILLS, REC, '2027-03-09').gstRatio, null, 'the last BAS was over 75 days ago — the cadence may have changed');
+  assert.ok(H.basProfile(BAS_BILLS, {}, '2026-11-09').gstMonthlyAvg > 0);
+});
+test('BAS profile: a ratio is capped at 12%, bills without line items fall back to their totals, and nothing in = zeros', () => {
+  const big = [bill('2026-05-21', 500000, 0), bill('2026-06-21', 600000, 0), bill('2026-07-21', 700000, 0)];
+  assert.strictEqual(H.basProfile(big, { '2026-04': 1000000, '2026-05': 1000000, '2026-06': 1000000 }, '2026-07-30').gstRatio, 0.12);
+  const noLines = [{ date: '2026-06-01', total: 24000, lines: [] }, { date: '2026-08-01', total: 12000, lines: [] }];
+  const p = H.basProfile(noLines, {}, '2026-08-15');
+  assert.deepStrictEqual([p.gstMonthlyAvg, p.paygMonthly], [3000, 0]);
+  assert.deepStrictEqual(H.basProfile([], {}, '2026-11-09'), { gstRatio: null, gstRatioMonths: 0, gstMonthlyAvg: 0, paygMonthly: 0, billMonths: [], count: 0 });
+  assert.strictEqual(H.basProfile([bill('2027-01-01', 5000, 0)], {}, '2026-11-09').gstMonthlyAvg, 0, 'a bill dated in the future is not history');
+});
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

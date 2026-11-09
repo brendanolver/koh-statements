@@ -45,10 +45,24 @@ function sanitise(doc) {
   const dates = Object.entries(pd).filter(([k, v]) => /^(ap|po|card):[\w:-]{1,120}$/.test(k) && /^\d{4}-\d{2}-\d{2}$/.test(String(v))).slice(0, 500);
   if (dates.length) out.payDates = Object.fromEntries(dates);
   const st = doc && typeof doc.settings === 'object' && doc.settings ? doc.settings : {};
-  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'nzdPerAud', 'cashThreshold', 'onlineConversion', 'lumiLoanBalance', 'lyOn', 'lyWholesale', 'lyStock', 'lyMarketing', 'lyOtherOut']) {
+  for (const k of ['defaultTermsDays', 'arLateDays', 'overdueCollectDays', 'apOverduePayDays', 'poTermsDays', 'usdPerAud', 'nzdPerAud', 'cashThreshold', 'onlineConversion', 'lumiLoanBalance', 'lumiLimit', 'minCash', 'staleBillDays', 'basPayDay', 'debtorDaysOverride', 'lyOn', 'lyWholesale', 'lyStock', 'lyMarketing', 'lyOtherOut']) {
     const n = Number(st[k]);
     if (st[k] !== undefined && st[k] !== null && st[k] !== '' && Number.isFinite(n)) out.settings[k] = n;
   }
+  // The dashboard's one-off manual adjustments (a planned stock payment, a big customer receipt, a Lumi drawdown or
+  // repayment…): description, amount (always positive), date, direction and an optional category. At most 100.
+  const adj = Array.isArray(doc && doc.adjustments) ? doc.adjustments : [];
+  const adjustments = [];
+  for (const a of adj) {
+    if (!a || typeof a !== 'object') continue;
+    const amount = Number(a.amount), desc = String(a.desc == null ? '' : a.desc).trim().slice(0, 80);
+    if (!Number.isFinite(amount) || !(amount > 0) || amount > 1e9 || !desc) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(a.date)) || (a.dir !== 'in' && a.dir !== 'out')) continue;
+    const id = /^[\w-]{1,40}$/.test(String(a.id)) ? String(a.id) : `adj-${adjustments.length + 1}`;
+    adjustments.push({ id, desc, amount: Math.round(amount * 100) / 100, date: String(a.date), dir: a.dir, category: String(a.category == null ? '' : a.category).trim().slice(0, 40) });
+    if (adjustments.length >= 100) break;
+  }
+  if (adjustments.length) out.adjustments = adjustments;
   if (st.cardTerms && typeof st.cardTerms === 'object') {
     out.settings.cardTerms = {};
     for (const [last4, t] of Object.entries(st.cardTerms).slice(0, 10)) {

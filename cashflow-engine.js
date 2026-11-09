@@ -26,14 +26,16 @@
   const round2 = (n) => Math.round(n * 100) / 100;
   const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
-  const LINES_IN = ['online', 'wholesale', 'otherIn'];
+  const LINES_IN = ['online', 'wholesale', 'otherIn', 'manualIn'];   // manualIn = one-off receipts the user has entered (incl. a planned Lumi drawdown)
   // 'cards' = Amex statement payments leaving the bank on their due dates; 'cardCredit' = the (negative)
   // card spend that is already inside Marketing / Other cash out but isn't paid until the statement
   // is due — so the Cash out total is what actually leaves the bank, and both lines reconcile.
-  const LINES_OUT = ['stock', 'marketing', 'otherOut', 'cards', 'cardCredit'];
+  // 'bas' = the monthly GST + PAYG payment to the ATO, forecast on its own (never inside Other cash out);
+  // 'manualOut' = one-off payments the user has entered (incl. a planned Lumi repayment).
+  const LINES_OUT = ['stock', 'marketing', 'otherOut', 'cards', 'cardCredit', 'bas', 'manualOut'];
   const INPUT_LINES = ['online', 'wholesale', 'otherIn', 'stock', 'marketing', 'otherOut']; // the ones you can override monthly
   const LINES = [...LINES_IN, ...LINES_OUT];
-  const LINE_LABELS = { online: 'Online sales', wholesale: 'Wholesale', otherIn: 'Other cash in', stock: 'Stock payments', marketing: 'Marketing', otherOut: 'Other cash out', cards: 'Amex payments', cardCredit: 'Charged to Amex (paid later)' };
+  const LINE_LABELS = { online: 'Online sales', wholesale: 'Wholesale', otherIn: 'Other cash in', stock: 'Stock payments', marketing: 'Marketing', otherOut: 'Other cash out', cards: 'Amex payments', cardCredit: 'Charged to Amex (paid later)', bas: 'BAS (GST + PAYG)', manualIn: 'Manual adjustments (in)', manualOut: 'Manual adjustments (out)' };
   // Which scenario percentage moves which line (see DEFAULT_SETTINGS.scenarios).
   const LINE_PCT_KEY = { online: 'online', wholesale: 'wholesale', stock: 'stock', marketing: 'out', otherOut: 'out' };
   // Lines that can be planned from last year's same month (settings flag that switches each one off).
@@ -54,7 +56,12 @@
     cardDefault: { closeDay: 25, dueDay: 19, dueMonthOffset: 1 },
     usdPerAud: 0.66,          // Apparel Magic has no usable exchange rate (its POs carry rate 1), so USD POs use this
     shipLateDays: 7,          // open orders already past their due date are assumed to ship this many days from today
-    cashThreshold: 100000,    // "Cashflow Watch" warns when forecast cash drops below this
+    cashThreshold: 100000,    // the "comfortable" level: below it is Amber (Watch closely)
+    minCash: 30000,           // the minimum cash buffer: below it is Red (Action required)
+    staleBillDays: 180,       // a bill overdue by more than this is left out as stale (set a payment date on it to include it)
+    basPayDay: 25,            // day of the month the BAS is assumed paid (history shows the 21st–27th)
+    debtorDaysOverride: null, // null = each customer's own average days to pay; a number = everyone pays this many days after invoice date
+    lumiLimit: null,          // Lumi facility limit (typed in — Xero doesn't hold it)
     onlineConversion: null,   // Shopify sales -> bank receipts; null = calibrate from Xero history
     // Last year as the starting point: from next month on, Wholesale, Stock, Marketing and Other cash out are
     // planned as last year's same month x (1 + the scenario %). 1 = on, 0 = off (lyOn is the master switch).
@@ -62,9 +69,10 @@
     scenarios: {
       // online / wholesale / stock / out are % changes (against last year's pattern, or the system forecast
       // where a line isn't using last year); delay is extra days customers take to pay.
-      worst: { online: -15, wholesale: -10, stock: 0, out: 5, delay: 14 },
-      base: { online: 0, wholesale: 0, stock: 0, out: 0, delay: 0 },
-      best: { online: 15, wholesale: 5, stock: 0, out: -5, delay: -5 },
+      // out = growth in operating expenses on last year (base +5%; worst/best are 5 points either side)
+      worst: { online: -15, wholesale: -10, stock: 0, out: 10, delay: 14 },
+      base: { online: 0, wholesale: 0, stock: 0, out: 5, delay: 0 },
+      best: { online: 15, wholesale: 5, stock: 0, out: 0, delay: -5 },
     },
   };
 
@@ -148,9 +156,30 @@
     return { perDay: out, yoy, trailingPerDay, lyDays, fallbackDays, targetInfo, method: yoy !== null ? 'last year × trend' : 'recent run-rate', hasData: cur.n > 0 || t28.n > 0 };
   }
 
+  // Online forecast from LAST YEAR'S BANK DEPOSITS — used when Shopify's own sales history isn't available. Each future
+  // day is last year's same day (364 days earlier, so weekdays line up) as a 7-day average: enough to keep Black Friday
+  // and Christmas without letting one odd payout dominate. Bank deposits are already net of merchant fees and GST is not
+  // taken off them (it settles through the BAS), so nothing is deducted here. Days whose last-year date hasn't happened
+  // yet (the far end of a 12-month horizon) use the recent daily average instead.
+  function xeroOnlineForecast(daily, today, horizonDays) {
+    const val = (d) => Math.max(0, daily[d] || 0);
+    const avg7 = (c) => { let t = 0; for (let k = -3; k <= 3; k++) t += val(addDays(c, k)); return t / 7; };
+    const yest = addDays(today, -1);
+    let recent = 0;
+    for (let k = 1; k <= 28; k++) recent += val(addDays(today, -k));
+    recent /= 28;
+    const perDay = {};
+    let lyDays = 0, fallbackDays = 0;
+    for (let i = 1; i <= horizonDays; i++) {
+      const d = addDays(today, i), c = addDays(d, -364);
+      if (addDays(c, 3) <= yest) { perDay[d] = avg7(c); lyDays++; } else { perDay[d] = recent; fallbackDays++; }
+    }
+    return { perDay, lyDays, fallbackDays, recentPerDay: recent };
+  }
+
   // ------------------------------------------------------------ item building
   const isForeign = (cur) => cur && String(cur).toUpperCase() !== 'AUD';
-  // Tax bills (BAS / PAYG) are cash out but not stock, so they go under "Other cash out".
+  // Tax bills (BAS / PAYG) are cash out but not stock: they are their own line, "BAS (GST + PAYG)".
   const TAX_CONTACT_RE = /\bATO\b|AUSTRALIAN TAX|TAXATION OFFICE|\bPAYG\b/i;
 
   // System-generated items for one scenario. Scenario effects applied here:
@@ -196,8 +225,17 @@
       if (!rate) { notes.excluded.push({ kind: 'receivable with no exchange rate', label: inv.contact, amount: inv.amountDue, currency: inv.currency }); continue; }
       const amountAud = inv.amountDue / rate;
       const overdue = inv.dueDate < today;
-      const expected = overdue ? addDays(today, settings.overdueCollectDays + delay) : addDays(inv.dueDate, settings.arLateDays + delay);
-      push('wholesale', expected < tomorrow ? tomorrow : expected, amountAud, inv.contact, 'Xero', 'confirmed', { doc: inv.number, due: inv.dueDate, overdue, currency: isForeign(inv.currency) ? inv.currency : undefined });
+      // When a customer is expected to pay, best evidence first: a debtor-days setting that applies to everyone, else this
+      // customer's own average days from invoice date to payment (needs 3+ paid invoices), else their terms + the usual
+      // lateness. An invoice already past the date those give isn't assumed paid immediately: it's collected
+      // `overdueCollectDays` from today (the same rule overdue invoices always had).
+      const hist = input.payDaysByCustomer && input.payDaysByCustomer[String(inv.contact || '').toUpperCase()];
+      let expected, basis = 'terms';
+      if (Number.isFinite(settings.debtorDaysOverride) && inv.invoiceDate) { expected = addDays(inv.invoiceDate, settings.debtorDaysOverride + delay); basis = 'debtor days setting'; }
+      else if (hist && hist.n >= 3 && inv.invoiceDate) { expected = addDays(inv.invoiceDate, Math.round(hist.days) + delay); basis = `their average ${Math.round(hist.days)} days to pay`; }
+      if (expected !== undefined) { if (expected <= today) expected = addDays(today, settings.overdueCollectDays + delay); }
+      else expected = overdue ? addDays(today, settings.overdueCollectDays + delay) : addDays(inv.dueDate, settings.arLateDays + delay);
+      push('wholesale', expected < tomorrow ? tomorrow : expected, amountAud, inv.contact, 'Xero', 'confirmed', { doc: inv.number, due: inv.dueDate, overdue, basis, currency: isForeign(inv.currency) ? inv.currency : undefined });
     }
 
     // -- Wholesale: Apparel Magic open orders (confirmed, not yet invoiced)
@@ -222,6 +260,13 @@
         push('online', d, v * conv * (1 + (sc.online || 0) / 100), targeted ? `Shopify forecast (${t.pct >= 0 ? '+' : ''}${t.pct}% target vs last year)` : 'Shopify forecast', 'Shopify', 'assumption',
           { method: targeted ? `last year's ${monthKey(addDays(d, -365))} sales × (1 ${t.pct >= 0 ? '+' : '−'} ${Math.abs(t.pct)}%)` : input.shopifyFc.method });
       }
+    } else if (input.onlineLy && input.onlineLy.daily && input.onlineLy.from && input.onlineLy.from <= addDays(today, -360)) {
+      const xf = xeroOnlineForecast(input.onlineLy.daily, today, input.horizonDays);
+      notes.onlineMethod = { method: 'last year deposits', lyDays: xf.lyDays, fallbackDays: xf.fallbackDays };
+      const pct = sc.online || 0;
+      const sgn = `${pct >= 0 ? '+' : '−'}${Math.abs(pct)}%`;
+      for (const [d, v] of Object.entries(xf.perDay)) push('online', d, v * (1 + pct / 100), `Last year's online deposits (${sgn})`, 'Xero', 'assumption',
+        { method: `Last year's online bank deposits around the same day (7-day average, already net of fees) × (1 ${pct >= 0 ? '+' : '−'} ${Math.abs(pct)}%)` });
     } else if (input.history && input.history.onlineReceiptsPerWeek > 0) {
       const perDay = input.history.onlineReceiptsPerWeek / 7;
       for (let i = 1; i <= input.horizonDays; i++) push('online', addDays(today, i), perDay * (1 + (sc.online || 0) / 100), 'Recent receipts run-rate', 'Xero', 'assumption', { method: 'Xero receipts, last 13 weeks' });
@@ -233,8 +278,15 @@
       const overdue = b.dueDate < today;
       const pid = 'ap:' + b.id;
       const manualDate = input.payDates && input.payDates[pid];
+      // A bill overdue by far more than any normal delay is almost certainly a leftover (a duplicate, or settled
+      // outside Xero), so it isn't forecast as a payment next week — it's listed as left out, and setting a payment
+      // date on it brings it back in.
+      if (overdue && !manualDate && daysBetween(b.dueDate, today) > settings.staleBillDays) {
+        notes.excluded.push({ kind: `bill overdue by more than ${settings.staleBillDays} days (left out as stale — set a payment date on it to include it)`, label: b.contact, amount: b.amountDueAud, doc: b.number, due: b.dueDate });
+        continue;
+      }
       const pay = manualDate || (overdue ? addDays(today, settings.apOverduePayDays) : b.dueDate);
-      push(TAX_CONTACT_RE.test(b.contact) ? 'otherOut' : 'stock', pay < tomorrow ? tomorrow : pay, b.amountDueAud, b.contact, 'Xero', 'confirmed', { doc: b.number, due: b.dueDate, overdue, currency: b.currency, pid, manualDate: !!manualDate });
+      push(TAX_CONTACT_RE.test(b.contact) ? 'bas' : 'stock', pay < tomorrow ? tomorrow : pay, b.amountDueAud, b.contact, 'Xero', 'confirmed', { doc: b.number, due: b.dueDate, overdue, currency: b.currency, pid, manualDate: !!manualDate });
     }
     for (const p of input.amPOs || []) {
       // AM amounts are in the PO's own currency: convert USD at the setting, other currencies
@@ -311,6 +363,58 @@
           push(line, `${mk}-${String(day).padStart(2, '0')}`, gap / nDays, label, 'Last year', 'assumption', { method });
         }
       }
+    }
+
+    // -- BAS: the monthly GST + PAYG payment to the ATO. Xero records it as a bill to "ATO" at the moment it is paid, so
+    // an open ATO bill is the only known BAS; every other month is estimated:
+    //   PAYG = the last 3 months' PAYG (grown with operating costs), and
+    //   GST  = a share of LAST month's online + wholesale receipts — the share the GST payment has been over the current run
+    //          of monthly BAS payments (GST follows sales, so a big sales month is followed by a big BAS). With too little
+    //          monthly history it falls back to the 12-month average GST scaled by last month's receipts against average.
+    // Paid on the BAS pay day. A month that already has an ATO bill (paid or open) gets no estimate — the real bill
+    // replaces it. This is the least certain line in the forecast and is labelled that way.
+    const bas = input.bas;
+    if (bas && ((bas.gstMonthlyAvg || 0) > 0 || (bas.paygMonthly || 0) > 0)) {
+      const known = new Set(bas.billMonths || []);
+      for (const it of items) if (it.line === 'bas') known.add(monthKey(it.date));
+      const receipts = (mk) => (bas.recByMonth && Number.isFinite(bas.recByMonth[mk]) ? bas.recByMonth[mk] : 0)
+        + items.filter((it) => (it.line === 'online' || it.line === 'wholesale') && monthKey(it.date) === mk).reduce((a, it) => a + it.amount, 0);
+      const scale = (mk) => (bas.recMonthAvg > 0 ? clamp(receipts(addMonths(mk, -1)) / bas.recMonthAvg, 0.5, 1.8) : 1);
+      const growthOut = 1 + (sc.out || 0) / 100;
+      const MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      notes.bas = [];
+      for (let k = 0; k <= 11; k++) {
+        const mk = addMonths(m0, k);
+        if (known.has(mk)) continue;
+        let date = monthDayIso(mk, settings.basPayDay);
+        if (date < tomorrow) { if (k === 0) date = tomorrow; else continue; }   // this month's BAS isn't recorded yet and its day has passed: assume it is imminent
+        const prev = MONS[Number(addMonths(mk, -1).slice(5)) - 1];
+        const prevReceipts = receipts(addMonths(mk, -1));
+        const payg = (bas.paygMonthly || 0) * growthOut;
+        const n0 = (x) => Math.round(x).toLocaleString('en-AU');
+        let gst, f = null, how;
+        if (bas.gstRatio > 0 && prevReceipts > 0) {
+          gst = bas.gstRatio * prevReceipts;
+          how = `GST ${n0(gst)} (${(bas.gstRatio * 100).toFixed(1)}% of ${prev} sales receipts of ${n0(prevReceipts)}, as in your recent monthly BAS payments)`;
+        } else {
+          f = scale(mk);
+          gst = (bas.gstMonthlyAvg || 0) * f;
+          how = `GST ${n0(gst)} (12-month average × ${f.toFixed(2)} for ${prev} sales)`;
+        }
+        push('bas', date, gst + payg, 'BAS (estimate)', 'Estimate', 'assumption',
+          { gst, payg, scale: f, method: `PAYG ${n0(payg)} (recent monthly average) + ${how}` });
+        notes.bas.push({ month: mk, date, gst, payg, scale: f });
+      }
+    }
+
+    // -- Manual adjustments: one-off receipts / payments entered by the user (a planned Lumi drawdown or repayment is
+    // just one of these). They sit on their own lines, so they never reduce an estimate or replace anything: they are
+    // added on top, on the date entered.
+    for (const a of input.adjustments || []) {
+      const amt = Number(a.amount);
+      if (!(amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(a.date || '') || (a.dir !== 'in' && a.dir !== 'out')) continue;
+      if (a.date < tomorrow) { notes.excluded.push({ kind: 'manual adjustment dated today or earlier (not counted)', label: a.desc || 'Manual adjustment', amount: amt }); continue; }
+      push(a.dir === 'in' ? 'manualIn' : 'manualOut', a.date, amt, a.desc || 'Manual adjustment', 'Manual', 'confirmed', { category: a.category || '', adjId: a.id });
     }
 
     return { items, notes };
@@ -582,6 +686,141 @@
     return w;
   }
 
+  // ------------------------------------------------------------ the dashboard's view of a forecast
+  // The breakdown groups the engine's lines the way the dashboard shows them. Operating expenses are everything paid
+  // from the bank for running the business: marketing + other cash out + the (negative) card credit, so spend that was
+  // put on the Amex is not counted here but through the Amex payments, once.
+  const GROUPS = {
+    inflows: [
+      { key: 'online', label: 'Online sales (Shopify, PayPal & other gateways)', short: 'Online sales', lines: ['online'] },
+      { key: 'wholesale', label: 'Wholesale customer payments', short: 'Wholesale', lines: ['wholesale'] },
+      { key: 'otherIn', label: 'Other income & manual receipts', short: 'Other income', lines: ['otherIn', 'manualIn'] },
+    ],
+    outflows: [
+      { key: 'stock', label: 'Overseas stock suppliers', short: 'Stock suppliers', lines: ['stock'] },
+      { key: 'cards', label: 'Amex card payments', short: 'Amex payments', lines: ['cards'] },
+      { key: 'opex', label: 'Operating expenses', short: 'Operating expenses', lines: ['marketing', 'otherOut', 'cardCredit'] },
+      { key: 'bas', label: 'BAS (GST + PAYG)', short: 'BAS', lines: ['bas'] },
+      { key: 'other', label: 'Other scheduled payments (manual)', short: 'Other scheduled', lines: ['manualOut'] },
+    ],
+  };
+
+  // One scenario's money in each group for a date range, split into what is already known (an invoice, bill, order,
+  // statement or manual entry that exists) and what is estimated.
+  function breakdown(result, scn, from, to) {
+    const s = result.scenarios[scn];
+    const row = (g) => {
+      let amount = 0, known = 0, count = 0;
+      for (let d = from; d <= to; d = addDays(d, 1)) { const i = s.idx[d]; if (i !== undefined && i > 0) for (const l of g.lines) amount += s.flows[l][i]; }
+      for (const it of s.items) if (g.lines.includes(it.line) && it.date >= from && it.date <= to && it.status === 'confirmed' && !(s.overridden[it.line] && s.overridden[it.line][monthKey(it.date)])) { known += it.amount; count++; }
+      known = Math.min(known, Math.max(amount, 0));
+      return { key: g.key, label: g.label, short: g.short, amount, known, estimated: Math.max(0, amount - known), count };
+    };
+    const inflows = GROUPS.inflows.map(row), outflows = GROUPS.outflows.map(row);
+    const totalIn = inflows.reduce((a, r) => a + r.amount, 0), totalOut = outflows.reduce((a, r) => a + r.amount, 0);
+    return { from, to, inflows, outflows, totalIn, totalOut, net: totalIn - totalOut };
+  }
+
+  const levelOf = (v, st) => (v < st.minCash ? 'red' : v < st.cashThreshold ? 'amber' : 'green');
+  const monthName = (mk) => new Date(mk + '-01T00:00:00Z').toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+  // Consecutive stretches of days (from tomorrow) when the balance is below a threshold.
+  function belowRuns(s, threshold) {
+    const runs = [];
+    let cur = null;
+    for (let i = 1; i < s.dates.length; i++) {
+      const v = s.balance[i];
+      if (v < threshold) {
+        if (!cur) { cur = { from: s.dates[i], to: s.dates[i], low: { value: v, date: s.dates[i] } }; runs.push(cur); }
+        else { cur.to = s.dates[i]; if (v < cur.low.value) cur.low = { value: v, date: s.dates[i] }; }
+      } else cur = null;
+    }
+    const last = s.dates[s.dates.length - 1];
+    for (const r of runs) { r.days = daysBetween(r.from, r.to) + 1; r.recoversOn = r.to < last ? addDays(r.to, 1) : null; }
+    return runs;
+  }
+
+  // What left the bank in the weeks leading up to a date, biggest first — the "why" behind a low point.
+  function drivers(result, scn, endDate, windowDays) {
+    const s = result.scenarios[scn];
+    const earliest = addDays(result.today, 1);
+    const start = addDays(endDate, -windowDays + 1);
+    const from = start < earliest ? earliest : start;
+    const out = [];
+    for (const g of GROUPS.outflows) {
+      let amount = 0, count = 0;
+      for (let d = from; d <= endDate; d = addDays(d, 1)) { const i = s.idx[d]; if (i !== undefined) for (const l of g.lines) amount += s.flows[l][i]; }
+      for (const it of s.items) if (it.line !== 'cardCredit' && g.lines.includes(it.line) && it.date >= from && it.date <= endDate) count++;
+      if (amount > 0) out.push({ key: g.key, label: g.label, short: g.short, amount, count });
+    }
+    let inflow = 0;
+    for (let d = from; d <= endDate; d = addDays(d, 1)) { const i = s.idx[d]; if (i !== undefined) inflow += s.inflow[i]; }
+    out.sort((a, b) => b.amount - a.amount);
+    return { from, to: endDate, outflows: out, inflow };
+  }
+
+  // The answer to "when am I likely to be short of cash, and how much warning do I have?" for one scenario:
+  // the four headline numbers, the green / amber / red stretches, and a few plain-English sentences (never more than three).
+  function outlook(result, scn) {
+    scn = scn || 'base';
+    const s = result.scenarios[scn];
+    const st = result.settings, today = result.today;
+    const date = (iso) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', ...(iso.slice(0, 4) !== today.slice(0, 4) ? { year: 'numeric' } : {}), timeZone: 'UTC' });
+    const end90 = addDays(today, 90);
+    let low90 = { value: Infinity, date: null }, tight = { value: Infinity, date: null };
+    for (let i = 1; i < s.dates.length; i++) {
+      const v = s.balance[i];
+      if (s.dates[i] <= end90 && v < low90.value) low90 = { value: v, date: s.dates[i] };
+      if (v < tight.value) tight = { value: v, date: s.dates[i] };
+    }
+    if (low90.date === null) low90 = { value: result.cashToday, date: today };
+    if (tight.date === null) tight = { value: result.cashToday, date: today };
+    const pos90 = s.balance[s.idx[end90] !== undefined ? s.idx[end90] : s.dates.length - 1];
+    // The tightest period: the rolling week (first 13 weeks) or calendar month (after that) the lowest day falls in.
+    const dd = daysBetween(today, tight.date);
+    let tightest;
+    if (dd >= 1 && dd <= 91) { const w = Math.floor((dd - 1) / 7); const start = addDays(today, w * 7 + 1); tightest = { kind: 'week', from: start, to: addDays(start, 6), label: `Week of ${date(start)}`, low: tight }; }
+    else { const mk = monthKey(tight.date); tightest = { kind: 'month', from: mk + '-01', to: lastDayOfMonth(mk + '-01'), label: monthName(mk), low: tight }; }
+
+    const red = belowRuns(s, st.minCash), amber = belowRuns(s, st.cashThreshold);
+    const level = red.length ? 'red' : amber.length ? 'amber' : 'green';
+    const todayLevel = levelOf(result.cashToday, st);
+    const crossings = [];
+    let prev = todayLevel;
+    for (let i = 1; i < s.dates.length; i++) {
+      const lv = levelOf(s.balance[i], st);
+      if (lv !== prev) { crossings.push({ date: s.dates[i], from: prev, to: lv, value: s.balance[i] }); prev = lv; }
+    }
+
+    const messages = [];
+    const topText = (d) => d.outflows.slice(0, 3).map((o) => `${o.short.toLowerCase()} ${money(o.amount)}`).join(', ');
+    // "in the 4 weeks to X" — or the true, shorter window when the forecast hasn't been running that long
+    const windowText = (d) => (d.from > addDays(d.to, -27) ? `Between ${date(d.from)} and ${date(d.to)}` : `In the 4 weeks to ${date(d.to)}`);
+    const stayed = (r) => (r.recoversOn ? `for ${r.days} day${r.days === 1 ? '' : 's'}, back above it on ${date(r.recoversOn)}` : 'and does not recover within the forecast');
+    if (red.length) {
+      const r = red[0];
+      const d = drivers(result, scn, r.low.date, 28);
+      messages.push({ level: 'red', text: `Cash is forecast to fall below your ${money(st.minCash)} minimum on ${date(r.from)}, reaching ${money(r.low.value)} on ${date(r.low.date)}, and stays below it ${stayed(r)}.` });
+      if (d.outflows.length) messages.push({ level: 'red', text: `${windowText(d)}, the biggest payments are ${topText(d)}; only ${money(d.inflow)} comes in over the same period.` });
+      if (red.length > 1) messages.push({ level: 'red', text: `It happens again: ${red.length - 1} more stretch${red.length === 2 ? '' : 'es'} below ${money(st.minCash)}, the next from ${date(red[1].from)} (low ${money(red[1].low.value)}).` });
+    } else if (amber.length) {
+      const r = amber[0];
+      const d = drivers(result, scn, r.low.date, 28);
+      messages.push({ level: 'amber', text: `Cash dips below your ${money(st.cashThreshold)} comfortable level from ${date(r.from)}, with a low of ${money(r.low.value)} on ${date(r.low.date)} — still above your ${money(st.minCash)} minimum — ${stayed(r)}.` });
+      if (d.outflows.length) messages.push({ level: 'amber', text: `${windowText(d)}, the biggest payments are ${topText(d)}; ${money(d.inflow)} comes in over the same period.` });
+      if (amber.length > 1) messages.push({ level: 'amber', text: `${amber.length - 1} more stretch${amber.length === 2 ? '' : 'es'} below ${money(st.cashThreshold)} follow, the next from ${date(amber[1].from)}.` });
+    } else {
+      messages.push({ level: 'green', text: `Cash stays above your ${money(st.cashThreshold)} comfortable level for the whole forecast. The lowest point is ${money(tight.value)} on ${date(tight.date)}.` });
+    }
+    return {
+      today, scenario: scn, minCash: st.minCash, comfortable: st.cashThreshold,
+      cashToday: result.cashToday, todayLevel, level,
+      lowest90: low90, position90: pos90, position90Date: end90, tightest,
+      red, amber, crossings, messages,
+      levelAt: (v) => levelOf(v, st),
+    };
+  }
+
   function money(n) { const a = Math.abs(Math.round(n)); return (n < 0 ? '-$' : '$') + a.toLocaleString('en-AU'); }
   function fmtDate(iso) { return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' }); }
 
@@ -605,7 +844,8 @@
 
   const CFE = {
     LINES, LINES_IN, LINES_OUT, INPUT_LINES, LINE_LABELS, DEFAULT_SETTINGS,
-    TAX_CONTACT_RE, findLoanBalance, mergeSettings, shopifyForecast, buildForecast, buckets, kpis, explain, monthCell, watch,
+    TAX_CONTACT_RE, findLoanBalance, mergeSettings, shopifyForecast, xeroOnlineForecast, buildForecast, buckets, kpis, explain, monthCell, watch,
+    GROUPS, breakdown, belowRuns, drivers, outlook,
     util: { addDays, daysBetween, monthKey, addMonths, lastDayOfMonth, toIso, toMs, round2, money, fmtDate },
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = CFE;

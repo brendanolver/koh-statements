@@ -9,7 +9,11 @@ const test = (name, fn) => { try { fn(); passed++; console.log('  ok  ' + name);
 const near = (a, b, tol = 0.01, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg || ''} expected ${b}, got ${a}`);
 
 const TODAY = '2026-09-20';
-const base = (over = {}) => ({ today: TODAY, cashToday: 100000, ar: [], ap: [], amOrders: [], amPOs: null, termsByCustomer: {}, shopify: null, history: null, overrides: {}, settings: null, ...over });
+// The engine's default operating-cost growth is now +5% (Base) with Worst +10% / Best 0%. These tests pin the older maths,
+// so they run with the earlier percentages unless a test sets its own.
+const LEGACY_OUT = { worst: { out: 5 }, base: { out: 0 }, best: { out: -5 } };
+const withLegacy = (settings) => { const s = JSON.parse(JSON.stringify(settings || {})); s.scenarios = s.scenarios || {}; for (const k of Object.keys(LEGACY_OUT)) s.scenarios[k] = Object.assign({}, LEGACY_OUT[k], s.scenarios[k] || {}); return s; };
+const base = (over = {}) => ({ today: TODAY, cashToday: 100000, ar: [], ap: [], amOrders: [], amPOs: null, termsByCustomer: {}, shopify: null, history: null, overrides: {}, ...over, settings: withLegacy(over.settings) });
 const bal = (r, scn, d) => r.scenarios[scn].balance[r.scenarios[scn].idx[d]];
 
 console.log('Cash timeline');
@@ -248,10 +252,10 @@ test('a monthly Stock override replaces bills AND the run-rate for that month', 
   const nov = r.scenarios.base.dates.reduce((a, d, i) => a + (i > 0 && d.startsWith('2026-11') ? r.scenarios.base.flows.stock[i] : 0), 0);
   near(nov, 650000, 0.5);
 });
-test('tax bills (ATO / PAYG) are Other cash out, not stock', () => {
+test('tax bills (ATO / PAYG) are their own BAS line — not stock and not Other cash out', () => {
   const r = CFE.buildForecast(base({ ap: [{ id: 'T1', contact: 'ATO', number: 'BAS', amountDueAud: 80000, currency: 'AUD', dueDate: addDays(TODAY, 12) }, { id: 'S1', contact: 'FACTORY', amountDueAud: 5000, currency: 'AUD', dueDate: addDays(TODAY, 12) }] }));
   const it = r.scenarios.base.items;
-  assert.strictEqual(it.find((i) => i.meta.pid === 'ap:T1').line, 'otherOut'); assert.strictEqual(it.find((i) => i.meta.pid === 'ap:S1').line, 'stock');
+  assert.strictEqual(it.find((i) => i.meta.pid === 'ap:T1').line, 'bas'); assert.strictEqual(it.find((i) => i.meta.pid === 'ap:S1').line, 'stock');
   assert.ok(CFE.TAX_CONTACT_RE.test('Australian Taxation Office') && !CFE.TAX_CONTACT_RE.test('Patricia Mary Sexton'));
 });
 test('a PO in a currency with no known rate is reported, not silently dropped', () => {
