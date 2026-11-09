@@ -72,6 +72,33 @@
     return null;
   }
 
+  // ---- first names -------------------------------------------------------------------------------------------
+
+  // Customer records are messy ("SAM", "sam", "Accounts Payable", "Reception"): keep only things that read like a
+  // person's first name — one or two plain words, nothing business-like, no digits.
+  const NOT_A_NAME = /\b(pty|ltd|limited|store|shop|sports?|surf|accounts?|payable|payables|reception|office|manager|admin|team|retail|boutique|club|co|company|group|the|and|buyer|sales|info|orders?)\b|[\d&@]/i;
+  function looksLikeName(raw) {
+    const t = String(raw == null ? '' : raw).trim();
+    if (!t || NOT_A_NAME.test(t)) return false;
+    const words = t.split(/\s+/);
+    return words.length <= 2 && words.every((w) => /^[A-Za-z][A-Za-z'\u2019-]+$/.test(w));
+  }
+
+  // "SAM" / "sam" → "Sam", "anne-marie" → "Anne-Marie", "o'brien" → "O'Brien". Names that already have mixed case are left alone.
+  function tidyName(raw) {
+    const t = String(raw == null ? '' : raw).trim().replace(/\s+/g, ' ');
+    if (t !== t.toUpperCase() && t !== t.toLowerCase()) return t;
+    return t.toLowerCase().replace(/(^|[\s'\u2019-])([a-z])/g, (m, a, b) => a + b.toUpperCase());
+  }
+
+  // candidates: [{ value, source }] best first → { name, source } for the first one that reads like a name, or null.
+  function suggestName(candidates) {
+    for (const c of candidates || []) {
+      if (looksLikeName(c && c.value)) return { name: tidyName(c.value), source: c.source || '' };
+    }
+    return null;
+  }
+
   // ---- the message -------------------------------------------------------------------------------------------
 
   function money(n, currency) {
@@ -137,6 +164,6 @@
     return { ok: true };
   }
 
-  root.SMS = { normaliseMobile, suggestMobile, buildMessage, money, segments, validateMessage, countryOf, phoneFor, CONTACT_EMAIL, CONTACT_PHONE };
+  root.SMS = { normaliseMobile, suggestMobile, looksLikeName, tidyName, suggestName, buildMessage, money, segments, validateMessage, countryOf, phoneFor, CONTACT_EMAIL, CONTACT_PHONE };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SMS;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1078,6 +1078,9 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 .sms-last { font-size: 11px; color: #b45309; margin-top: 4px; line-height: 1.4; padding-left: 24px; }
 .sms-num input { width: 100%; box-sizing: border-box; padding: 7px 9px; font-size: 14px; border: 1px solid #d8dbe0; border-radius: 6px; }
 .sms-num input.bad { border-color: #e0352b; }
+.sms-lab { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 0 3px; }
+.sms-lab:first-child { margin-top: 0; }
+.sms-num input[type="text"] { width: 100%; box-sizing: border-box; padding: 7px 9px; font-size: 14px; border: 1px solid #d8dbe0; border-radius: 6px; }
 .sms-note { font-size: 11px; margin-top: 4px; line-height: 1.4; color: var(--muted); }
 .sms-note.ok { color: #12915a; } .sms-note.bad { color: #b42318; } .sms-note.warn { color: #b45309; }
 .sms-msg textarea { width: 100%; box-sizing: border-box; min-height: 88px; padding: 8px 10px; font-size: 13px; font-family: inherit; line-height: 1.45; border: 1px solid #d8dbe0; border-radius: 6px; resize: vertical; }
@@ -1876,7 +1879,7 @@ async function fetchXeroJson(url) {
     await sleep(waitMs);
   }
 }
-const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV3'; // v3: added phone (v2: country)
+const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV4'; // v4: added first name (v3: phone, v2: country)
 const CUSTOMER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h, mirrors demandplanning's amCatalogV1 pattern
 
 // Bank details shown on the statement depend on the customer's country —
@@ -2177,7 +2180,7 @@ async function loadCustomers() {
       throw new Error(data.meta?.errors?.join(', ') || data.error || `AM customers fetch failed (${res.status})`);
     }
     const rows = data.response || [];
-    all.push(...rows.map((r) => ({ id: r.customer_id, accountNumber: r.account_number, name: r.customer_name, country: r.country, phone: r.phone })));
+    all.push(...rows.map((r) => ({ id: r.customer_id, accountNumber: r.account_number, name: r.customer_name, country: r.country, phone: r.phone, firstName: r.first_name })));
     lastId = data.meta?.pagination?.last_id;
     if (!lastId || rows.length === 0) break;
   }
@@ -3466,6 +3469,19 @@ function statementPhoneCandidates(xeroContact, customer) {
   return am && am.phone ? [...fromXero, { value: am.phone, source: 'ApparelMagic' }] : fromXero;
 }
 
+// First names held for a customer, best first: Xero's main contact, ApparelMagic's customer contact, then Xero's contact
+// persons (the ones marked "include in emails" first). Only a starting guess for the SMS greeting — editable there.
+function statementNameCandidates(xeroContact, customer) {
+  const out = [];
+  if (xeroContact.FirstName) out.push({ value: xeroContact.FirstName, source: 'Xero' });
+  const am = customers.find((c) => c.id === customer.id);
+  if (am && am.firstName) out.push({ value: am.firstName, source: 'ApparelMagic' });
+  const people = (xeroContact.ContactPersons || []).filter((p) => p.FirstName && p.FirstName.trim());
+  people.sort((a, b) => (b.IncludeInEmails ? 1 : 0) - (a.IncludeInEmails ? 1 : 0));
+  for (const p of people) out.push({ value: p.FirstName, source: 'a Xero contact person' });
+  return out;
+}
+
 // Builds the full data object a statement needs (join of AM invoices to
 // Xero balances) for one customer. Used both for the on-screen single
 // lookup and to background-prep each queued customer for a batch send —
@@ -3501,6 +3517,7 @@ async function buildStatementData(customer) {
   return {
     customerName: customer.name,
     phoneCandidates: statementPhoneCandidates(xeroContact, customer),
+    nameCandidates: statementNameCandidates(xeroContact, customer),
     accountNumber: customer.accountNumber,
     country: customer.country,
     attn: sample.name || '',
@@ -3875,15 +3892,21 @@ function smsRowFromData(data, recipientName) {
   const key = normName(data.customerName);
   const { overdue } = computeAging(data.invoices);
   const currency = currencyFor(data.country);
-  const greet = recipientName || data.recipientName || data.contactFirstName || data.customerName;
-  const msg = SMS.buildMessage({ greet, overdue, holdTotal: data.holdTotal, currency, country: data.country });
+  // A name typed on the statement page, else one saved for this customer, else Xero's main contact; otherwise look further
+  // (ApparelMagic, Xero contact persons). With no first name anywhere the greeting is "Hi there," — never the store name.
+  const savedName = (statementRecipientsMap[key] || {}).recipientName || '';   // newer than anything copied into queued data
+  const known = SMS.tidyName(recipientName || savedName || data.recipientName || data.contactFirstName || '');   // "SAM" → "Sam"
+  const guess = known ? null : SMS.suggestName(data.nameCandidates);
+  const first = known || (guess ? guess.name : '');
+  const msg = SMS.buildMessage({ greet: first, overdue, holdTotal: data.holdTotal, currency, country: data.country });
   if (!msg) return null;
   const saved = (statementRecipientsMap[key] || {}).mobile || '';
-  const guess = saved ? null : SMS.suggestMobile(data.phoneCandidates, data.country);
+  const numGuess = saved ? null : SMS.suggestMobile(data.phoneCandidates, data.country);
   return {
     key, name: data.customerName, country: data.country, overdue, currency, holdTotal: data.holdTotal || 0,
-    mobile: saved || (guess ? guess.display : ''), source: saved ? 'saved' : guess ? guess.source : '',
-    onFile: saved || guess ? null : (data.phoneCandidates || [])[0] || null,   // e.g. only a landline is held
+    first, firstSource: guess ? guess.source : '', greetUsed: first || 'there',
+    mobile: saved || (numGuess ? numGuess.display : ''), source: saved ? 'saved' : numGuess ? numGuess.source : '',
+    onFile: saved || numGuess ? null : (data.phoneCandidates || [])[0] || null,   // e.g. only a landline is held
     message: msg.text, include: false, sent: false, num: null, msgOk: true,
   };
 }
@@ -3897,7 +3920,7 @@ function openSmsForCurrent() {
 
 function openSmsForQueue() {
   const rows = queue.filter((q) => q.data && (q.status === 'ready' || q.status === 'sent'))
-    .map((q) => smsRowFromData(q.data, q.recipientName)).filter(Boolean)
+    .map((q) => smsRowFromData(q.data)).filter(Boolean)
     .sort((a, b) => b.overdue - a.overdue);
   if (!rows.length) { setStatus('None of the queued customers has anything overdue (or they are still loading).', true); return; }
   openSmsDialog(rows, `Text overdue customers (${rows.length})`);
@@ -3946,6 +3969,13 @@ function smsRender() {
     }
 
     const c2 = smsEl('div', 'sms-num');
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'First name';
+    nameInput.value = r.first;
+    nameInput.oninput = () => { r.first = nameInput.value; r.firstSource = ''; smsRegreet(r); smsUpdateRow(r); };
+    nameInput.onchange = () => smsPersistName(r);
+    const nameNote = smsEl('div', 'sms-note');
     const input = document.createElement('input');
     input.type = 'tel';
     input.placeholder = 'Mobile, e.g. 0412 345 678';
@@ -3953,7 +3983,7 @@ function smsRender() {
     input.oninput = () => { r.mobile = input.value; r.source = ''; r.onFile = null; smsUpdateRow(r); };
     input.onchange = () => smsPersistMobile(r);
     const note = smsEl('div', 'sms-note');
-    c2.append(input, note);
+    c2.append(smsEl('div', 'sms-lab', 'First name'), nameInput, nameNote, smsEl('div', 'sms-lab', 'Mobile'), input, note);
 
     const c3 = smsEl('div', 'sms-msg');
     const ta = document.createElement('textarea');
@@ -3965,7 +3995,7 @@ function smsRender() {
 
     row.append(c1, c2, c3);
     box.appendChild(row);
-    r.els = { row, cb, input, note, ta, count, result };
+    r.els = { row, cb, input, note, nameInput, nameNote, ta, count, result };
     r.include = smsCanSend(r) && !smsRecent(r.key);   // a good number and message, and not texted in the last 3 days
     smsUpdateRow(r);
   }
@@ -3985,6 +4015,11 @@ function smsUpdateRow(r) {
   e.cb.checked = r.include;
   e.row.classList.toggle('off', !r.include);
   e.input.classList.toggle('bad', !!r.mobile.trim() && !r.num.ok);
+  e.nameInput.disabled = r.sent || smsBusy;
+
+  if (!r.first.trim()) { e.nameNote.className = 'sms-note warn'; e.nameNote.textContent = 'No first name on file — the text will say "Hi there,"'; }
+  else if (r.firstSource) { e.nameNote.className = 'sms-note'; e.nameNote.textContent = `suggested from ${r.firstSource} — check it`; }
+  else { e.nameNote.className = 'sms-note'; e.nameNote.textContent = ''; }
 
   const sourceText = r.source === 'saved' ? ' · saved for this customer' : r.source ? ` · suggested from ${r.source} — check it` : '';
   if (r.num.ok) { e.note.className = 'sms-note ok'; e.note.textContent = `✓ ${r.num.display}${sourceText}`; }
@@ -4015,24 +4050,55 @@ function smsSummary(msg, cls) {
   sum.className = cls || '';
 }
 
-// Remembers the mobile Brendan typed (or confirmed) for a customer, next to their email and greeting name.
+// Keeps the greeting in the message in step with the name box — but only while the message still starts with the
+// greeting we wrote; if Brendan has reworded the opening himself, we leave his message alone.
+function smsRegreet(r) {
+  const next = r.first.trim() || 'there';
+  const prefix = `Hi ${r.greetUsed},`;
+  if (!r.message.startsWith(prefix)) return;
+  r.message = `Hi ${next},` + r.message.slice(prefix.length);
+  r.greetUsed = next;
+  r.els.ta.value = r.message;
+}
+
+// Saves one field (mobile or greeting name) for a customer, next to their email — and keeps the local copy in step.
+async function smsSaveField(r, field, value) {
+  const prev = statementRecipientsMap[r.key] || {};
+  if ((prev[field] || '') === value) return false;
+  const res = await fetch('/.netlify/functions/statement-recipients', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customerName: r.name, [field]: value }),
+  });
+  if (!res.ok) throw new Error(`Save failed (${res.status})`);
+  const next = Object.assign({}, prev, { [field]: value });
+  if (!next.email && !next.recipientName && !next.mobile) delete statementRecipientsMap[r.key];
+  else statementRecipientsMap[r.key] = next;
+  return true;
+}
+
+// Remembers the mobile Brendan typed (or confirmed) for a customer.
 async function smsPersistMobile(r) {
   const n = SMS.normaliseMobile(r.mobile, r.country);
   if (r.mobile.trim() && !n.ok) return;                 // never save something that isn't a mobile
-  const value = n.ok ? n.display : '';
-  if (((statementRecipientsMap[r.key] || {}).mobile || '') === value) return;
   try {
-    const res = await fetch('/.netlify/functions/statement-recipients', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customerName: r.name, mobile: value }),
-    });
-    if (!res.ok) throw new Error(`Save failed (${res.status})`);
-    statementRecipientsMap[r.key] = Object.assign({}, statementRecipientsMap[r.key], { mobile: value });
-    if (!value && statementRecipientsMap[r.key] && !statementRecipientsMap[r.key].email && !statementRecipientsMap[r.key].recipientName) delete statementRecipientsMap[r.key];
+    await smsSaveField(r, 'mobile', n.ok ? n.display : '');
     if (n.ok) r.source = 'saved';
     if (r.els) smsUpdateRow(r);
   } catch { /* non-fatal — they'll just be asked to confirm the number again next time */ }
+}
+
+// Remembers the first name Brendan typed. It is the same greeting name the statement email uses, so that customer's
+// emails say "Hi Sam," too; if their statement is open right now its name box is updated to match.
+async function smsPersistName(r) {
+  try {
+    const value = r.first.trim();
+    if (!(await smsSaveField(r, 'recipientName', value))) return;
+    if (currentStatementData && normName(currentStatementData.customerName) === r.key) {
+      currentStatementData.recipientName = value || currentStatementData.contactFirstName || '';
+      els.recipientNameInput.value = currentStatementData.recipientName;
+    }
+  } catch { /* non-fatal — the name still goes in this text, it just won't be remembered */ }
 }
 
 async function smsPost(payload) {

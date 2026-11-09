@@ -52,6 +52,30 @@ test('suggestMobile takes the first usable number, skipping landlines and junk, 
   assert.strictEqual(S.suggestMobile(null, 'AU'), null);
 });
 
+test('looksLikeName: first names pass; stores, departments, numbers and junk do not', () => {
+  for (const ok of ['Sam', 'SAM', 'sam', 'Anne-Marie', "O'Brien", 'Sam Jo', 'Zoë'.replace('ë', 'e')]) assert.strictEqual(S.looksLikeName(ok), true, ok);
+  for (const bad of ['', '  ', null, undefined, 'Accounts Payable', 'accounts', 'Reception', 'Sole Provider Pty Ltd', 'Surf Shop', 'Sam & Jo', 'Sam Jo Lee', 'S', 'Level 2', 'info@store.com', 'The Store', 'Manager']) assert.strictEqual(S.looksLikeName(bad), false, String(bad));
+});
+test('tidyName fixes shouting and lower case but leaves proper names alone', () => {
+  assert.strictEqual(S.tidyName('SAM'), 'Sam');
+  assert.strictEqual(S.tidyName('sam'), 'Sam');
+  assert.strictEqual(S.tidyName('ANNE-MARIE'), 'Anne-Marie');
+  assert.strictEqual(S.tidyName("o'brien"), "O'Brien");
+  assert.strictEqual(S.tidyName('  jo   ann '), 'Jo Ann');
+  assert.strictEqual(S.tidyName('McKenzie'), 'McKenzie', 'mixed case is left as typed');
+  assert.strictEqual(S.tidyName('Sam'), 'Sam');
+  assert.strictEqual(S.tidyName(null), '');
+});
+test('suggestName takes the first candidate that reads like a name and says where it came from', () => {
+  const s = S.suggestName([{ value: '', source: 'Xero' }, { value: 'Accounts', source: 'Xero contact person' }, { value: 'ALEX', source: 'ApparelMagic' }, { value: 'jo', source: 'x' }]);
+  assert.deepStrictEqual(s, { name: 'Alex', source: 'ApparelMagic' });
+  assert.strictEqual(S.suggestName([{ value: 'Reception' }, { value: '' }]), null);
+  assert.strictEqual(S.suggestName(null), null);
+});
+test('with no first name the greeting is "Hi there," — never the store name', () => {
+  assert.ok(S.buildMessage({ greet: '', overdue: 100 }).text.startsWith("Hi there, it's Brendan"));
+  assert.ok(S.buildMessage({ greet: '   '.trim(), overdue: 100, holdTotal: 50 }).text.startsWith('Hi there,'));
+});
 test('message: overdue only', () => {
   const m = S.buildMessage({ greet: 'Sam', overdue: 6210.4, holdTotal: 0, currency: 'AUD' });
   assert.strictEqual(m.kind, 'overdue');
