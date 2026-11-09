@@ -45,7 +45,15 @@ const test = async (name, fn) => { reset(); try { await fn(); n++; console.log('
     assert.strictEqual(form.get('replies_to_email'), 'brendan@kohindustries.com');
     assert.strictEqual(form.get('from'), null, 'no sender set = Kudosity default');
   });
-  await test('the sender number (with or without +) and the reply email come from Netlify settings', async () => {
+  await test('a sender NAME (WNDRR) is passed as-is and replies are not requested, since a name cannot receive them', async () => {
+    process.env.KUDOSITY_SENDER = 'WNDRR';
+    await post(sendSms, ok);
+    const form = new URLSearchParams(calls[0].opts.body);
+    assert.strictEqual(form.get('from'), 'WNDRR');
+    assert.strictEqual(form.get('replies_to_email'), null);
+    assert.strictEqual(form.get('to'), '61491570156');
+  });
+  await test('a sender NUMBER (with or without +) is passed without the +, and replies are forwarded to the email set in Netlify', async () => {
     process.env.KUDOSITY_SENDER = '+61491570006'; process.env.SMS_REPLY_EMAIL = 'ar@example.test';
     await post(sendSms, ok);
     const form = new URLSearchParams(calls[0].opts.body);

@@ -8,8 +8,10 @@ const { smsLogStore } = require('./lib/blob-store');
 //
 // Needs, in Netlify → Site configuration → Environment variables:
 //   KUDOSITY_API_KEY, KUDOSITY_API_SECRET   – Kudosity → Settings → API settings (the key is shown there; the secret is one you set)
-//   KUDOSITY_SENDER   (optional)            – your Kudosity virtual mobile number (e.g. 61491570156) so customers can reply
-//   SMS_REPLY_EMAIL   (optional)            – where customer replies are forwarded (default brendan@kohindustries.com)
+//   KUDOSITY_SENDER   (optional)            – who the text comes from: a registered sender NAME such as WNDRR (customers can't
+//                                             reply to a name), or your Kudosity virtual mobile number (they can). Left out,
+//                                             Kudosity uses its shared number.
+//   SMS_REPLY_EMAIL   (optional)            – where replies are forwarded when the sender is a number (default brendan@kohindustries.com)
 //   SMS_DAILY_LIMIT   (optional)            – the most texts this function will send in 24 hours (default 60)
 //
 // The daily limit is the safety net: this endpoint is not behind a login (nor are the app's other functions), and a
@@ -82,9 +84,12 @@ exports.handler = async (event) => {
 
     // Kudosity's standard API: a form post, API key + secret as the Basic login, the number without the "+".
     const form = new URLSearchParams({ message: text, to: num.digits });
-    const sender = (process.env.KUDOSITY_SENDER || '').trim();
-    if (sender) form.set('from', sender.replace(/^\+/, ''));
-    form.set('replies_to_email', (process.env.SMS_REPLY_EMAIL || 'brendan@kohindustries.com').trim());
+    const sender = (process.env.KUDOSITY_SENDER || '').trim().replace(/^\+/, '');
+    if (sender) form.set('from', sender);
+    // Replies can only come back to a number, never to a sender name like WNDRR — so only ask for them to be forwarded
+    // when the text isn't coming from a name.
+    const senderIsName = /[a-z]/i.test(sender);
+    if (!senderIsName) form.set('replies_to_email', (process.env.SMS_REPLY_EMAIL || 'brendan@kohindustries.com').trim());
 
     const res = await fetch(KUDOSITY_URL, {
       method: 'POST',

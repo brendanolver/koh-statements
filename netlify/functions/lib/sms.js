@@ -79,20 +79,25 @@
     return `$${abs}` + (currency && currency !== 'AUD' ? ` ${currency}` : '');
   }
 
-  // Plain characters only (no emoji, curly quotes or dashes) so it stays in the cheap 160-character text size.
+  // Texts are sent under the sender name "WNDRR", and customers can't reply to a sender name — so every message says
+  // who it is from and tells them to email instead of "reply". Plain characters only (no emoji, curly quotes or dashes)
+  // so it keeps the cheap 160-character text size where it can.
   // → { kind:'hold'|'overdue', text } or null when there is nothing overdue to chase.
-  function buildMessage({ greet, overdue, holdTotal, currency }) {
+  const CONTACT_EMAIL = 'brendan@kohindustries.com';
+
+  function buildMessage({ greet, overdue, holdTotal, currency, contact }) {
     if (!(Number(overdue) > 0)) return null;
-    const hi = `Hi ${greet || 'there'}, it's Brendan from KOH Industries.`;
+    const email = contact || CONTACT_EMAIL;
+    const hi = `Hi ${greet || 'there'}, it's Brendan from WNDRR.`;
     if (Number(holdTotal) > 0) {
       return {
         kind: 'hold',
-        text: `${hi} Your account has ${money(overdue, currency)} overdue, so your ${money(holdTotal, currency)} of held stock can't be released. Pay today and we'll release it straight away. Please reply with when you'll pay.`,
+        text: `${hi} Your account has ${money(overdue, currency)} overdue, so your ${money(holdTotal, currency)} of held stock can't be released. Pay today and we'll release it straight away. Please email ${email} with when you'll pay.`,
       };
     }
     return {
       kind: 'overdue',
-      text: `${hi} Your account has ${money(overdue, currency)} overdue. Can you please reply with when you'll be making payment? Thanks`,
+      text: `${hi} Your account has ${money(overdue, currency)} overdue. Please email ${email} with when you'll be making payment. Thanks`,
     };
   }
 
@@ -126,6 +131,6 @@
     return { ok: true };
   }
 
-  root.SMS = { normaliseMobile, suggestMobile, buildMessage, money, segments, validateMessage, countryOf };
+  root.SMS = { normaliseMobile, suggestMobile, buildMessage, money, segments, validateMessage, countryOf, CONTACT_EMAIL };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.SMS;
 })(typeof window !== 'undefined' ? window : globalThis);

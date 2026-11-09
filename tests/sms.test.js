@@ -55,12 +55,12 @@ test('suggestMobile takes the first usable number, skipping landlines and junk, 
 test('message: overdue only', () => {
   const m = S.buildMessage({ greet: 'Sam', overdue: 6210.4, holdTotal: 0, currency: 'AUD' });
   assert.strictEqual(m.kind, 'overdue');
-  assert.strictEqual(m.text, "Hi Sam, it's Brendan from KOH Industries. Your account has $6,210.40 overdue. Can you please reply with when you'll be making payment? Thanks");
+  assert.strictEqual(m.text, "Hi Sam, it's Brendan from WNDRR. Your account has $6,210.40 overdue. Please email brendan@kohindustries.com with when you'll be making payment. Thanks");
 });
 test('message: stock on hold AND overdue is the urgent one and names both amounts', () => {
   const m = S.buildMessage({ greet: 'Sam', overdue: 6210.4, holdTotal: 12980, currency: 'AUD' });
   assert.strictEqual(m.kind, 'hold');
-  assert.strictEqual(m.text, "Hi Sam, it's Brendan from KOH Industries. Your account has $6,210.40 overdue, so your $12,980.00 of held stock can't be released. Pay today and we'll release it straight away. Please reply with when you'll pay.");
+  assert.strictEqual(m.text, "Hi Sam, it's Brendan from WNDRR. Your account has $6,210.40 overdue, so your $12,980.00 of held stock can't be released. Pay today and we'll release it straight away. Please email brendan@kohindustries.com with when you'll pay.");
 });
 test('message: nothing overdue means no message (stock on hold alone is not chased), and NZD is spelled out', () => {
   assert.strictEqual(S.buildMessage({ greet: 'Sam', overdue: 0, holdTotal: 500, currency: 'AUD' }), null);
@@ -74,9 +74,20 @@ test('the wording stays plain (no emoji, curly quotes or dashes) so it keeps the
     const seg = S.segments(m.text);
     assert.strictEqual(seg.unicode, false);
     assert.ok(seg.parts <= 2, `${m.kind}: ${seg.parts} parts`);
+    if (hold === 0) assert.strictEqual(seg.parts, 1, 'the overdue-only text fits one part');
   }
 });
 
+test('the texts never say "reply" — they come from a sender name (WNDRR), which customers cannot reply to', () => {
+  for (const hold of [0, 12980]) {
+    const t = S.buildMessage({ greet: 'Sam', overdue: 100, holdTotal: hold, currency: 'AUD' }).text;
+    assert.ok(!/repl/i.test(t), t);
+    assert.ok(t.includes('Please email brendan@kohindustries.com'), t);
+    assert.ok(t.includes('from WNDRR'), t);
+  }
+  assert.ok(S.buildMessage({ greet: 'Sam', overdue: 100, contact: 'ar@example.test' }).text.includes('email ar@example.test'), 'the contact address can be changed');
+  assert.strictEqual(S.CONTACT_EMAIL, 'brendan@kohindustries.com');
+});
 test('segments: plain text is 160 then 153 per part; fancy characters drop it to 70 then 67', () => {
   assert.deepStrictEqual(S.segments('a'.repeat(160)), { unicode: false, chars: 160, parts: 1, max: 612 });
   assert.strictEqual(S.segments('a'.repeat(161)).parts, 2);
