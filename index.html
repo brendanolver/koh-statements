@@ -338,6 +338,16 @@
   table.debtors-table .name-cell { cursor: pointer; font-weight: 600; }
   table.debtors-table .name-cell:hover { text-decoration: underline; }
   .hold-filter-btn.on { background: #fff3e0; color: #e65100; border-color: #ffcc80; font-weight: 600; }
+  .age-filter-btn.on { background: #fdecea; color: #b42318; border-color: #f5c6cb; }
+  table.debtors-table th.age-col, table.debtors-table td.age-col { white-space: nowrap; }
+  /* The Statements list now has 11 columns: let its headings wrap onto two lines and trim the side padding, so it fits a
+     normal screen without sideways scrolling. */
+  #statementsView table.debtors-table th { white-space: normal; vertical-align: bottom; line-height: 1.25; }
+  #statementsView table.debtors-table th, #statementsView table.debtors-table td { padding-left: 8px; padding-right: 8px; }
+  #statementsView table.debtors-table td.email-cell { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #statementsView table.debtors-table td.name-cell { max-width: 200px; white-space: normal; line-height: 1.3; }   /* long names wrap to a second line instead of running into the next column */
+  #statementsView table.debtors-table td.age-col { font-size: 12px; }
+  #statementsView table.debtors-table th.age-col { white-space: normal; }
   .hold-badge {
     display: inline-block;
     font-size: 10px;
@@ -1237,7 +1247,12 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
       <div class="sec-title" style="margin-bottom:0;">All Customers</div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <button class="hold-filter-btn age-filter-btn" data-age="0" onclick="toggleAgeFilter(0)" aria-pressed="false" title="Customers with something overdue by up to 30 days">0–30 days (0)</button>
+        <button class="hold-filter-btn age-filter-btn" data-age="1" onclick="toggleAgeFilter(1)" aria-pressed="false" title="Customers with something overdue by 31–60 days">31–60 days (0)</button>
+        <button class="hold-filter-btn age-filter-btn" data-age="2" onclick="toggleAgeFilter(2)" aria-pressed="false" title="Customers with something overdue by 61–90 days">61–90 days (0)</button>
+        <button class="hold-filter-btn age-filter-btn" data-age="3" onclick="toggleAgeFilter(3)" aria-pressed="false" title="Customers with something overdue by more than 90 days">Over 90 days (0)</button>
         <button id="holdOnlyBtn" class="hold-filter-btn" onclick="toggleHoldOnly()" aria-pressed="false" title="Show only customers who have stock on hold (Awaiting Approval invoices in Xero)">📦 Stock on hold (0)</button>
+        <button id="clearFiltersBtn" onclick="clearStatementFilters()" style="display:none">✕ Clear filters</button>
         <button id="selectOverdueBtn" onclick="selectAllOverdue()">Select All Overdue</button>
         <button class="hidden-customers-btn" onclick="toggleHiddenPanel('hiddenCustomersPanelStatements')" title="Customers hidden from Debtors, Statements, and their totals — e.g. gone into administration">Hidden customers (0)</button>
       </div>
@@ -1257,6 +1272,10 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
             <th class="num sortable" data-sort="holdTotal" onclick="setDebtorsSort('holdTotal')">Stock on Hold<span class="sort-arrow"></span></th>
             <th class="num sortable" data-sort="total" onclick="setDebtorsSort('total')">Outstanding Balance<span class="sort-arrow"></span></th>
             <th class="num sortable" data-sort="overdue" onclick="setDebtorsSort('overdue')">Overdue<span class="sort-arrow"></span></th>
+            <th class="num sortable age-col" data-sort="age0" onclick="setDebtorsSort('age0')" title="Overdue by up to 30 days (counted from the due date)">0–30 days<span class="sort-arrow"></span></th>
+            <th class="num sortable age-col" data-sort="age1" onclick="setDebtorsSort('age1')" title="Overdue by 31–60 days">31–60 days<span class="sort-arrow"></span></th>
+            <th class="num sortable age-col" data-sort="age2" onclick="setDebtorsSort('age2')" title="Overdue by 61–90 days">61–90 days<span class="sort-arrow"></span></th>
+            <th class="num sortable age-col" data-sort="age3" onclick="setDebtorsSort('age3')" title="Overdue by more than 90 days">Over 90 days<span class="sort-arrow"></span></th>
             <th class="no-print"></th>
           </tr>
         </thead>
@@ -1980,7 +1999,7 @@ function toggleQueue(customer) {
 // limit being tripped. Fully sequential is slower but reliable; the queue
 // panel already shows live per-row progress, so there's nothing to wait on.
 async function selectAllOverdue() {
-  const targets = debtors.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id) && (!statementsHoldOnly || d.holdTotal > 0));
+  const targets = debtors.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id) && statementsPass(d));
   for (const d of targets) {
     const item = { id: d.id, accountNumber: d.accountNumber, name: d.name, country: d.country, status: 'loading', data: null, recipientEmail: '', recipientName: '', error: '' };
     queue.push(item);
@@ -2524,6 +2543,15 @@ function buildAgingBucketLabels(asOf) {
   return labels;
 }
 
+// Which overdue group an invoice falls in, by whole days past its DUE date: 0 = up to 30 days, 1 = 31-60, 2 = 61-90,
+// 3 = over 90; null when it isn't overdue (due today or later — the same test as the Overdue column, so the four groups
+// always add up to it). Feeds the Statements tab's age columns. Kept self-contained: tests/debtors-feed.test.js lifts it
+// out of this file together with buildDebtorsList.
+function overdueGroup(daysOverdue) {
+  if (!(daysOverdue > 0)) return null;
+  return daysOverdue <= 30 ? 0 : daysOverdue <= 60 ? 1 : daysOverdue <= 90 ? 2 : 3;
+}
+
 function invoiceBucketIndex(invDate, asOf) {
   if (!invDate) return 0;
   const monthsBack = (asOf.getFullYear() * 12 + asOf.getMonth()) - (invDate.getFullYear() * 12 + invDate.getMonth());
@@ -2552,7 +2580,7 @@ async function buildDebtorsList() {
     const name = inv.Contact && inv.Contact.Name;
     if (!contactId || !name) continue;
     if (!byContact.has(contactId)) {
-      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0] });
+      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0], age0: 0, age1: 0, age2: 0, age3: 0 });
     }
     const entry = byContact.get(contactId);
     const amountDue = inv.AmountDue || 0;
@@ -2564,7 +2592,11 @@ async function buildDebtorsList() {
     // more precise real-time signal from the Aged-Receivables-style monthly
     // bucketing below, which exists specifically to replicate the original
     // tool's report.
-    if (dueDate && dueDate < today) entry.overdue += amountDue;
+    if (dueDate && dueDate < today) {
+      entry.overdue += amountDue;
+      // ...split by how many days past the due date (up to 30 / 31-60 / 61-90 / over 90) — the Statements-tab age columns.
+      entry['age' + overdueGroup(Math.round((today - dueDate) / 86400000))] += amountDue;
+    }
   }
 
   // Credit notes reduce Total and net into their own invoice-date bucket
@@ -2579,7 +2611,7 @@ async function buildDebtorsList() {
     const name = cn.Contact && cn.Contact.Name;
     if (!contactId || !name) continue;
     if (!byContact.has(contactId)) {
-      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0] });
+      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0], age0: 0, age1: 0, age2: 0, age3: 0 });
     }
     const entry = byContact.get(contactId);
     const remaining = -(cn.RemainingCredit || 0);
@@ -2601,7 +2633,7 @@ async function buildDebtorsList() {
     // paid up, new order stuck awaiting approval) — without this, they'd
     // never enter byContact at all and silently vanish from the dashboard.
     if (!byContact.has(contactId)) {
-      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0] });
+      byContact.set(contactId, { contactId, name, total: 0, overdue: 0, holdTotal: 0, buckets: [0, 0, 0, 0, 0], age0: 0, age1: 0, age2: 0, age3: 0 });
     }
     byContact.get(contactId).holdTotal += (inv.Total || 0);
   }
@@ -3094,11 +3126,30 @@ function renderDebtorsStats() {
   }
 }
 
-// "📦 Stock on hold" filter on the Statements tab: when on, only customers with held stock are listed, the totals row
-// follows the list, and the Select-overdue button acts on that list only (its label says so).
+// Filters on the Statements tab's customer list. "📦 Stock on hold" and the four age buttons (0–30 / 31–60 / 61–90 / over
+// 90 days overdue) combine like this: the age buttons are OR'd with each other (anyone with something in ANY of the ticked
+// groups), and that is AND'd with Stock on hold. The totals row follows the list, and the Select button acts on the list
+// as shown (its label says so), so "filter → select → send / SMS" works on exactly who you can see.
 let statementsHoldOnly = false;
+const statementsAges = new Set();
+const STATEMENT_AGE_LABELS = ['0–30 days', '31–60 days', '61–90 days', 'Over 90 days'];
+function statementsAnyFilter() { return statementsHoldOnly || statementsAges.size > 0; }
+function statementsPass(d) {
+  if (statementsHoldOnly && !(d.holdTotal > 0)) return false;
+  if (statementsAges.size && ![...statementsAges].some((i) => (d['age' + i] || 0) > 0)) return false;
+  return true;
+}
 function toggleHoldOnly() {
   statementsHoldOnly = !statementsHoldOnly;
+  renderCustomersTable();
+}
+function toggleAgeFilter(i) {
+  if (statementsAges.has(i)) statementsAges.delete(i); else statementsAges.add(i);
+  renderCustomersTable();
+}
+function clearStatementFilters() {
+  statementsHoldOnly = false;
+  statementsAges.clear();
   renderCustomersTable();
 }
 
@@ -3109,8 +3160,16 @@ function renderCustomersTable() {
   holdBtn.textContent = `📦 Stock on hold (${debtors.filter((d) => d.holdTotal > 0).length})`;
   holdBtn.classList.toggle('on', statementsHoldOnly);
   holdBtn.setAttribute('aria-pressed', statementsHoldOnly ? 'true' : 'false');
-  document.getElementById('selectOverdueBtn').textContent = statementsHoldOnly ? 'Select Overdue On Hold' : 'Select All Overdue';
-  const shown = sortedDebtors().filter((d) => !statementsHoldOnly || d.holdTotal > 0);
+  for (const b of document.querySelectorAll('.age-filter-btn')) {
+    const i = Number(b.dataset.age);
+    b.textContent = `${STATEMENT_AGE_LABELS[i]} (${debtors.filter((d) => (d['age' + i] || 0) > 0).length})`;
+    b.classList.toggle('on', statementsAges.has(i));
+    b.setAttribute('aria-pressed', statementsAges.has(i) ? 'true' : 'false');
+  }
+  document.getElementById('clearFiltersBtn').style.display = statementsAnyFilter() ? '' : 'none';
+  const shown = sortedDebtors().filter(statementsPass);
+  const pickable = shown.filter((d) => d.overdue > 0 && d.id && !isQueued(d.id)).length;
+  document.getElementById('selectOverdueBtn').textContent = statementsAnyFilter() ? `Select Overdue Shown (${pickable})` : 'Select All Overdue';
 
   for (const th of document.querySelectorAll('#statementsView .debtors-table th.sortable')) {
     const arrow = th.querySelector('.sort-arrow');
@@ -3118,8 +3177,8 @@ function renderCustomersTable() {
   }
 
   els.customersRows.innerHTML = '';
-  if (statementsHoldOnly && shown.length === 0) {
-    els.customersRows.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">No customers have stock on hold right now.</td></tr>';
+  if (statementsAnyFilter() && shown.length === 0) {
+    els.customersRows.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:18px;">No customers match the filters you have picked.</td></tr>';
     return;
   }
   for (const d of shown) {
@@ -3165,7 +3224,9 @@ function renderCustomersTable() {
     acctTd.textContent = d.accountNumber ? `AM - C${d.accountNumber}` : '—';
 
     const emailTd = document.createElement('td');
+    emailTd.className = 'email-cell';
     emailTd.textContent = d.email || '—';
+    if (d.email) emailTd.title = d.email;   // long addresses are cut off with … in the list; hover shows it in full
 
     const holdTd = document.createElement('td');
     holdTd.className = 'num';
@@ -3187,6 +3248,15 @@ function renderCustomersTable() {
     overdueTd.textContent = fmtMoneyWithCurrency(d.overdue, d.country);
     if (d.overdue > 0) overdueTd.classList.add('overdue-amount');
 
+    const ageTds = [0, 1, 2, 3].map((i) => {
+      const td = document.createElement('td');
+      td.className = 'num age-col';
+      const v = d['age' + i] || 0;
+      td.textContent = v > 0 ? fmtMoney(v) : '—';
+      if (v > 0 && i >= 2) td.classList.add('overdue-amount');   // 61+ days late stands out
+      return td;
+    });
+
     const hideTd = document.createElement('td');
     hideTd.className = 'no-print';
     const hideBtn = document.createElement('button');
@@ -3203,6 +3273,7 @@ function renderCustomersTable() {
     tr.appendChild(holdTd);
     tr.appendChild(totalTd);
     tr.appendChild(overdueTd);
+    for (const td of ageTds) tr.appendChild(td);
     tr.appendChild(hideTd);
     els.customersRows.appendChild(tr);
   }
@@ -3212,16 +3283,18 @@ function renderCustomersTable() {
   const sumsByCurrency = new Map();
   for (const d of shown) {
     const cur = currencyFor(d.country);
-    if (!sumsByCurrency.has(cur)) sumsByCurrency.set(cur, { total: 0, overdue: 0, hold: 0 });
+    if (!sumsByCurrency.has(cur)) sumsByCurrency.set(cur, { total: 0, overdue: 0, hold: 0, age0: 0, age1: 0, age2: 0, age3: 0 });
     const s = sumsByCurrency.get(cur);
     s.total += d.total || 0;
     s.overdue += d.overdue || 0;
     s.hold += d.holdTotal || 0;
+    for (const k of ['age0', 'age1', 'age2', 'age3']) s[k] += d[k] || 0;
   }
-  const totalLine = (key) => Array.from(sumsByCurrency.entries()).map(([cur, s]) => `${fmtMoney(s[key])} ${cur}`).join(' + ');
+  // one currency per line — "AUD + NZD" on a single line made every amount column far too wide
+  const totalLine = (key) => Array.from(sumsByCurrency.entries()).map(([cur, s]) => `${fmtMoney(s[key])} ${cur}`).join('<br>');
   const totalTr = document.createElement('tr');
   totalTr.className = 'total-row';
-  totalTr.innerHTML = `<td></td><td>${statementsHoldOnly ? 'Total — stock on hold only' : 'Total'}</td><td></td><td></td><td class="num">${statementsHoldOnly ? totalLine('hold') : ''}</td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td><td class="no-print"></td>`;
+  totalTr.innerHTML = `<td></td><td>${statementsAnyFilter() ? `Total — ${shown.length} shown` : 'Total'}</td><td></td><td></td><td class="num">${statementsHoldOnly ? totalLine('hold') : ''}</td><td class="num">${totalLine('total')}</td><td class="num">${totalLine('overdue')}</td>${['age0', 'age1', 'age2', 'age3'].map((k) => `<td class="num age-col">${totalLine(k)}</td>`).join('')}<td class="no-print"></td>`;
   els.customersRows.appendChild(totalTr);
 }
 

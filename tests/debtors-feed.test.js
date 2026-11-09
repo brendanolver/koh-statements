@@ -23,6 +23,7 @@ const clientSrc = [
   extractFn(html, 'function xeroDate('),
   extractFn(html, 'function buildAgingBucketLabels('),
   extractFn(html, 'function invoiceBucketIndex('),
+  extractFn(html, 'function overdueGroup('),
   extractFn(html, 'async function buildDebtorsList('),
 ].join('\n');
 
@@ -59,7 +60,7 @@ const submittedInvoices = [
   ctx.fetchOutstandingCreditNotesOrgWide = async () => creditNotes;
   ctx.fetchContactsByIds = async () => [];
   vm.createContext(ctx);
-  vm.runInContext(clientSrc + '\nthis.__build = buildDebtorsList; this.__labels = () => AGING_BUCKET_LABELS;', ctx);
+  vm.runInContext(clientSrc + '\nthis.__build = buildDebtorsList; this.__labels = () => AGING_BUCKET_LABELS; this.__group = overdueGroup;', ctx);
   const clientRows = await ctx.__build();
   const clientLabels = ctx.__labels();
 
@@ -82,6 +83,16 @@ const submittedInvoices = [
     assert.strictEqual(s[id].creditCount, c[id].creditCount || 0, `${id} creditCount`);
   }
   assert.deepStrictEqual(rows.map((r) => r.contactId), clientRows.map((r) => r.contactId), 'sort order differs');
+
+  // Statements-tab age columns (client only — the WMS feed doesn't carry them): days past the DUE date, up to 30 /
+  // 31-60 / 61-90 / over 90, and always adding up to Overdue.
+  const r2 = (v) => Math.round(v * 100) / 100;
+  for (const id of Object.keys(c)) assert.strictEqual(r2(c[id].age0 + c[id].age1 + c[id].age2 + c[id].age3), r2(c[id].overdue), `${id} age groups must add up to overdue`);
+  assert.deepStrictEqual([c.a.age0, c.a.age1, c.a.age2, c.a.age3].map(r2), [400.55, 0, 0, 99.99], 'A: 1 day late, and 274 days late; due today is not counted');
+  assert.deepStrictEqual([c.b.age0, c.b.age1, c.b.age2, c.b.age3].map(r2), [0, 500, 10, 0], 'B: 33 days late, and 64 days late');
+  assert.deepStrictEqual([c.e.age0, c.e.age1, c.e.age2, c.e.age3].map(r2), [0, 0, 0, 75], 'E: 124 days late');
+  assert.deepStrictEqual([c.d.age0, c.d.age1, c.d.age2, c.d.age3], [0, 0, 0, 0], 'D owes nothing');
+  assert.strictEqual(JSON.stringify([-5, 0, 1, 30, 31, 60, 61, 90, 91, 400].map(ctx.__group)), JSON.stringify([null, null, 0, 0, 1, 1, 2, 2, 3, 3]), 'group boundaries');
 
   // spot-check the edge cases directly
   assert.strictEqual(s.a.overdue, 400.55 + 99.99, 'due-today must not count as overdue; due-yesterday must');
