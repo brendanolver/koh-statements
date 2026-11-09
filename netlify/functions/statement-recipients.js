@@ -2,7 +2,7 @@ const { statementRecipientsStore } = require('./lib/blob-store');
 
 // Keyed by customer name, uppercased+trimmed — same convention as
 // hidden-customers.js. Lets Brendan set a multi-recipient email list and/or
-// a greeting name once per customer and have it stick (server-side, so it
+// a greeting name (and a mobile for texts) once per customer and have it stick (server-side, so it
 // follows him across devices) instead of resetting to Xero's single
 // EmailAddress/FirstName every time the statement is reloaded.
 function normName(name) {
@@ -26,17 +26,25 @@ exports.handler = async (event) => {
         return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
       }
 
-      const { customerName, email, recipientName } = body;
+      const { customerName, email, recipientName, mobile } = body;
       const key = normName(customerName);
       if (!key) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Missing customerName' }) };
       }
 
       const map = (await store.get('recipient-map', { type: 'json' })) || {};
-      const trimmedEmail = (email || '').trim();
-      const trimmedName = (recipientName || '').trim();
-      if (trimmedEmail || trimmedName) {
-        map[key] = { email: trimmedEmail, recipientName: trimmedName };
+      // A save only changes the fields it actually sends: the email/name boxes save without a mobile, and saving a
+      // mobile (from the SMS dialog) must not wipe the email/name — so anything left out keeps its saved value.
+      const prev = map[key] || {};
+      const pick = (sent, saved) => (sent === undefined ? (saved || '') : String(sent || '').trim());
+      const entry = {
+        email: pick(email, prev.email),
+        recipientName: pick(recipientName, prev.recipientName),
+        mobile: pick(mobile, prev.mobile),
+      };
+      if (entry.email || entry.recipientName || entry.mobile) {
+        // keep the entry in its old shape (no mobile key) until a mobile exists
+        map[key] = entry.mobile ? entry : { email: entry.email, recipientName: entry.recipientName };
       } else {
         delete map[key];
       }

@@ -1061,6 +1061,36 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 @media (max-width: 640px) { #pnlView .pl-kpis { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { #drawingsView .dw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } #drawingsView .dw-card { overflow-x: auto; } }
 @media (max-width: 640px) { #drawingsView .dw-kpis { grid-template-columns: 1fr; } }
+
+/* ---- SMS dialog (Statements tab) ---- */
+.sms-modal { position: fixed; inset: 0; background: rgba(15,20,25,.45); z-index: 1000; display: none; align-items: flex-start; justify-content: center; padding: 5vh 16px; overflow-y: auto; }
+.sms-modal.open { display: flex; }
+.sms-card { background: #fff; color: var(--ink); width: 100%; max-width: 980px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3); display: flex; flex-direction: column; }
+.sms-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 4px; }
+.sms-head h3 { margin: 0; font-size: 17px; }
+.sms-x { border: none; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 8px; }
+.sms-sub { padding: 0 20px 12px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.sms-rows { padding: 0 20px; display: flex; flex-direction: column; gap: 10px; max-height: 58vh; overflow-y: auto; }
+.sms-row { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 210px) minmax(0, 1fr); gap: 14px; padding: 12px; border: 1px solid #e5e5e1; border-radius: 10px; align-items: start; }
+.sms-row.off { opacity: .62; }
+.sms-cust label { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; font-size: 13px; cursor: pointer; }
+.sms-meta { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; padding-left: 24px; }
+.sms-last { font-size: 11px; color: #b45309; margin-top: 4px; line-height: 1.4; padding-left: 24px; }
+.sms-num input { width: 100%; box-sizing: border-box; padding: 7px 9px; font-size: 14px; border: 1px solid #d8dbe0; border-radius: 6px; }
+.sms-num input.bad { border-color: #e0352b; }
+.sms-note { font-size: 11px; margin-top: 4px; line-height: 1.4; color: var(--muted); }
+.sms-note.ok { color: #12915a; } .sms-note.bad { color: #b42318; } .sms-note.warn { color: #b45309; }
+.sms-msg textarea { width: 100%; box-sizing: border-box; min-height: 88px; padding: 8px 10px; font-size: 13px; font-family: inherit; line-height: 1.45; border: 1px solid #d8dbe0; border-radius: 6px; resize: vertical; }
+.sms-count { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.sms-count.warn { color: #b45309; }
+.sms-result { font-size: 12px; margin-top: 6px; font-weight: 600; }
+.sms-result.ok { color: #12915a; } .sms-result.bad { color: #b42318; }
+.sms-foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; flex-wrap: wrap; }
+#smsSummary { flex: 1 1 220px; font-size: 13px; color: var(--muted); }
+#smsSummary.bad { color: #b42318; } #smsSummary.ok { color: #12915a; }
+.sms-tag { margin-left: 6px; font-size: 10px; font-weight: 600; color: #1d4ed8; background: #eaf1ff; border: 1px solid #c6d8fb; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+@media (max-width: 760px) { .sms-row { grid-template-columns: 1fr; } }
+@media print { .sms-modal { display: none !important; } }
 </style>
 </head>
 <body class="app-ui">
@@ -1108,10 +1138,25 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
       <span id="queueSummary"></span>
       <div style="display:flex; gap:8px;">
         <button id="downloadSelectedBtn" onclick="downloadQueueSelected()">Download Selected</button>
+        <button id="smsQueueBtn" onclick="openSmsForQueue()" title="Text the queued customers who are overdue — you check every number and message first">SMS Overdue…</button>
         <button class="primary" onclick="sendAllReady()">Send All Ready</button>
       </div>
     </div>
     <div id="queueList"></div>
+  </div>
+
+  <div id="smsModal" class="sms-modal no-print" onclick="if (event.target === this) closeSms()">
+    <div class="sms-card" role="dialog" aria-modal="true" aria-labelledby="smsTitle">
+      <div class="sms-head"><h3 id="smsTitle">Send SMS</h3><button class="sms-x" onclick="closeSms()" aria-label="Close">×</button></div>
+      <div class="sms-sub">Texts go out straight away from your Kudosity number, and customers' replies are forwarded to your email. Check each mobile and message first — you can edit both.</div>
+      <div id="smsRows" class="sms-rows"></div>
+      <div class="sms-foot">
+        <span id="smsSummary"></span>
+        <button onclick="smsTestSend()" title="Sends the first message to your own mobile, so you can see how it reads">Text me a test</button>
+        <button onclick="closeSms()">Close</button>
+        <button class="primary" id="smsSendBtn" onclick="smsSendAll()">Send 0 texts</button>
+      </div>
+    </div>
   </div>
 
   <div id="debtorsView" class="debtors-panel">
@@ -1232,6 +1277,7 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
     <span id="ccIndicator" class="send-status"></span>
     <span id="holdIndicator" class="send-status hold-note"></span>
     <button class="primary" id="sendBtn" onclick="sendCurrentStatement()">Send Statement</button>
+    <button id="smsBtn" onclick="openSmsForCurrent()" style="display:none" title="Text this customer about their overdue balance">Send SMS…</button>
     <span id="sendStatus" class="send-status"></span>
   </div>
 
@@ -1830,7 +1876,7 @@ async function fetchXeroJson(url) {
     await sleep(waitMs);
   }
 }
-const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV2'; // v2: added country field
+const CUSTOMER_CACHE_KEY = 'statementsAmCustomersV3'; // v3: added phone (v2: country)
 const CUSTOMER_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h, mirrors demandplanning's amCatalogV1 pattern
 
 // Bank details shown on the statement depend on the customer's country —
@@ -2131,7 +2177,7 @@ async function loadCustomers() {
       throw new Error(data.meta?.errors?.join(', ') || data.error || `AM customers fetch failed (${res.status})`);
     }
     const rows = data.response || [];
-    all.push(...rows.map((r) => ({ id: r.customer_id, accountNumber: r.account_number, name: r.customer_name, country: r.country })));
+    all.push(...rows.map((r) => ({ id: r.customer_id, accountNumber: r.account_number, name: r.customer_name, country: r.country, phone: r.phone })));
     lastId = data.meta?.pagination?.last_id;
     if (!lastId || rows.length === 0) break;
   }
@@ -3098,6 +3144,14 @@ function renderCustomersTable() {
       flag.title = `${d.creditCount} unreconciled credit note${d.creditCount === 1 ? '' : 's'} (${fmtMoneyWithCurrency(d.creditTotal, d.country)} unallocated)`;
       nameTd.appendChild(flag);
     }
+    const texted = smsLog[normName(d.name)];
+    if (texted && texted.at && Date.now() - Date.parse(texted.at) < 14 * 86400000) {
+      const tag = document.createElement('span');
+      tag.className = 'sms-tag';
+      tag.textContent = `📱 ${smsFmtDay(texted.at)}`;
+      tag.title = `Texted ${new Date(texted.at).toLocaleString('en-AU')} (${texted.to})${texted.count > 1 ? ` — ${texted.count} texts in all` : ''}`;
+      nameTd.appendChild(tag);
+    }
     if (d.id) {
       // Already on the Statements tab — no tab switch needed, unlike the
       // equivalent click from a Debtors-tab card.
@@ -3401,6 +3455,17 @@ async function sendDebtorsReport() {
   btn.disabled = false;
 }
 
+// Every number held for a customer, best first: Xero's mobile-typed numbers, then its other numbers, then
+// ApparelMagic's. Only a starting guess for the SMS dialog — which shows where it came from and lets Brendan fix it.
+function statementPhoneCandidates(xeroContact, customer) {
+  const phones = (xeroContact.Phones || []).filter((p) => p.PhoneNumber);
+  const rank = (p) => (p.PhoneType === 'MOBILE' ? 0 : 1);
+  const fromXero = phones.slice().sort((a, b) => rank(a) - rank(b))
+    .map((p) => ({ value: [p.PhoneCountryCode, p.PhoneAreaCode, p.PhoneNumber].filter(Boolean).join(' '), source: 'Xero' }));
+  const am = customers.find((c) => c.id === customer.id);
+  return am && am.phone ? [...fromXero, { value: am.phone, source: 'ApparelMagic' }] : fromXero;
+}
+
 // Builds the full data object a statement needs (join of AM invoices to
 // Xero balances) for one customer. Used both for the on-screen single
 // lookup and to background-prep each queued customer for a batch send —
@@ -3435,6 +3500,7 @@ async function buildStatementData(customer) {
 
   return {
     customerName: customer.name,
+    phoneCandidates: statementPhoneCandidates(xeroContact, customer),
     accountNumber: customer.accountNumber,
     country: customer.country,
     attn: sample.name || '',
@@ -3569,6 +3635,7 @@ function renderStatement(data) {
   els.recipientNameInput.value = data.recipientName || '';
   els.ccIndicator.textContent = (data.ccEmails && data.ccEmails.length) ? `+ CC: ${data.ccEmails.join(', ')}` : '';
   els.holdIndicator.textContent = holdEmailNote(data);
+  document.getElementById('smsBtn').style.display = overdue > 0 ? '' : 'none';
   setSendStatus('');
 }
 
@@ -3779,6 +3846,264 @@ async function sendCurrentStatement() {
   } finally {
     els.sendBtn.disabled = false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// SMS to overdue customers — one dialog for a single customer or the whole queue. The page checks each mobile and
+// message before it enables Send; netlify/functions/send-sms.js checks them again and talks to Kudosity. The wording
+// and the number rules live in netlify/functions/lib/sms.js (window.SMS), covered by tests/sms.test.js.
+// ---------------------------------------------------------------------------
+let smsLog = {};          // normName(customer) -> { at, to, count } — written by send-sms.js, only read here
+let smsRows = [];
+let smsBusy = false;
+const SMS_RECENT_MS = 3 * 86400000;   // texted within 3 days → starts unticked, with a warning
+
+async function loadSmsLog() {
+  try {
+    const res = await fetch('/.netlify/functions/send-sms');
+    if (res.ok) smsLog = await res.json();
+  } catch { /* non-fatal — the "texted" tags just don't show */ }
+}
+function smsFmtDay(iso) { return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); }
+function smsRecent(key) {
+  const e = smsLog[key];
+  return e && e.at && Date.now() - Date.parse(e.at) < SMS_RECENT_MS ? e : null;
+}
+
+// One customer's statement data → a row for the dialog, or null when nothing is overdue (nothing to chase).
+function smsRowFromData(data, recipientName) {
+  const key = normName(data.customerName);
+  const { overdue } = computeAging(data.invoices);
+  const currency = currencyFor(data.country);
+  const greet = recipientName || data.recipientName || data.contactFirstName || data.customerName;
+  const msg = SMS.buildMessage({ greet, overdue, holdTotal: data.holdTotal, currency });
+  if (!msg) return null;
+  const saved = (statementRecipientsMap[key] || {}).mobile || '';
+  const guess = saved ? null : SMS.suggestMobile(data.phoneCandidates, data.country);
+  return {
+    key, name: data.customerName, country: data.country, overdue, currency, holdTotal: data.holdTotal || 0,
+    mobile: saved || (guess ? guess.display : ''), source: saved ? 'saved' : guess ? guess.source : '',
+    onFile: saved || guess ? null : (data.phoneCandidates || [])[0] || null,   // e.g. only a landline is held
+    message: msg.text, include: false, sent: false, num: null, msgOk: true,
+  };
+}
+
+function openSmsForCurrent() {
+  if (!currentStatementData) return;
+  const row = smsRowFromData(currentStatementData, els.recipientNameInput.value.trim());
+  if (!row) { setSendStatus('Nothing is overdue for this customer, so there is nothing to text about.', true); return; }
+  openSmsDialog([row], `Text ${row.name}`);
+}
+
+function openSmsForQueue() {
+  const rows = queue.filter((q) => q.data && (q.status === 'ready' || q.status === 'sent'))
+    .map((q) => smsRowFromData(q.data, q.recipientName)).filter(Boolean)
+    .sort((a, b) => b.overdue - a.overdue);
+  if (!rows.length) { setStatus('None of the queued customers has anything overdue (or they are still loading).', true); return; }
+  openSmsDialog(rows, `Text overdue customers (${rows.length})`);
+}
+
+function openSmsDialog(rows, title) {
+  smsRows = rows;
+  document.getElementById('smsTitle').textContent = title;
+  document.getElementById('smsSummary').textContent = '';
+  document.getElementById('smsSummary').className = '';
+  smsRender();
+  document.getElementById('smsModal').classList.add('open');
+}
+
+function closeSms() {
+  if (smsBusy) return;
+  document.getElementById('smsModal').classList.remove('open');
+  renderCustomersTable(); // pick up any new "texted" tags
+}
+
+function smsEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function smsRender() {
+  const box = document.getElementById('smsRows');
+  box.innerHTML = '';
+  for (const r of smsRows) {
+    const row = smsEl('div', 'sms-row');
+
+    const c1 = smsEl('div', 'sms-cust');
+    const label = smsEl('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.onchange = () => { r.include = cb.checked; smsUpdateRow(r); };
+    label.append(cb, smsEl('span', '', r.name));
+    c1.appendChild(label);
+    c1.appendChild(smsEl('div', 'sms-meta', `Overdue ${fmtMoney(r.overdue)} ${r.currency}` + (r.holdTotal > 0 ? ` · 📦 ${fmtMoney(r.holdTotal)} on hold` : '')));
+    const recent = smsLog[r.key];
+    if (recent && recent.at) {
+      const when = `📱 Texted ${smsFmtDay(recent.at)}${recent.count > 1 ? ` (${recent.count} times in all)` : ''}`;
+      c1.appendChild(smsEl('div', 'sms-last', smsRecent(r.key) ? `${when} — recently, so it starts unticked` : when));
+    }
+
+    const c2 = smsEl('div', 'sms-num');
+    const input = document.createElement('input');
+    input.type = 'tel';
+    input.placeholder = 'Mobile, e.g. 0412 345 678';
+    input.value = r.mobile;
+    input.oninput = () => { r.mobile = input.value; r.source = ''; r.onFile = null; smsUpdateRow(r); };
+    input.onchange = () => smsPersistMobile(r);
+    const note = smsEl('div', 'sms-note');
+    c2.append(input, note);
+
+    const c3 = smsEl('div', 'sms-msg');
+    const ta = document.createElement('textarea');
+    ta.value = r.message;
+    ta.oninput = () => { r.message = ta.value; smsUpdateRow(r); };
+    const count = smsEl('div', 'sms-count');
+    const result = smsEl('div', 'sms-result');
+    c3.append(ta, count, result);
+
+    row.append(c1, c2, c3);
+    box.appendChild(row);
+    r.els = { row, cb, input, note, ta, count, result };
+    r.include = smsCanSend(r) && !smsRecent(r.key);   // a good number and message, and not texted in the last 3 days
+    smsUpdateRow(r);
+  }
+}
+
+function smsCanSend(r) {
+  r.num = SMS.normaliseMobile(r.mobile, r.country);
+  r.msgOk = SMS.validateMessage(r.message).ok;
+  return r.num.ok && r.msgOk && !r.sent;
+}
+
+function smsUpdateRow(r) {
+  const can = smsCanSend(r);
+  const e = r.els;
+  if (!can) r.include = false;
+  e.cb.disabled = !can || smsBusy;
+  e.cb.checked = r.include;
+  e.row.classList.toggle('off', !r.include);
+  e.input.classList.toggle('bad', !!r.mobile.trim() && !r.num.ok);
+
+  const sourceText = r.source === 'saved' ? ' · saved for this customer' : r.source ? ` · suggested from ${r.source} — check it` : '';
+  if (r.num.ok) { e.note.className = 'sms-note ok'; e.note.textContent = `✓ ${r.num.display}${sourceText}`; }
+  else if (!r.mobile.trim() && r.onFile) { e.note.className = 'sms-note warn'; e.note.textContent = `Only ${r.onFile.value} (${r.onFile.source}) on file, and it isn't a mobile — enter their mobile`; }
+  else { e.note.className = 'sms-note bad'; e.note.textContent = r.mobile.trim() ? r.num.note : 'Enter their mobile number'; }
+
+  const seg = SMS.segments(r.message);
+  const v = SMS.validateMessage(r.message);
+  e.count.className = 'sms-count' + (seg.unicode || !v.ok ? ' warn' : '');
+  e.count.textContent = v.ok
+    ? `${seg.chars} characters · ${seg.parts} text${seg.parts === 1 ? '' : 's'}${seg.unicode ? ' · emoji or fancy punctuation make a text shorter and dearer' : ''}`
+    : v.reason;
+  smsUpdateFoot();
+}
+
+function smsUpdateFoot() {
+  const ready = smsRows.filter((r) => r.include && r.num && r.num.ok && r.msgOk && !r.sent);
+  const parts = ready.reduce((t, r) => t + SMS.segments(r.message).parts, 0);
+  const btn = document.getElementById('smsSendBtn');
+  btn.textContent = `Send ${ready.length} text${ready.length === 1 ? '' : 's'}`;
+  btn.disabled = smsBusy || ready.length === 0;
+  const sum = document.getElementById('smsSummary');
+  if (!sum.className) sum.textContent = `${smsRows.length} customer${smsRows.length === 1 ? '' : 's'} overdue · ${ready.length} ticked to send${ready.length ? ` (${parts} text part${parts === 1 ? '' : 's'} in all)` : ''}`;
+}
+function smsSummary(msg, cls) {
+  const sum = document.getElementById('smsSummary');
+  sum.textContent = msg;
+  sum.className = cls || '';
+}
+
+// Remembers the mobile Brendan typed (or confirmed) for a customer, next to their email and greeting name.
+async function smsPersistMobile(r) {
+  const n = SMS.normaliseMobile(r.mobile, r.country);
+  if (r.mobile.trim() && !n.ok) return;                 // never save something that isn't a mobile
+  const value = n.ok ? n.display : '';
+  if (((statementRecipientsMap[r.key] || {}).mobile || '') === value) return;
+  try {
+    const res = await fetch('/.netlify/functions/statement-recipients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerName: r.name, mobile: value }),
+    });
+    if (!res.ok) throw new Error(`Save failed (${res.status})`);
+    statementRecipientsMap[r.key] = Object.assign({}, statementRecipientsMap[r.key], { mobile: value });
+    if (!value && statementRecipientsMap[r.key] && !statementRecipientsMap[r.key].email && !statementRecipientsMap[r.key].recipientName) delete statementRecipientsMap[r.key];
+    if (n.ok) r.source = 'saved';
+    if (r.els) smsUpdateRow(r);
+  } catch { /* non-fatal — they'll just be asked to confirm the number again next time */ }
+}
+
+async function smsPost(payload) {
+  const res = await fetch('/.netlify/functions/send-sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Send failed (${res.status})`);
+  return data;
+}
+
+async function smsSendAll() {
+  if (smsBusy) return;
+  const todo = smsRows.filter((r) => r.include && smsCanSend(r));
+  if (!todo.length) return;
+  const names = todo.slice(0, 8).map((r) => `• ${r.name} — ${r.num.display}`).join('\n') + (todo.length > 8 ? `\n…and ${todo.length - 8} more` : '');
+  const recent = todo.filter((r) => smsRecent(r.key));
+  const warn = recent.length ? `\n\n${recent.length === 1 ? `${recent[0].name} was` : `${recent.length} of these were`} already texted in the last 3 days.` : '';
+  if (!window.confirm(`Send ${todo.length} text${todo.length === 1 ? '' : 's'} now?\n\n${names}${warn}\n\nThey go out immediately and can't be recalled.`)) return;
+
+  smsBusy = true;
+  smsSummary('Sending…');
+  let sent = 0, failed = 0;
+  for (const r of todo) {
+    r.els.result.className = 'sms-result';
+    r.els.result.textContent = 'Sending…';
+    try {
+      const out = await smsPost({ customerName: r.name, to: r.mobile, message: r.message, country: r.country });
+      r.sent = true; r.include = false; sent++;
+      const prev = smsLog[r.key] || {};
+      smsLog[r.key] = { at: out.at, to: r.num.e164, count: (prev.count || 0) + 1 };
+      r.els.result.className = 'sms-result ok';
+      r.els.result.textContent = `Sent ✓ to ${out.to}`;
+      r.els.input.disabled = true; r.els.ta.disabled = true;
+      await smsPersistMobile(r);
+    } catch (err) {
+      failed++;
+      r.els.result.className = 'sms-result bad';
+      r.els.result.textContent = `Not sent: ${err.message}`;
+    }
+    await new Promise((res) => setTimeout(res, 400)); // small gap between texts
+  }
+  smsBusy = false;
+  smsRows.forEach(smsUpdateRow);
+  smsSummary(`${sent} text${sent === 1 ? '' : 's'} sent${failed ? `, ${failed} not sent — see the red messages` : ' ✓'}`, failed ? 'bad' : 'ok');
+}
+
+// Sends the first row's message to Brendan's own mobile, so the wording and the Kudosity set-up can be checked
+// without texting a customer. Test texts aren't logged against anyone but do count towards the daily limit.
+async function smsTestSend() {
+  if (smsBusy || !smsRows.length) return;
+  const row = smsRows.find((r) => r.include && r.msgOk) || smsRows.find((r) => r.msgOk) || smsRows[0];
+  let mine = '';
+  try { mine = localStorage.getItem('smsTestMobile') || ''; } catch {}
+  const answer = window.prompt('Send a test text to which mobile? (your own)', mine);
+  if (answer === null) return;
+  const n = SMS.normaliseMobile(answer, 'Australia');
+  if (!n.ok) { smsSummary(`That doesn't work as a mobile: ${n.note}`, 'bad'); return; }
+  try { localStorage.setItem('smsTestMobile', n.display); } catch {}
+  smsBusy = true;
+  smsSummary('Sending the test…');
+  try {
+    const out = await smsPost({ to: n.display, message: `TEST: ${row.message}`, country: 'Australia', test: true });
+    smsSummary(`Test sent to ${out.to} ✓ (${out.parts || 1} text part${out.parts === 1 ? '' : 's'})`, 'ok');
+  } catch (err) {
+    smsSummary(`Test not sent: ${err.message}`, 'bad');
+  }
+  smsBusy = false;
+  smsRows.forEach(smsUpdateRow);
 }
 
 function setSendStatus(msg, isError) {
@@ -4673,6 +4998,7 @@ async function init() {
   // needs this in place to apply a saved email/name override instead of
   // Xero's default.
   await loadStatementRecipientsMap();
+  loadSmsLog().then(renderCustomersTable); // for the "texted" tags — not needed before anything else can happen
   try {
     await loadCustomers();
   } catch (err) {
@@ -6266,6 +6592,7 @@ loadPlaceholderSeq();
 <script src="pnl-report.js"></script>
 <script src="amex-import.js"></script>
 <script src="debtor-days.js"></script>
+<script src="netlify/functions/lib/sms.js"></script>
 <script src="cashflow-engine.js"></script>
 <script src="cashflow-history.js"></script>
 <script>

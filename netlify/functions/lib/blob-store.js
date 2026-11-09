@@ -71,9 +71,14 @@ function amexRulesStore() {
   return namedStore('amex-rules');
 }
 
+// Statements tab: who has been texted and when (written by send-sms.js, never by the page).
+function smsLogStore() {
+  return namedStore('sms-log');
+}
+
 // Snapshot of the Xero-derived debtors rows served by debtors-feed.js.
 function debtorsFeedStore() {
   return namedStore('debtors-feed');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, amexRulesStore, debtorsFeedStore };
+module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, amexRulesStore, smsLogStore, debtorsFeedStore };
