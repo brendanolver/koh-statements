@@ -5772,6 +5772,8 @@ function showPwMode(mode) {
   if (first && mode !== 'setup') first.focus();
 }
 function showLogin(msg) {
+  // Email sign-in isn't switched on yet (no SESSION_SECRET in Netlify) and nothing is locked: show the old password box, not an error.
+  if (!APP.configured && !APP.enforced) { showPwMode('legacy'); return; }
   showPwMode('signin');
   const e = document.getElementById('pw-signin-error');
   if (!APP.configured) msg = 'Email sign-in is not switched on yet (the site is missing its SESSION_SECRET).';
