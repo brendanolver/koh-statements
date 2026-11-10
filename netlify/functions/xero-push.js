@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { getValidConnection } = require('./lib/xero-auth');
 
 const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0';
@@ -304,7 +305,7 @@ async function createBankTransactions(connection, { accountCode, items }) {
 
 const ACTIONS = { findOrCreateContact, checkBillExists, createBill, listBankTransactions, createBankTransactions };
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, body: JSON.stringify({ error: 'POST only' }) };
@@ -339,3 +340,6 @@ exports.handler = async (event) => {
     return { statusCode: 502, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['bills', 'amex'], handler);

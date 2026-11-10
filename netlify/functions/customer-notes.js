@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { customerNotesStore } = require('./lib/blob-store');
 
 // Brendan's own notes about a customer's account ("Promised payment Friday", "Customer disputing invoice", "Usually pays
@@ -22,7 +23,7 @@ function validDate(s) {
   return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;   // rejects 2026-02-31 and the like
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = customerNotesStore();
 
@@ -62,3 +63,6 @@ exports.handler = async (event) => {
     return json(500, { error: err.message });
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['debtors', 'statements'], handler);

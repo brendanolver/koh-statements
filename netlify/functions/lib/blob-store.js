@@ -86,4 +86,12 @@ function debtorsFeedStore() {
   return namedStore('debtors-feed');
 }
 
-module.exports = { xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, amexRulesStore, smsLogStore, customerNotesStore, debtorsFeedStore };
+// Sign-in: the people who can use the Finance Hub (one document — see lib/auth.js) and the failed-login / link-request counters.
+function usersStore() {
+  return namedStore('users');
+}
+function authAttemptsStore() {
+  return namedStore('auth-attempts');
+}
+
+module.exports = { usersStore, authAttemptsStore, xeroTokenStore, debtorStatusStore, commissionEmailsStore, billsCounterStore, debtorsReportRecipientsStore, hiddenCustomersStore, statementRecipientsStore, wagesHoursStore, cashflowCacheStore, cashflowInputsStore, pnlSettingsStore, amexRulesStore, smsLogStore, customerNotesStore, debtorsFeedStore };

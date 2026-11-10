@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { cashflowCacheStore } = require('./lib/blob-store');
 
 // Shopify online (DTC) sales history for the Cashflow forecast — daily order
@@ -97,7 +98,7 @@ async function readWindow(cfg, fromIso, toIso, part, timeLeft) {
   }
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   const t0 = Date.now();
   const timeLeft = () => TIME_BUDGET_MS - (Date.now() - t0);
   try {
@@ -156,3 +157,6 @@ exports.handler = async (event) => {
 };
 
 exports._addDays = addDays;
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['cashflow'], handler);

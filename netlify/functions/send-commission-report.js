@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { pdfFromSource } = require('./lib/pdf');
 const { buildCommissionReportHtml, fmtMoney } = require('./lib/commission-report-html');
 
@@ -70,7 +71,7 @@ async function sendEmail({ agentName, greetingName, recipientEmails, monthLabel,
   return data;
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, body: JSON.stringify({ error: 'POST only' }) };
@@ -107,3 +108,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['commission'], handler);

@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const SMS = require('./lib/sms');
 const { smsLogStore } = require('./lib/blob-store');
 
@@ -45,7 +46,7 @@ function friendlyError(error) {
   return `Kudosity: ${code}${desc ? ` — ${desc}` : ''}`;
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = smsLogStore();
 
@@ -136,3 +137,6 @@ exports.handler = async (event) => {
     return json(500, { error: err.message });
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['statements', 'debtors'], handler);

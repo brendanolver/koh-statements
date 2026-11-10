@@ -1,10 +1,11 @@
+const { withAuth } = require('./lib/auth');
 const { pdfFromSource } = require('./lib/pdf');
 const { buildCommissionReportHtml } = require('./lib/commission-report-html');
 
 // Direct-download counterpart to send-commission-report.js's PDF
 // attachment — same html builder, so the downloaded file and the emailed
 // attachment are always byte-identical. No recipient/send involved here.
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, body: JSON.stringify({ error: 'POST only' }) };
@@ -41,3 +42,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['commission'], handler);

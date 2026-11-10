@@ -1,9 +1,10 @@
+const { withAuth } = require('./lib/auth');
 const { debtorsReportRecipientsStore } = require('./lib/blob-store');
 
 // One shared staff recipient list, not per-entity like commission-emails.js's
 // per-agent map — just a single remembered comma-separated string so Brendan
 // doesn't have to retype the same internal addresses every time.
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = debtorsReportRecipientsStore();
 
@@ -28,3 +29,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['debtors'], handler);

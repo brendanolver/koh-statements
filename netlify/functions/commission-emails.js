@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { commissionEmailsStore } = require('./lib/blob-store');
 
 // Mirrors debtor-status.js: one shared JSON blob, GET returns the
@@ -5,7 +6,7 @@ const { commissionEmailsStore } = require('./lib/blob-store');
 // entries saved before greeting names were remembered), POST upserts a single entry — server-side so a saved
 // multi-recipient list follows Brendan across browsers/devices instead of
 // being stuck in whichever one he typed it into.
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = commissionEmailsStore();
 
@@ -51,3 +52,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['commission'], handler);

@@ -217,7 +217,7 @@
     border: none;
     border-radius: 8px;
     background: transparent;
-    padding: 7px 18px;
+    padding: 7px 14px;
     font-size: 13px;
     font-weight: 500;
     color: #9a9ca5;
@@ -1272,6 +1272,54 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
   #cashflowView .cfd-sp-all input { width: 112px; }
   #cashflowView .cfd-ob-when { grid-column: 1 / -1; justify-content: flex-start; }
 }
+
+/* ── Sign-in extras and the Settings tab ───────────────────────────────────────────────────────────────────────────────── */
+.pw-keep { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; cursor: pointer; font-size: 13px; color: var(--muted); text-align: left; }
+.pw-keep input { width: 15px; height: 15px; accent-color: var(--accent); }
+.pw-links { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
+.pw-links a { color: var(--accent); text-decoration: none; } .pw-links a:hover { text-decoration: underline; }
+.pw-note { font-size: 12.5px; color: var(--muted); margin-top: 12px; line-height: 1.5; text-align: left; }
+.pw-submit:disabled { opacity: .6; cursor: default; transform: none; }
+.user-chip { display: flex; align-items: center; gap: 6px; color: #b9b9b9; font-size: 12.5px; white-space: nowrap; flex: 0 0 auto; }
+.user-chip #userChipName { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.user-chip button { background: transparent; border: 1px solid #3a3a3a; color: #d8d8d8; border-radius: 6px; padding: 4px 9px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.user-chip button:hover { border-color: #888; color: #fff; }
+#usersView .us-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
+#usersView .us-head { margin-bottom: 14px; }
+#usersView .us-title { font-size: 22px; font-weight: 650; letter-spacing: -.3px; }
+#usersView .us-sub, #usersView .us-sub2 { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+#usersView .us-sub2 { font-size: 11.5px; margin-left: 6px; }
+#usersView .us-h { font-size: 15px; font-weight: 650; margin: 22px 0 8px; }
+#usersView .us-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); padding: 4px 6px; margin-bottom: 14px; }
+#usersView .us-scroll { overflow-x: auto; }
+#usersView .us-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#usersView .us-table th { text-align: left; font-size: 11px; letter-spacing: .03em; font-weight: 600; color: var(--muted); padding: 12px 12px 8px; white-space: nowrap; }
+#usersView .us-table td { padding: 11px 12px; border-top: 1px solid #f0f0ec; vertical-align: middle; }
+#usersView .us-table tr.us-dim td { opacity: .55; }
+#usersView .us-actions { text-align: right; white-space: nowrap; }
+#usersView .us-actions a { color: #4f46e5; font-size: 12.5px; text-decoration: none; margin-left: 14px; }
+#usersView .us-actions a:hover { text-decoration: underline; }
+#usersView .us-actions a.us-danger { color: #b42318; }
+#usersView .us-chip { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+#usersView .us-chip.ok { background: #e1f3ea; color: #0f6b46; } #usersView .us-chip.wait { background: #fff1d6; color: #8a5a07; } #usersView .us-chip.off { background: #eceef0; color: #5b616a; }
+#usersView .us-matrix th { text-align: center; } #usersView .us-matrix th:first-child { text-align: left; }
+#usersView .us-matrix td { text-align: center; } #usersView .us-matrix td.us-who { text-align: left; white-space: nowrap; }
+#usersView .us-matrix input[type=checkbox] { width: 16px; height: 16px; accent-color: #4f46e5; cursor: pointer; }
+#usersView .us-matrix input[type=checkbox]:disabled { cursor: default; opacity: .6; }
+#usersView .us-quick { margin-left: 8px; font-size: 11.5px; color: var(--muted); } #usersView .us-quick a { color: #4f46e5; text-decoration: none; }
+#usersView .us-edit input, #usersView .us-edit select, #usersView .us-addrow input, #usersView .us-addrow select, .us-dialog input { padding: 8px 10px; font-size: 13px; border: 1px solid #d8dbe0; border-radius: 6px; font-family: inherit; min-width: 0; width: 100%; box-sizing: border-box; background: #fff; }
+#usersView .us-add { padding: 14px 16px; }
+#usersView .us-addtitle, .us-dialog .us-addtitle { font-weight: 650; font-size: 14px; margin-bottom: 10px; }
+#usersView .us-addrow { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.5fr) minmax(0, 1.3fr) auto; gap: 10px; margin-bottom: 8px; }
+#usersView .us-msg, .us-dialog .us-msg { font-size: 13px; padding: 9px 13px; border-radius: 8px; margin-bottom: 12px; }
+#usersView .us-msg.ok { background: #e8f6ef; color: #0f6b46; } #usersView .us-msg.err, .us-dialog .us-msg.err { background: #fdecea; color: #b42318; }
+#usersView .us-link { background: #fff4e0; border: 1px solid #f3d9a6; border-radius: 10px; padding: 11px 14px; font-size: 13px; margin-bottom: 12px; }
+#usersView .us-linkrow { display: flex; gap: 8px; margin: 8px 0 4px; } #usersView .us-linkrow input { flex: 1; padding: 8px 10px; font-size: 12.5px; border: 1px solid #d8dbe0; border-radius: 6px; font-family: var(--font-mono); }
+.us-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 10000; padding: 16px; }
+.us-dialog { background: #fff; border-radius: 14px; padding: 22px 22px 18px; width: 100%; max-width: 380px; box-shadow: 0 24px 48px rgba(0,0,0,.35); }
+.us-dialog input { margin-bottom: 10px; }
+.us-dialogbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+@media (max-width: 860px) { #usersView .us-addrow { grid-template-columns: minmax(0, 1fr); } #usersView .us-wrap { padding: 16px 12px 50px; } .pw-card { padding: 34px 24px; } }
 </style>
 </head>
 <body class="app-ui">
@@ -1280,17 +1328,50 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
   <div class="pw-card">
     <div class="pw-logo"><img src="https://koh-statements.netlify.app/logo.png" alt="KOH Industries"></div>
     <div class="pw-title">KOH Finance Hub</div>
-    <div class="pw-sub">Enter your password to access the dashboard</div>
-    <div class="pw-input-wrap">
-      <input class="pw-input" type="password" id="pw-input" placeholder="Password" onkeydown="if(event.key==='Enter')checkPassword()">
-      <button type="button" class="pw-toggle" id="pw-toggle-btn" onclick="togglePwVisibility(event)">👁</button>
+
+    <div id="pwSignin" style="display:none">
+      <div class="pw-sub">Sign in with your email and password</div>
+      <div class="pw-input-wrap"><input class="pw-input" type="email" id="pw-email" placeholder="Email" autocomplete="username" onkeydown="if(event.key==='Enter')document.getElementById('pw-pass').focus()"></div>
+      <div class="pw-input-wrap">
+        <input class="pw-input" type="password" id="pw-pass" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')signIn()">
+        <button type="button" class="pw-toggle" onclick="togglePwVisibility(event)">👁</button>
+      </div>
+      <label class="pw-keep"><input type="checkbox" id="pw-keep"> Keep me signed in on this device</label>
+      <button class="pw-submit" id="pwSigninBtn" onclick="signIn()">Sign in →</button>
+      <div class="pw-error" id="pw-signin-error"></div>
+      <div class="pw-links"><a href="#" onclick="showPwMode('link');return false">Forgot your password, or first time here?</a><span id="pwLegacyLink" style="display:none"> · <a href="#" onclick="showPwMode('legacy');return false">Use the shared password</a></span></div>
     </div>
-    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer;font-size:13px;color:var(--muted);">
-      <input type="checkbox" id="pw-remember" style="width:15px;height:15px;accent-color:var(--accent);">
-      Remember me on this device
-    </label>
-    <button class="pw-submit" onclick="checkPassword()">Access Dashboard →</button>
-    <div class="pw-error" id="pw-error">Incorrect password. Please try again.</div>
+
+    <div id="pwLink" style="display:none">
+      <div class="pw-sub">Enter your email and we will send you a link to set or reset your password</div>
+      <div class="pw-input-wrap"><input class="pw-input" type="email" id="pw-link-email" placeholder="Email" autocomplete="username" onkeydown="if(event.key==='Enter')requestLink()"></div>
+      <button class="pw-submit" id="pwLinkBtn" onclick="requestLink()">Email me a link →</button>
+      <div class="pw-note" id="pwLinkMsg"></div>
+      <div class="pw-links"><a href="#" onclick="showPwMode('signin');return false">← Back to sign in</a></div>
+    </div>
+
+    <div id="pwSetup" style="display:none">
+      <div class="pw-sub" id="pwSetupHello">Checking your link…</div>
+      <div id="pwSetupForm" style="display:none">
+        <div class="pw-input-wrap"><input class="pw-input" type="password" id="pw-new1" placeholder="Choose a password (10+ characters)" autocomplete="new-password"><button type="button" class="pw-toggle" onclick="togglePwVisibility(event)">👁</button></div>
+        <div class="pw-input-wrap"><input class="pw-input" type="password" id="pw-new2" placeholder="Type it again" autocomplete="new-password" onkeydown="if(event.key==='Enter')completeSetup()"></div>
+        <button class="pw-submit" id="pwSetupBtn" onclick="completeSetup()">Set password and sign in →</button>
+        <div class="pw-error" id="pw-setup-error"></div>
+      </div>
+      <div id="pwSetupAgain" style="display:none"><button class="pw-submit" onclick="showPwMode('link')">Get a new link →</button></div>
+    </div>
+
+    <div id="pwLegacy" style="display:none">
+      <div class="pw-sub">Enter the shared password (this stops working once sign-in is switched on)</div>
+      <div class="pw-input-wrap">
+        <input class="pw-input" type="password" id="pw-input" placeholder="Password" onkeydown="if(event.key==='Enter')checkPassword()">
+        <button type="button" class="pw-toggle" onclick="togglePwVisibility(event)">👁</button>
+      </div>
+      <label class="pw-keep"><input type="checkbox" id="pw-remember"> Remember me on this device</label>
+      <button class="pw-submit" onclick="checkPassword()">Access Dashboard →</button>
+      <div class="pw-error" id="pw-error">Incorrect password. Please try again.</div>
+      <div class="pw-links"><a href="#" onclick="showPwMode('signin');return false">← Back to email sign-in</a></div>
+    </div>
   </div>
 </div>
 
@@ -1310,7 +1391,9 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
         <button class="tab-btn" data-tab="drawings" onclick="switchTab('drawings')">Drawings</button>
         <button class="tab-btn" data-tab="pnl" onclick="switchTab('pnl')">P&amp;L</button>
         <button class="tab-btn" data-tab="amex" onclick="switchTab('amex')">Amex Import</button>
+        <button class="tab-btn" data-tab="settings" id="settingsTabBtn" onclick="switchTab('settings')" style="display:none">Settings</button>
       </nav>
+      <div class="user-chip" id="userChip" style="display:none"><span id="userChipName"></span><button type="button" onclick="openMyAccount()">Password</button><button type="button" onclick="signOut()">Sign out</button></div>
     </div>
   </header>
 
@@ -2021,6 +2104,8 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
   <div class="pl-card" id="plCard"><table class="pl-table" id="plTable"></table></div>
   <div class="pl-note" id="plNote"></div>
 </div>
+<div id="usersView" style="display:none;"></div>
+
 <div id="amexView" style="display:none;">
   <div class="ax-head">
     <div>
@@ -3074,6 +3159,8 @@ async function clearAllMarks() {
 }
 
 function switchTab(tab) {
+  if (tab === 'settings' ? !isAdmin() : !can(tab)) return; // not a section this person has been given (the server refuses it too)
+  document.getElementById('usersView').style.display = tab === 'settings' ? 'block' : 'none';
   document.getElementById('debtorsView').style.display = tab === 'debtors' ? 'block' : 'none';
   document.getElementById('statementsView').style.display = tab === 'statements' ? 'block' : 'none';
   document.getElementById('billsView').style.display = tab === 'bills' ? 'block' : 'none';
@@ -3096,6 +3183,7 @@ function switchTab(tab) {
   if (tab === 'drawings' && typeof loadDrawings === 'function') loadDrawings();
   if (tab === 'pnl' && typeof loadPnl === 'function') loadPnl();
   if (tab === 'amex' && typeof loadAmexTab === 'function') loadAmexTab();
+  if (tab === 'settings') loadUsersView();
 }
 
 function openStatementFor(customerLike) {
@@ -5626,41 +5714,156 @@ function renderWages() {
 }
 
 async function init() {
-  switchTab('debtors');
-  document.getElementById('commissionMonth').value = defaultCommissionMonthValue();
-  // Awaited before loadCustomers/loadDebtors — both feed customer pickers
-  // (search, cards, tables) that should never flash an about-to-be-hidden
-  // customer before this tiny GET has a chance to land.
-  await loadHiddenCustomersMap();
-  renderHiddenPanel();
-  // Also awaited before any statement can be built — buildStatementData
-  // needs this in place to apply a saved email/name override instead of
-  // Xero's default.
-  await loadStatementRecipientsMap();
-  Promise.all([loadSmsLog(), loadSmsNotes()]).then(() => { renderCustomersTable(); refreshSmsHistLink(); }); // for the "texted" tags and notes — not needed before anything else can happen
-  try {
-    await loadCustomers();
-  } catch (err) {
-    setStatus(`Failed to load customers: ${err.message}`, true);
+  const first = firstAllowedTab();
+  if (first) switchTab(first);
+  else { document.getElementById('usersView').style.display = 'block'; document.getElementById('usersView').innerHTML = '<div class="us-wrap"><div class="us-card">You have not been given access to any section yet. Ask an Admin to tick the sections you need.</div></div>'; return; }
+  if (can('commission')) document.getElementById('commissionMonth').value = defaultCommissionMonthValue();
+  const ds = can('debtors') || can('statements');
+  if (ds) {
+    // Awaited before loadCustomers/loadDebtors — both feed customer pickers
+    // (search, cards, tables) that should never flash an about-to-be-hidden
+    // customer before this tiny GET has a chance to land.
+    await loadHiddenCustomersMap();
+    renderHiddenPanel();
   }
-  loadDebtors(); // needs the AM customer cache above for account-number matching
-  loadDebtorsReportEmails();
+  if (ds) {
+    // Also awaited before any statement can be built — buildStatementData
+    // needs this in place to apply a saved email/name override instead of
+    // Xero's default.
+    await loadStatementRecipientsMap();
+  }
+  if (ds) Promise.all([loadSmsLog(), loadSmsNotes()]).then(() => { renderCustomersTable(); refreshSmsHistLink(); }); // for the "texted" tags and notes — not needed before anything else can happen
+  if (ds || can('commission')) {
+    try {
+      await loadCustomers();
+    } catch (err) {
+      setStatus(`Failed to load customers: ${err.message}`, true);
+    }
+  }
+  if (ds) loadDebtors(); // needs the AM customer cache above for account-number matching
+  if (can('debtors')) loadDebtorsReportEmails();
 }
 
-// Client-side password gate, not real security (this is a single static
-// HTML file — anyone can read the check straight out of the page source),
-// just a lightweight lock so the app isn't sitting wide open at a guessable
-// URL. Same pattern/password as the demandplanning app (wndrr_auth flag).
+// ── Sign-in, sections and Settings ───────────────────────────────────────────────────────────────────────────────────────────
+// People sign in with their own email and password (netlify/functions/auth.js). What they see is decided by the sections an Admin
+// has ticked for them in Settings; the server checks the same thing on every request, so hiding a tab here is for tidiness — the
+// real lock is on the functions. Until sign-in is switched on in Netlify (AUTH_ENFORCE=1) the old shared password still opens
+// the page, with full access and no Settings, so the switch-over can be done calmly.
+const APP = { user: null, legacy: false, enforced: false, configured: true };
+const APP_TABS = ['debtors', 'statements', 'bills', 'commission', 'wages', 'cashflow', 'drawings', 'pnl', 'amex'];
+const can = (m) => APP.legacy || !!(APP.user && APP.user.modules && APP.user.modules.includes(m));
+const isAdmin = () => !!(APP.user && APP.user.role === 'admin');
+const firstAllowedTab = () => APP_TABS.find(can) || (isAdmin() ? 'settings' : null);
+const AUTH_URL = '/.netlify/functions/auth';
+const USERS_URL = '/.netlify/functions/users';
+
+async function authCall(body) {
+  const res = await fetch(AUTH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let data = {};
+  try { data = await res.json(); } catch (e) { data = {}; }
+  return { ok: res.ok, status: res.status, data };
+}
+
+function showPwMode(mode) {
+  const ids = { signin: 'pwSignin', link: 'pwLink', setup: 'pwSetup', legacy: 'pwLegacy' };
+  for (const k of Object.keys(ids)) document.getElementById(ids[k]).style.display = k === mode ? 'block' : 'none';
+  document.getElementById('password-screen').style.display = '';
+  const first = document.getElementById(ids[mode]).querySelector('input:not([type=checkbox])');
+  if (first && mode !== 'setup') first.focus();
+}
+function showLogin(msg) {
+  showPwMode('signin');
+  const e = document.getElementById('pw-signin-error');
+  if (!APP.configured) msg = 'Email sign-in is not switched on yet (the site is missing its SESSION_SECRET).';
+  e.textContent = msg || '';
+  e.classList.toggle('show', !!msg);
+  document.getElementById('pwLegacyLink').style.display = APP.enforced ? 'none' : 'inline';
+}
+function togglePwVisibility(e) {
+  if (e) e.preventDefault();
+  const btn = e.currentTarget || e.target;
+  const input = btn.parentElement.querySelector('input');
+  if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
+  else { input.type = 'password'; btn.textContent = '👁'; }
+  input.focus();
+}
+
+async function signIn() {
+  const email = document.getElementById('pw-email').value.trim(), password = document.getElementById('pw-pass').value;
+  const err = document.getElementById('pw-signin-error'), btn = document.getElementById('pwSigninBtn');
+  const fail = (m) => { err.textContent = m; err.classList.add('show'); };
+  err.classList.remove('show');
+  if (!email || !password) return fail('Enter your email and password.');
+  btn.disabled = true;
+  try {
+    const r = await authCall({ action: 'login', email, password, remember: document.getElementById('pw-keep').checked });
+    if (r.ok) { document.getElementById('pw-pass').value = ''; startApp(r.data.user); }
+    else { fail(r.data.error || 'Could not sign in.'); document.getElementById('pw-pass').select(); }
+  } catch (e) { fail('Could not reach the server — check your connection and try again.'); }
+  btn.disabled = false;
+}
+
+async function requestLink() {
+  const email = document.getElementById('pw-link-email').value.trim(), msg = document.getElementById('pwLinkMsg'), btn = document.getElementById('pwLinkBtn');
+  if (!email) { msg.textContent = 'Enter your email address.'; return; }
+  btn.disabled = true;
+  try {
+    const r = await authCall({ action: 'request-link', email });
+    msg.textContent = r.ok ? (r.data.message || 'If that email address has a login, a link is on its way.') + ' It can take a minute; check your junk folder too.' : (r.data.error || 'Something went wrong — try again.');
+  } catch (e) { msg.textContent = 'Could not reach the server — try again.'; }
+  btn.disabled = false;
+}
+
+let SETUP_TOKEN = null;
+async function showSetup(token) {
+  SETUP_TOKEN = token;
+  showPwMode('setup');
+  const hello = document.getElementById('pwSetupHello');
+  hello.textContent = 'Checking your link…';
+  let v = null;
+  try { v = await (await fetch(`${AUTH_URL}?action=check-link&token=${encodeURIComponent(token)}`)).json(); } catch (e) { v = null; }
+  if (!v || !v.valid) {
+    hello.textContent = 'This link has expired or has already been used.';
+    document.getElementById('pwSetupForm').style.display = 'none';
+    document.getElementById('pwSetupAgain').style.display = 'block';
+    return;
+  }
+  hello.textContent = `Hi ${String(v.name || '').split(' ')[0] || 'there'} — choose a password for ${v.email}.`;
+  document.getElementById('pwSetupForm').style.display = 'block';
+  document.getElementById('pw-new1').focus();
+}
+async function completeSetup() {
+  const p1 = document.getElementById('pw-new1').value, p2 = document.getElementById('pw-new2').value;
+  const err = document.getElementById('pw-setup-error'), btn = document.getElementById('pwSetupBtn');
+  const fail = (m) => { err.textContent = m; err.classList.add('show'); };
+  err.classList.remove('show');
+  if (p1.length < 10) return fail('Use at least 10 characters.');
+  if (p1 !== p2) return fail('The two passwords are not the same.');
+  btn.disabled = true;
+  try {
+    const r = await authCall({ action: 'set-password', token: SETUP_TOKEN, password: p1 });
+    if (r.ok) { try { history.replaceState(null, '', location.pathname); } catch (e) {} startApp(r.data.user); }
+    else fail(r.data.error || 'Could not set the password.');
+  } catch (e) { fail('Could not reach the server — try again.'); }
+  btn.disabled = false;
+}
+
+async function signOut() {
+  try { await authCall({ action: 'logout' }); } catch (e) {}
+  try { localStorage.removeItem('wndrr_auth'); } catch (e) {}
+  location.reload();
+}
+
+// The old shared password: only while sign-in is not switched on. (Anyone can read it in this file — it was never real security.)
 function checkPassword() {
   const input = document.getElementById('pw-input').value.trim();
   const error = document.getElementById('pw-error');
   const remember = document.getElementById('pw-remember')?.checked;
-  if (input === 'Magpies90!') {
+  if (!APP.enforced && input === 'Magpies90!') {
     if (remember) { try { localStorage.setItem('wndrr_auth', '1'); } catch (e) {} }
     else { try { localStorage.removeItem('wndrr_auth'); } catch (e) {} }
-    document.getElementById('password-screen').style.display = 'none';
     error.classList.remove('show');
-    init();
+    startApp(null, true);
   } else {
     error.classList.add('show');
     document.getElementById('pw-input').value = '';
@@ -5668,27 +5871,180 @@ function checkPassword() {
   }
 }
 
-function togglePwVisibility(e) {
-  if (e) e.preventDefault();
-  const input = document.getElementById('pw-input');
-  const btn = document.getElementById('pw-toggle-btn');
-  if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
-  else { input.type = 'password'; btn.textContent = '👁'; }
-  input.focus();
+// Everything that depends on who is signed in: which tabs show, the name and Sign out in the header, and what loads.
+function startApp(user, legacy) {
+  APP.user = user || null;
+  APP.legacy = !!legacy;
+  document.getElementById('password-screen').style.display = 'none';
+  for (const btn of document.querySelectorAll('.tab-btn[data-tab]')) {
+    const t = btn.dataset.tab;
+    btn.style.display = (t === 'settings' ? isAdmin() : can(t)) ? '' : 'none';
+  }
+  const chip = document.getElementById('userChip');
+  chip.style.display = APP.user ? '' : 'none';
+  if (APP.user) document.getElementById('userChipName').textContent = APP.user.name + (isAdmin() ? ' · Admin' : '');
+  init();
 }
 
-// Auto-unlock if remembered — otherwise init() only runs once checkPassword()
-// succeeds, so no Xero/AM calls fire before the gate is passed.
+// If a request comes back "please sign in" the session has ended (or been switched off): go back to the sign-in screen.
 (function () {
-  try {
-    if (localStorage.getItem('wndrr_auth') === '1') {
-      document.getElementById('password-screen').style.display = 'none';
-      init();
-      return;
-    }
-  } catch (e) {}
-  document.getElementById('pw-input').focus();
+  const orig = window.fetch.bind(window);
+  let announced = false;
+  window.fetch = async function (input, init) {
+    const res = await orig(input, init);
+    try {
+      if (res.status === 401 && APP.user && !announced) {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.includes('/.netlify/functions/') && !url.includes('/functions/auth')) { announced = true; showLogin('Your session has ended — please sign in again.'); }
+      }
+    } catch (e) {}
+    return res;
+  };
 })();
+
+async function bootAuth() {
+  const setup = new URLSearchParams(location.search).get('setup');
+  let me = null;
+  try { const r = await fetch(`${AUTH_URL}?action=me`, { cache: 'no-store' }); if (r.ok) me = await r.json(); } catch (e) { me = null; }
+  APP.enforced = !!(me && me.enforced);
+  APP.configured = me ? !!me.configured : true;
+  if (setup) { showSetup(setup); return; }
+  if (me && me.user) { startApp(me.user); return; }
+  if (!APP.enforced) {
+    try { if (localStorage.getItem('wndrr_auth') === '1') { startApp(null, true); return; } } catch (e) {}
+  }
+  showLogin();
+}
+
+// ── Settings tab (Admin only): people and what each can use ────────────────────────────────────────────────────────────────────
+const US = { users: [], modules: [], me: null, msg: '', error: '', link: null, editing: null, loading: false };
+const usEsc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function usersApi(body) {
+  const res = await fetch(USERS_URL, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+function usApply(d) { US.users = d.users || []; US.modules = d.modules || []; US.me = d.me; }
+async function loadUsersView() {
+  US.loading = true; US.error = '';
+  renderUsersView();
+  try { usApply(await usersApi()); } catch (e) { US.error = e.message; }
+  US.loading = false;
+  renderUsersView();
+}
+async function usAct(body, okMsg, who) {
+  US.error = ''; US.msg = ''; US.link = null;
+  try {
+    const d = await usersApi(body);
+    usApply(d);
+    US.msg = okMsg || '';
+    if (d.link) US.link = { link: d.link, emailed: d.emailed, error: d.emailError, who: who || (d.added && d.added.name) || '' };
+    US.editing = null;
+    return d;
+  } catch (e) { US.error = e.message; return null; }
+  finally { renderUsersView(); }
+}
+const usUser = (id) => US.users.find((u) => u.id === id);
+
+function usStatus(u) {
+  if (u.disabled) return '<span class="us-chip off">Switched off</span>';
+  if (!u.hasPassword) return `<span class="us-chip wait">Needs setup</span>${u.pendingLink ? '<span class="us-sub2">link sent</span>' : ''}`;
+  return '<span class="us-chip ok">Active</span>';
+}
+function renderUsersView() {
+  const el = document.getElementById('usersView');
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+  const me = US.me;
+  const rows = US.users.map((u) => {
+    if (US.editing === u.id) {
+      return `<tr class="us-edit"><td><input id="usEditName" value="${usEsc(u.name)}" maxlength="80"></td><td><input id="usEditEmail" value="${usEsc(u.email)}" maxlength="120"></td>
+        <td><select id="usEditRole"><option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option></select></td><td></td>
+        <td class="us-actions"><a href="#" onclick="usSaveEdit('${u.id}');return false">Save</a><a href="#" onclick="US.editing=null;renderUsersView();return false">Cancel</a></td></tr>`;
+    }
+    const self = u.id === me;
+    return `<tr class="${u.disabled ? 'us-dim' : ''}"><td>${usEsc(u.name)}${self ? ' <span class="us-sub2">(you)</span>' : ''}</td><td>${usEsc(u.email)}</td><td>${u.role === 'admin' ? 'Admin' : 'User'}</td><td>${usStatus(u)}</td>
+      <td class="us-actions">${u.disabled ? '' : `<a href="#" onclick="usSendLink('${u.id}');return false">${u.hasPassword ? 'Send reset link' : 'Send setup link'}</a><a href="#" onclick="usSetPassword('${u.id}');return false">Set new password</a>`}<a href="#" onclick="US.editing='${u.id}';renderUsersView();return false">Edit</a>${self ? '' : `<a href="#" onclick="usToggleOff('${u.id}');return false">${u.disabled ? 'Switch on' : 'Switch off'}</a><a href="#" class="us-danger" onclick="usRemove('${u.id}');return false">Remove</a>`}</td></tr>`;
+  }).join('');
+  const head = US.modules.map((m) => `<th>${usEsc(m.label)}</th>`).join('');
+  const matrix = US.users.map((u) => {
+    const admin = u.role === 'admin';
+    const boxes = US.modules.map((m) => `<td><input type="checkbox" ${u.modules.includes(m.key) ? 'checked' : ''} ${admin || u.disabled ? 'disabled' : ''} onchange="usToggleModule('${u.id}','${m.key}',this.checked)" aria-label="${usEsc(u.name)} — ${usEsc(m.label)}"></td>`).join('');
+    return `<tr class="${u.disabled ? 'us-dim' : ''}"><td class="us-who">${usEsc(u.name)}${admin ? ' <span class="us-sub2">Admin — everything</span>' : (u.disabled ? '' : `<span class="us-quick"><a href="#" onclick="usSetAll('${u.id}',true);return false">all</a> · <a href="#" onclick="usSetAll('${u.id}',false);return false">none</a></span>`)}</td>${boxes}</tr>`;
+  }).join('');
+  const linkBox = US.link ? `<div class="us-link">${US.link.emailed ? `We emailed ${usEsc(US.link.who || 'them')} a link.` : `<b>The email could not be sent</b>${US.link.error ? ` (${usEsc(US.link.error)})` : ''}. Copy this link and send it to ${usEsc(US.link.who || 'them')} yourself:`}
+      <div class="us-linkrow"><input readonly id="usLinkInput" value="${usEsc(US.link.link)}" onfocus="this.select()"><button type="button" onclick="usCopyLink()">Copy</button></div><div class="us-sub2">The link works once and is valid for 48 hours.</div></div>` : '';
+  el.innerHTML = `<div class="us-wrap">
+    <div class="us-head"><div class="us-title">Settings</div><div class="us-sub">Who can sign in to the Finance Hub, and which sections each person can use.</div></div>
+    ${US.error ? `<div class="us-msg err">${usEsc(US.error)}</div>` : ''}${US.msg ? `<div class="us-msg ok">${usEsc(US.msg)}</div>` : ''}${linkBox}
+    <div class="us-h">Users</div>
+    <div class="us-card us-scroll"><table class="us-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${US.loading && !US.users.length ? '<tr><td colspan="5" class="us-sub">Loading…</td></tr>' : rows || '<tr><td colspan="5" class="us-sub">No one yet.</td></tr>'}</tbody></table></div>
+    <div class="us-card us-add"><div class="us-addtitle">Add a person</div>
+      <div class="us-addrow"><input id="usAddName" placeholder="Name" maxlength="80"><input id="usAddEmail" type="email" placeholder="Email" maxlength="120"><select id="usAddRole"><option value="user">User</option><option value="admin">Admin (everything + Settings)</option></select><button class="primary" onclick="usAdd()">Add and email a setup link</button></div>
+      <div class="us-sub2">They get an email with a link to choose their password. Tick the sections they can use in the grid below.</div></div>
+    <div class="us-h">Section access</div>
+    <div class="us-sub" style="margin:-4px 0 8px">Unticking a section hides it from that person's menu and blocks its data on the server, even from a direct link. Admins always have every section.</div>
+    <div class="us-card us-scroll"><table class="us-table us-matrix"><thead><tr><th>User</th>${head}</tr></thead><tbody>${matrix || ''}</tbody></table></div>
+  </div>`;
+}
+
+async function usAdd() {
+  const name = document.getElementById('usAddName').value.trim(), email = document.getElementById('usAddEmail').value.trim(), role = document.getElementById('usAddRole').value;
+  if (!name || !email) { US.error = 'Enter their name and email.'; US.msg = ''; US.link = null; renderUsersView(); return; }
+  await usAct({ action: 'add', name, email, role, modules: [], sendLink: true }, `${name} added. Now tick the sections they can use below.`, name);
+}
+function usSaveEdit(id) {
+  usAct({ action: 'update', id, name: document.getElementById('usEditName').value, email: document.getElementById('usEditEmail').value, role: document.getElementById('usEditRole').value }, 'Saved.');
+}
+function usSendLink(id) { const u = usUser(id); usAct({ action: 'send-link', id }, '', u && u.name); }
+function usToggleOff(id) { const u = usUser(id); if (u && !u.disabled && !confirm(`Switch off ${u.name}? They are signed out straight away and can't sign in until you switch them back on.`)) return; usAct({ action: 'update', id, disabled: !(u && u.disabled) }, u && u.disabled ? 'Switched on.' : 'Switched off.'); }
+function usRemove(id) { const u = usUser(id); if (!u || !confirm(`Remove ${u.name} for good? (Switching off keeps their details; removing deletes them.)`)) return; usAct({ action: 'delete', id }, `${u.name} removed.`); }
+function usToggleModule(id, key, on) {
+  const u = usUser(id); if (!u) return;
+  const next = u.modules.filter((m) => m !== key).concat(on ? [key] : []);
+  usAct({ action: 'update', id, modules: next }, '');
+}
+function usSetAll(id, on) { usAct({ action: 'update', id, modules: on ? US.modules.map((m) => m.key) : [] }, ''); }
+async function usCopyLink() { const i = document.getElementById('usLinkInput'); i.select(); try { await navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } }
+
+// A small dialog that asks for a new password (twice), for "Set new password" and for changing your own.
+function askPassword({ title, note, needCurrent }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'us-modal';
+    wrap.innerHTML = `<div class="us-dialog" role="dialog" aria-label="${usEsc(title)}"><div class="us-addtitle">${usEsc(title)}</div>${note ? `<div class="us-sub2" style="margin-bottom:10px">${usEsc(note)}</div>` : ''}
+      ${needCurrent ? '<input type="password" id="usPwCur" placeholder="Your current password" autocomplete="current-password">' : ''}
+      <input type="password" id="usPw1" placeholder="New password (10+ characters)" autocomplete="new-password"><input type="password" id="usPw2" placeholder="Type it again" autocomplete="new-password">
+      <div class="us-msg err" id="usPwErr" style="display:none"></div>
+      <div class="us-dialogbtns"><button type="button" id="usPwCancel">Cancel</button><button type="button" class="primary" id="usPwOk">Save password</button></div></div>`;
+    document.body.appendChild(wrap);
+    const q = (id) => wrap.querySelector('#' + id);
+    const close = (v) => { wrap.remove(); resolve(v); };
+    q('usPwCancel').onclick = () => close(null);
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(null); if (e.key === 'Enter') q('usPwOk').click(); });
+    q('usPwOk').onclick = () => {
+      const p1 = q('usPw1').value, p2 = q('usPw2').value, err = q('usPwErr');
+      const bad = p1.length < 10 ? 'Use at least 10 characters.' : p1 !== p2 ? 'The two passwords are not the same.' : needCurrent && !q('usPwCur').value ? 'Enter your current password.' : '';
+      if (bad) { err.textContent = bad; err.style.display = 'block'; return; }
+      close({ password: p1, current: needCurrent ? q('usPwCur').value : undefined });
+    };
+    (needCurrent ? q('usPwCur') : q('usPw1')).focus();
+  });
+}
+async function usSetPassword(id) {
+  const u = usUser(id); if (!u) return;
+  const r = await askPassword({ title: `New password for ${u.name}`, note: 'They are signed out everywhere else and use this password next time. Tell them what it is — or use "Send reset link" so they choose their own.' });
+  if (r) usAct({ action: 'set-password', id, password: r.password }, `Password set for ${u.name}.`);
+}
+async function openMyAccount() {
+  const r = await askPassword({ title: 'Change your password', needCurrent: true });
+  if (!r) return;
+  const res = await authCall({ action: 'change-password', current: r.current, password: r.password });
+  alert(res.ok ? 'Your password has been changed.' : (res.data.error || 'Could not change the password.'));
+}
+
+bootAuth();
 </script>
 <script>
 var ACCOUNTS = [{"code": "310", "name": "Cost of Goods Sold", "type": "Direct Costs", "tax": "GST on Expenses"}, {"code": "400", "name": "Advertising", "type": "Expense", "tax": "GST on Expenses"}, {"code": "401", "name": "Advertising - Social Media", "type": "Expense", "tax": "GST on Expenses"}, {"code": "404", "name": "Bank Fees", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "408", "name": "Cleaning", "type": "Expense", "tax": "GST on Expenses"}, {"code": "412", "name": "Consulting & Accounting", "type": "Expense", "tax": "GST on Expenses"}, {"code": "413", "name": "Filing Fees", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "415", "name": "Professional Fees", "type": "Expense", "tax": "GST on Expenses"}, {"code": "420", "name": "Entertainment", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "425", "name": "Freight & Courier", "type": "Direct Costs", "tax": "GST on Expenses"}, {"code": "429", "name": "General Expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "433", "name": "Insurance", "type": "Expense", "tax": "GST on Expenses"}, {"code": "437", "name": "Interest Expense", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "441", "name": "Legal expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "443", "name": "Licenses, Permits & Fees", "type": "Expense", "tax": "GST on Expenses"}, {"code": "445", "name": "Light, Power, Heating", "type": "Expense", "tax": "GST on Expenses"}, {"code": "447", "name": "Marketing", "type": "Expense", "tax": "GST on Expenses"}, {"code": "449", "name": "Motor Vehicle Expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "453", "name": "Office Expenses", "type": "Expense", "tax": "GST on Expenses"}, {"code": "461", "name": "Printing & Stationery", "type": "Expense", "tax": "GST on Expenses"}, {"code": "469", "name": "Rent", "type": "Expense", "tax": "GST on Expenses"}, {"code": "472", "name": "Rates and Taxes", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "473", "name": "Repairs and Maintenance", "type": "Expense", "tax": "GST on Expenses"}, {"code": "477", "name": "Wages and Salaries", "type": "Expense", "tax": "BAS Excluded"}, {"code": "478", "name": "Superannuation", "type": "Expense", "tax": "BAS Excluded"}, {"code": "480", "name": "Staff Amenities", "type": "Expense", "tax": "GST on Expenses"}, {"code": "485", "name": "Subscriptions", "type": "Expense", "tax": "GST on Expenses"}, {"code": "489", "name": "Telephone & Internet", "type": "Expense", "tax": "GST on Expenses"}, {"code": "493", "name": "Travel - National", "type": "Expense", "tax": "GST on Expenses"}, {"code": "494", "name": "Travel - International", "type": "Expense", "tax": "GST Free Expenses"}, {"code": "495", "name": "WorkCover", "type": "Expense", "tax": "GST on Expenses"}];

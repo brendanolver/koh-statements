@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { amexRulesStore } = require('./lib/blob-store');
 
 // The Amex Import tab's remembered merchant rules: "when a charge looks like KEY, code it to this account,
@@ -32,7 +33,7 @@ function sanitise(doc) {
   return { rules, updatedAt: new Date().toISOString() };
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = amexRulesStore();
     if (event.httpMethod === 'GET') {
@@ -54,3 +55,6 @@ exports.handler = async (event) => {
 };
 
 exports._sanitise = sanitise;
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['amex'], handler);

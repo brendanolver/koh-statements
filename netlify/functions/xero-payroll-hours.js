@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { getValidConnection } = require('./lib/xero-auth');
 const { wagesHoursStore } = require('./lib/blob-store');
 const { checkKey, json, payrollGet, notAuthorised, parseXeroDate, mapWithConcurrency } = require('./lib/payroll');
@@ -63,7 +64,7 @@ function computeAverages(runs, slips, windowStartMs) {
   return out;
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   const t0 = Date.now();
   const timeLeft = () => TIME_BUDGET_MS - (Date.now() - t0);
   try {
@@ -180,3 +181,6 @@ exports.handler = async (event) => {
 
 exports._payslipHours = payslipHours;
 exports._computeAverages = computeAverages;
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['wages'], handler);

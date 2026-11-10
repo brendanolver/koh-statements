@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { cashflowInputsStore } = require('./lib/blob-store');
 
 // The Cashflow tab's saved manual inputs: monthly overrides per forecast line,
@@ -109,7 +110,7 @@ function sanitise(doc) {
   return out;
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = cashflowInputsStore();
     if (event.httpMethod === 'GET') {
@@ -131,3 +132,6 @@ exports.handler = async (event) => {
 };
 
 exports._sanitise = sanitise;
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['cashflow'], handler);

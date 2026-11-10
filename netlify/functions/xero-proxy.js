@@ -1,9 +1,10 @@
+const { withAuth } = require('./lib/auth');
 const { getValidConnection } = require('./lib/xero-auth');
 
 const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0';
 const ALLOWED = ['Contacts', 'Invoices', 'CreditNotes', 'TaxRates', 'Accounts', 'BankTransactions', 'Reports'];
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     let connection;
     try {
@@ -44,3 +45,16 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Who may read what from Xero through this proxy: Reports are for the P&L and Cashflow tabs, raw bank transactions for Cashflow /
+// Drawings / Amex Import, and everything else (contacts, invoices, accounts…) for any section that works from Xero.
+const XERO_SECTIONS = ['debtors', 'statements', 'bills', 'commission', 'cashflow', 'drawings', 'pnl', 'amex'];
+const xeroAccess = (event) => {
+  const p = String((event.queryStringParameters || {}).path || '');
+  if (p === 'Reports' || p.startsWith('Reports/')) return ['pnl', 'cashflow'];
+  if (p === 'BankTransactions' || p.startsWith('BankTransactions/')) return ['cashflow', 'drawings', 'amex'];
+  return XERO_SECTIONS;
+};
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(xeroAccess, handler);

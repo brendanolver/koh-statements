@@ -1,7 +1,8 @@
+const { withAuth } = require('./lib/auth');
 const AM_BASE = 'https://kohindustries.app.apparelmagic.com/api';
 const ALLOWED = ['customers', 'invoices', 'salespeople'];
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   const AM_TOKEN = process.env.AM_TOKEN;
   if (!AM_TOKEN) {
     return { statusCode: 500, body: JSON.stringify({ error: 'AM_TOKEN not configured' }) };
@@ -30,3 +31,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['debtors', 'statements', 'commission', 'cashflow'], handler);

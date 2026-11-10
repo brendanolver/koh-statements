@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { statementRecipientsStore } = require('./lib/blob-store');
 
 // Keyed by customer name, uppercased+trimmed — same convention as
@@ -9,7 +10,7 @@ function normName(name) {
   return String(name || '').trim().toUpperCase();
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = statementRecipientsStore();
 
@@ -58,3 +59,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['statements', 'debtors'], handler);

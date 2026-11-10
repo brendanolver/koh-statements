@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const JSZip = require('jszip');
 const { pdfFromSource } = require('./lib/pdf');
 const { emailBodyHtml, emailSubject } = require('./lib/statement-email');
@@ -81,7 +82,7 @@ async function sendEmail({ recipientEmails, ccEmails, customerName, contactFirst
   return data;
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, body: JSON.stringify({ error: 'POST only' }) };
@@ -126,3 +127,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['statements'], handler);

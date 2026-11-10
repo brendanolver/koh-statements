@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-5';
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -30,7 +31,7 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, body: JSON.stringify({ error: 'POST only' }) };
@@ -133,3 +134,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['bills'], handler);

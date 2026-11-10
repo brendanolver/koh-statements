@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { cashflowCacheStore } = require('./lib/blob-store');
 
 // Apparel Magic data for the Cashflow forecast: open wholesale sales orders
@@ -134,7 +135,7 @@ async function crawl(kind, cache, timeLeft) {
   return pages;
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   const t0 = Date.now();
   const timeLeft = () => TIME_BUDGET_MS - (Date.now() - t0);
   try {
@@ -177,3 +178,6 @@ exports.handler = async (event) => {
 
 exports._compactOrder = compactOrder;
 exports._compactPurchaseOrder = compactPurchaseOrder;
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['cashflow'], handler);

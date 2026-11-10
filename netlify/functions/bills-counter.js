@@ -1,10 +1,11 @@
+const { withAuth } = require('./lib/auth');
 const { billsCounterStore } = require('./lib/blob-store');
 
 // Same shared-blob pattern as debtor-status.js / commission-emails.js, just
 // a single number instead of a map — the running placeholder-invoice-number
 // sequence (INV-001, INV-002, ...) needs to survive across sessions/devices
 // so two different upload batches never reuse the same placeholder number.
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = billsCounterStore();
 
@@ -40,3 +41,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['bills'], handler);

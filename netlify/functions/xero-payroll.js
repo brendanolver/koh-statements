@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { getValidConnection } = require('./lib/xero-auth');
 const { checkKey, json, payrollGet, notAuthorised, mapWithConcurrency } = require('./lib/payroll');
 
@@ -40,7 +41,7 @@ function resolvePay(emp, earningsRates) {
   return { basis: null, note: 'Unrecognised pay type' };
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     if (event.httpMethod !== 'GET') return json(405, { error: 'GET only' });
 
@@ -106,3 +107,6 @@ exports.handler = async (event) => {
 };
 
 exports._resolvePay = resolvePay; // exposed for tests
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['wages'], handler);

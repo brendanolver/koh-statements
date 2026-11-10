@@ -1,8 +1,9 @@
+const { withAuth } = require('./lib/auth');
 const { debtorStatusStore } = require('./lib/blob-store');
 
 const VALID_STATUSES = new Set(['stop', 'clear', null]);
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = debtorStatusStore();
 
@@ -43,3 +44,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['debtors', 'statements'], handler);

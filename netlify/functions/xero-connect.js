@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const crypto = require('crypto');
 const { xeroTokenStore } = require('./lib/blob-store');
 
@@ -28,7 +29,7 @@ const XERO_AUTHORIZE_URL = 'https://login.xero.com/identity/connect/authorize';
 // and uses this granular name successfully.
 const SCOPES = 'offline_access accounting.contacts accounting.invoices accounting.settings.read accounting.banktransactions accounting.reports.banksummary.read payroll.employees.read payroll.settings.read payroll.payruns.read payroll.payslip.read accounting.reports.profitandloss.read';
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const clientId = (process.env.XERO_CLIENT_ID || '').trim();
     const redirectUri = (process.env.XERO_REDIRECT_URI || '').trim();
@@ -57,3 +58,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: `Failed to start Xero connect: ${err.message}` };
   }
 };
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth('admin', handler);

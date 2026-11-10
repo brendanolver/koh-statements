@@ -1,3 +1,4 @@
+const { withAuth } = require('./lib/auth');
 const { pnlSettingsStore } = require('./lib/blob-store');
 
 // The P&L tab's remembered Trading P&L settings: the cost-of-goods % for Online sales and for Wholesale sales.
@@ -22,7 +23,7 @@ function sanitise(doc) {
   return { cogs: { online: pct(c.online), wholesale: pct(c.wholesale) }, updatedAt: new Date().toISOString() };
 }
 
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     const store = pnlSettingsStore();
     if (event.httpMethod === 'GET') {
@@ -44,3 +45,6 @@ exports.handler = async (event) => {
 };
 
 exports._sanitise = sanitise;
+
+// Signed-in people only, and only with one of these sections ticked (see lib/auth.js).
+exports.handler = withAuth(['pnl'], handler);
