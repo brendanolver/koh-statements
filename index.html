@@ -1393,7 +1393,7 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
         <button class="tab-btn" data-tab="amex" onclick="switchTab('amex')">Amex Import</button>
         <button class="tab-btn" data-tab="settings" id="settingsTabBtn" onclick="switchTab('settings')" style="display:none">Settings</button>
       </nav>
-      <div class="user-chip" id="userChip" style="display:none"><span id="userChipName"></span><button type="button" onclick="openMyAccount()">Password</button><button type="button" onclick="signOut()">Sign out</button></div>
+      <div class="user-chip" id="userChip" style="display:none"><span id="userChipName"></span><button type="button" id="chipPwBtn" onclick="openMyAccount()">Password</button><button type="button" id="chipOutBtn" onclick="signOut()">Sign out</button><button type="button" id="chipEmailBtn" style="display:none" onclick="leaveLegacy()">Sign in with email</button></div>
     </div>
   </header>
 
@@ -5850,6 +5850,11 @@ async function completeSetup() {
   btn.disabled = false;
 }
 
+// From the old shared password across to email sign-in: forget the remembered password and show the sign-in screen.
+function leaveLegacy() {
+  try { localStorage.removeItem('wndrr_auth'); } catch (e) {}
+  location.reload();
+}
 async function signOut() {
   try { await authCall({ action: 'logout' }); } catch (e) {}
   try { localStorage.removeItem('wndrr_auth'); } catch (e) {}
@@ -5882,9 +5887,14 @@ function startApp(user, legacy) {
     const t = btn.dataset.tab;
     btn.style.display = (t === 'settings' ? isAdmin() : can(t)) ? '' : 'none';
   }
+  // Signed in by email: name + Password + Sign out. On the old shared password: a way across to email sign-in (the only way to reach Settings).
   const chip = document.getElementById('userChip');
-  chip.style.display = APP.user ? '' : 'none';
-  if (APP.user) document.getElementById('userChipName').textContent = APP.user.name + (isAdmin() ? ' · Admin' : '');
+  const viaEmail = !!APP.user, offerEmail = APP.legacy && APP.configured;
+  chip.style.display = viaEmail || offerEmail ? '' : 'none';
+  document.getElementById('userChipName').textContent = viaEmail ? APP.user.name + (isAdmin() ? ' · Admin' : '') : (offerEmail ? 'Shared password' : '');
+  document.getElementById('chipPwBtn').style.display = viaEmail ? '' : 'none';
+  document.getElementById('chipOutBtn').style.display = viaEmail ? '' : 'none';
+  document.getElementById('chipEmailBtn').style.display = offerEmail ? '' : 'none';
   init();
 }
 

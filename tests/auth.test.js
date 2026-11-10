@@ -385,6 +385,11 @@ async function activate(addResult, password = 'staff-password-1') {
     assert.deepStrictEqual(appTabs, A.MODULE_KEYS, "the page's own list of sections");
     for (const t of A.MODULE_KEYS) assert.ok(new RegExp(`id="${{ pnl: 'pnl', amex: 'amex' }[t] || t}View"`).test(html), `a view for ${t}`);
   });
+  await test('a device that remembers the old shared password gets a "Sign in with email" button, so Settings can be reached', async () => {
+    assert.ok(html.includes('id="chipEmailBtn"') && html.includes('onclick="leaveLegacy()"'));
+    assert.ok(/function leaveLegacy\(\) \{\s*\n\s*try \{ localStorage\.removeItem\('wndrr_auth'\); \} catch \(e\) \{\}\s*\n\s*location\.reload\(\);/.test(html));
+    assert.ok(html.includes("const viaEmail = !!APP.user, offerEmail = APP.legacy && APP.configured;"));
+  });
   await test('the page never loads a section\'s data for someone without it: init() asks can() first and switchTab refuses closed sections', async () => {
     const init = html.slice(html.indexOf('async function init() {'), html.indexOf('async function init() {') + 2500);
     for (const m of ['debtors', 'statements', 'commission']) assert.ok(init.includes(`can('${m}')`), `init checks ${m}`);
