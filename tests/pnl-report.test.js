@@ -320,4 +320,92 @@ test('trading view works on a quarter-aggregated report and on a single-column r
   const rows = c.sections.find((x) => x.title === 'Less Cost of Sales').rows;
   assert.ok(rows[0].modelled && rows[1].modelled); assert.deepStrictEqual([rows[0].values[0], rows[0].priorValues[0], rows[1].values[0], rows[1].priorValues[0]], [400, 320, 300, 240]);
 });
+
+// ---- Advertising - Social Media as a % of online sales (Trading P&L) ----
+const OPX = (rep) => rep.sections.find((x) => x.title && /operating expenses/i.test(x.title));
+const NPV = (rep) => rep.sections.find((x) => !x.title && /^net/i.test(x.rows[0].name)).rows[0].values;
+const GPV = (rep) => rep.sections.find((x) => !x.title && /^gross/i.test(x.rows[0].name)).rows[0].values;
+const adRep = (on, wh, adGeneral, adSocial, cogs, hdr) => P.parseReport(mk(hdr || ['x'],
+  [['Sales - Online', Array.isArray(on) ? on : [on]], ['Sales AM - Wholesale AU', Array.isArray(wh) ? wh : [wh]]],
+  [['Cost of Goods Sold', Array.isArray(cogs) ? cogs : [cogs === undefined ? 600 : cogs]]],
+  [['Advertising', Array.isArray(adGeneral) ? adGeneral : [adGeneral]], ...(adSocial === null ? [] : [['Advertising - Social Media', Array.isArray(adSocial) ? adSocial : [adSocial]]]), ['Rent', hdr ? hdr.map(() => 100) : [100]]]));
+
+test('advertising: only the Social Media account is recognised (plain Advertising, Google and Marketing are not)', () => {
+  for (const ok of ['Advertising - Social Media', 'Advertising – Social Media', 'advertising - social media', 'Advertising: Social Media', ' Advertising - Social  Media ']) assert.strictEqual(P.isAdRow(ok), true, ok);
+  for (const no of ['Advertising', 'Advertising - Google', 'Advertising - Print', 'Marketing', 'Social Media Software', 'Sales - Online']) assert.strictEqual(P.isAdRow(no), false, no);
+});
+test('advertising view: the Social Media line becomes the % of online sales; plain Advertising and Rent stay actual; opex and net profit move by exactly the difference; gross profit does not', () => {
+  const rep = adRep(1000, 500, 20, 450), before = P.headline(rep, 0);
+  const ad = P.advertisingView(rep, 35);
+  assert.strictEqual(ad.applied, true); assert.deepStrictEqual([ad.pct, ad.baseTotal, ad.totalActual, ad.totalModelled, ad.totalDelta], [35, 1000, 450, 350, 100]);
+  const rows = OPX(ad.report).rows;
+  assert.deepStrictEqual(rows.map((r) => r.name), ['Advertising', 'Advertising – Social Media (35% of online sales)', 'Rent'], 'same place in the list');
+  assert.deepStrictEqual(rows.map((r) => r.values[0]), [20, 350, 100]); assert.deepStrictEqual(rows.map((r) => !!r.modelled), [false, true, false]);
+  assert.strictEqual(OPX(ad.report).summary.values[0], 470, 'Total Operating Expenses 570 -> 470');
+  const after = P.headline(ad.report, 0);
+  assert.strictEqual(after.income, before.income); assert.strictEqual(after.grossProfit, before.grossProfit); assert.strictEqual(after.cost, before.cost);
+  assert.strictEqual(after.opex, before.opex - 100); assert.strictEqual(after.netProfit, before.netProfit + 100);
+});
+test('advertising view works month by month (and so by quarter): each column is its own % of its own online sales', () => {
+  const hdr = ['31 Dec 2025', '30 Nov 2025', '31 Oct 2025'];
+  const months = adRep([300, 200, 100], [30, 20, 10], [0, 0, 0], [150, 90, 40], [50, 50, 50], hdr);
+  const ad = P.advertisingView(months, 40);
+  const r = OPX(ad.report).rows.find((x) => x.modelled);
+  assert.deepStrictEqual(r.values, [40, 80, 120], 'oldest column first: 40% of 100, 200, 300');
+  assert.deepStrictEqual(ad.delta, [40 - 40, 90 - 80, 150 - 120]);
+  const q = P.toQuarters(months, P.quarterRange('2025-10-01', '2025-12-31', '2026-02-01').quarters);
+  const aq = P.advertisingView(q, 40);
+  assert.deepStrictEqual(OPX(aq.report).rows.find((x) => x.modelled).values, [240], 'the quarter = the sum of the months (the % is linear)');
+  assert.strictEqual(aq.totalDelta, ad.totalDelta);
+});
+test('advertising view with no actual Social Media line: the modelled line is still added (at the top), so profit falls by it', () => {
+  const rep = adRep(1000, 0, 20, null), before = P.headline(rep, 0);
+  const ad = P.advertisingView(rep, 35);
+  assert.strictEqual(ad.applied, true); assert.strictEqual(ad.hadActualRow, false);
+  assert.deepStrictEqual(OPX(ad.report).rows.map((r) => r.name), ['Advertising – Social Media (35% of online sales)', 'Advertising', 'Rent']);
+  assert.strictEqual(P.headline(ad.report, 0).netProfit, before.netProfit - 350); assert.strictEqual(P.headline(ad.report, 0).opex, before.opex + 350);
+});
+test('advertising view: 0% is a real value (advertising modelled at nothing); blank / invalid switches it off and returns the report untouched', () => {
+  const rep = adRep(1000, 500, 20, 450);
+  const zero = P.advertisingView(rep, 0); assert.strictEqual(zero.applied, true); assert.strictEqual(P.headline(zero.report, 0).netProfit, P.headline(rep, 0).netProfit + 450);
+  for (const off of ['', null, undefined]) { const a = P.advertisingView(rep, off); assert.strictEqual(a.applied, false); assert.strictEqual(a.off, true); assert.strictEqual(a.report, rep); }
+  for (const bad of ['abc', -1, 101]) { const a = P.advertisingView(rep, bad); assert.strictEqual(a.applied, false); assert.strictEqual(a.invalid, true); assert.strictEqual(a.report, rep); }
+  assert.strictEqual(P.advertisingView(rep, '35.5').pct, 35.5, 'a typed string is fine');
+});
+test('advertising view needs online sales and an operating-expenses section; otherwise it says so and changes nothing', () => {
+  const noOnline = P.parseReport(mk(['x'], [['Sales AM - Wholesale AU', [500]]], [['Cost of Goods Sold', [100]]], [['Advertising - Social Media', [50]]]));
+  const a = P.advertisingView(noOnline, 35); assert.strictEqual(a.applied, false); assert.strictEqual(a.noOnline, true); assert.strictEqual(a.report, noOnline);
+  const noOpex = { columns: [{ label: 'x', month: null }], sections: [{ title: 'Income', rows: [{ name: 'Sales - Online', id: null, values: [100] }], summary: null }] };
+  const b = P.advertisingView(noOpex, 35); assert.strictEqual(b.applied, false); assert.strictEqual(b.noSections, true);
+});
+test('trading view with both: cost of goods by channel AND advertising by online sales — net profit moves by both differences, each independent of the other', () => {
+  const rep = adRep(1000, 500, 20, 450, 700), before = P.headline(rep, 0);
+  const tv = P.tradingView(rep, { online: 40, wholesale: 60, advertising: 35 });
+  assert.strictEqual(tv.applied, true); assert.strictEqual(tv.ad.applied, true);
+  assert.strictEqual(tv.totalDelta, 700 - (400 + 300)); assert.strictEqual(tv.ad.totalDelta, 450 - 350);
+  const after = P.headline(tv.report, 0);
+  assert.strictEqual(after.netProfit, before.netProfit + tv.totalDelta + tv.ad.totalDelta);
+  assert.strictEqual(after.grossProfit, before.grossProfit + tv.totalDelta, 'only the goods change reaches gross profit');
+  assert.strictEqual(after.opex, before.opex + (350 - 450), 'only the advertising change reaches operating expenses');
+  assert.deepStrictEqual(NPV(rep), [230], 'Xero\'s own net profit: 1500 - 700 - 570'); assert.deepStrictEqual(NPV(tv.report), [330], 'goods modelled at exactly the actual (no change) + advertising 100 lower');
+  const noAd = P.tradingView(rep, { online: 40, wholesale: 60 });
+  assert.strictEqual(noAd.ad.applied, false); assert.strictEqual(P.headline(noAd.report, 0).opex, before.opex, 'no advertising % = opex untouched (existing behaviour)');
+});
+test('trading view: advertising applies on its own when the cost-of-goods %s are not filled in yet (and the goods part stays actual)', () => {
+  const rep = adRep(1000, 500, 20, 450, 700), before = P.headline(rep, 0);
+  const tv = P.tradingView(rep, { online: '', wholesale: '', advertising: 35 });
+  assert.strictEqual(tv.applied, false); assert.deepStrictEqual(tv.missing, ['online', 'wholesale']); assert.strictEqual(tv.ad.applied, true);
+  const after = P.headline(tv.report, 0);
+  assert.strictEqual(after.cost, before.cost, 'cost of sales actual'); assert.strictEqual(after.grossProfit, before.grossProfit); assert.strictEqual(after.netProfit, before.netProfit + 100);
+  const none = P.tradingView(rep, { online: '', wholesale: '' }); assert.strictEqual(none.report, rep, 'nothing to apply: the very same report comes back');
+});
+test('comparing with the previous year: both years are modelled at the same % and the modelled lines pair up', () => {
+  const cur = P.tradingView(adRep(1000, 500, 20, 450, 700), { online: 40, wholesale: 60, advertising: 35 }).report;
+  const prior = P.tradingView(adRep(800, 400, 10, 300, 500), { online: 40, wholesale: 60, advertising: 35 }).report;
+  const c = P.compareReports(cur, prior);
+  const row = c.sections.find((x) => /operating expenses/i.test(x.title)).rows.find((r) => r.modelled);
+  assert.deepStrictEqual([row.values[0], row.priorValues[0]], [350, 280], '35% of 1000 vs 35% of 800');
+  assert.strictEqual(c.sections.find((x) => /operating expenses/i.test(x.title)).rows.filter((r) => /Social Media/.test(r.name)).length, 1, 'one line, not a pair of unmatched lines');
+});
+
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

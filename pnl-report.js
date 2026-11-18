@@ -317,7 +317,7 @@
   // pcts = { online, wholesale } (0–100). A % is only needed for a channel that actually has income in this report.
   // Returns { applied, report, info, missing:[...] }; with a needed % missing (or nothing to replace) the report comes
   // back unchanged, and `missing` says which channels still need one.
-  function tradingView(report, pcts) {
+  function goodsView(report, pcts) {
     const info = goodsInfo(report);
     if (!info.found) return { applied: false, report, info, missing: [] };
     const need = ['online', 'wholesale'].filter((k) => info.kindTotal[k] !== 0);
@@ -346,6 +346,52 @@
     return { applied: true, report: { ...report, sections }, info, pct, need, modelled, modelledBy, delta, totalModelled, totalDelta: sumArr(delta), blendedPct: info.salesTotal ? r2((totalModelled / info.salesTotal) * 100) : null };
   }
 
-  root.PNL = { goodsInfo, tradingView, isGoodsRow, incomeKind, validPct, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, monthsFor, monthlyPlan, keepMonths, mergeColumns, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
+  // ---- advertising as a % of online sales ----
+  // The same idea for ONE expense line: "Advertising - Social Media" is replaced by a chosen % of the Online sales income (the
+  // online channel's income, the same lines the Online % COGS uses). Only that account — plain "Advertising" and every other
+  // expense stay actual. Operating Expenses and Net Profit move by exactly the difference; Gross Profit is untouched. With no
+  // actual advertising line in the period the modelled one is still added (the point is what advertising SHOULD cost).
+  const AD_RE = /^advertising\s*[-–—:]\s*social(\s+media)?\b/i;
+  const isAdRow = (name) => AD_RE.test(String(name || '').trim());
+  // pct: 0–100, or ''/null/undefined for "off". Returns { applied, report, ... }; when not applied the report is returned as given.
+  function advertisingView(report, pctRaw) {
+    if (pctRaw === undefined || pctRaw === null || pctRaw === '') return { applied: false, off: true, report };
+    if (!validPct(pctRaw)) return { applied: false, off: true, invalid: true, report };
+    const pct = Number(pctRaw);
+    const opx = report.sections.find((x) => x.title && OPEX_RE.test(x.title));
+    const incSec = report.sections.find((x) => x.title && INCOME_RE.test(x.title));
+    if (!opx || !incSec) return { applied: false, noSections: true, report };
+    const n = colCount(report);
+    const online = Array(n).fill(0);
+    for (const r of incSec.rows) if (incomeKind(r.name) === 'online') for (let i = 0; i < n; i++) online[i] = r2(online[i] + (r.values[i] || 0));
+    const baseTotal = sumArr(online);
+    if (!baseTotal) return { applied: false, noOnline: true, report };
+    const adRows = opx.rows.filter((r) => isAdRow(r.name));
+    const actual = Array.from({ length: n }, (_, i) => r2(adRows.reduce((a, r) => a + (r.values[i] || 0), 0)));
+    const modelled = online.map((v) => r2((v * pct) / 100));
+    const delta = actual.map((a, i) => r2(a - modelled[i])); // positive = the model's advertising is lower, so profit is higher
+    const row = { name: `Advertising – Social Media (${Math.round(pct * 100) / 100}% of online sales)`, id: null, values: modelled.slice(), modelled: true };
+    let rows;
+    if (adRows.length) { rows = []; let placed = false; for (const r of opx.rows) { if (!isAdRow(r.name)) { rows.push(r); continue; } if (!placed) { rows.push(row); placed = true; } } }
+    else rows = [row, ...opx.rows];
+    const shift = (vals, f) => Array.from({ length: n }, (_, i) => r2((vals[i] || 0) + f(i)));
+    const sections = report.sections.map((sec) => {
+      if (sec === opx) return { ...sec, rows, summary: sec.summary ? { ...sec.summary, values: shift(sec.summary.values, (i) => modelled[i] - actual[i]) } : null };
+      if (!sec.title) return { ...sec, rows: sec.rows.map((r) => (NET_RE.test(r.name) ? { ...r, values: shift(r.values, (i) => delta[i]) } : r)) };
+      return sec;
+    });
+    return { applied: true, report: { ...report, sections }, pct, online, baseTotal, actual, modelled, delta, totalActual: sumArr(actual), totalModelled: sumArr(modelled), totalDelta: sumArr(delta), hadActualRow: adRows.length > 0 };
+  }
+
+  // The Trading P&L: product cost modelled by channel (goodsView) and, if a % is given, Advertising - Social Media modelled as a
+  // % of online sales (advertisingView). pcts = { online, wholesale, advertising }. `applied` and `report` keep their old meaning
+  // for the goods part; `ad` says what happened to advertising, and `report` carries both changes.
+  function tradingView(report, pcts) {
+    const g = goodsView(report, pcts);
+    const ad = advertisingView(g.report, pcts && pcts.advertising);
+    return { ...g, ad, report: ad.applied ? ad.report : g.report };
+  }
+
+  root.PNL = { goodsInfo, goodsView, advertisingView, isAdRow, tradingView, isGoodsRow, incomeKind, validPct, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, monthsFor, monthlyPlan, keepMonths, mergeColumns, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);
