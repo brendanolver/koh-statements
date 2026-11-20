@@ -32,7 +32,7 @@ const call = async (httpMethod, body) => { const r = await fn.handler({ httpMeth
   await test('invalid values are dropped, extra fields never stored', async () => {
     assert.deepStrictEqual(fn._sanitise({ cogs: { online: 'abc', wholesale: 101 }, evil: 1 }).cogs, { online: '', wholesale: '' });
     assert.deepStrictEqual(fn._sanitise({ cogs: { online: -1, wholesale: 0 } }).cogs, { online: '', wholesale: 0 }, '0% is a real value');
-    assert.deepStrictEqual(Object.keys(fn._sanitise({ cogs: {}, evil: 1 })).sort(), ['advertising', 'cogs', 'updatedAt']);
+    assert.deepStrictEqual(Object.keys(fn._sanitise({ cogs: {}, evil: 1 })).sort(), ['advertising', 'cogs', 'stock', 'updatedAt']);
     assert.deepStrictEqual(fn._sanitise(null).cogs, { online: '', wholesale: '' });
   });
   await test('advertising % (Social Media, of online sales) starts at 35, is remembered, and \'\' means switched off', async () => {
@@ -66,9 +66,22 @@ const call = async (httpMethod, body) => { const r = await fn.handler({ httpMeth
     assert.strictEqual(fn._sanitise({ advertising: '35.456' }).advertising, 35.46);
     assert.strictEqual(fn._sanitise({}).advertising, 35, 'absent = the default');
   });
+  await test('stock counts are saved, come back sorted, and one count per date', async () => {
+    await call('POST', { cogs: {}, stock: [{ date: '2026-12-31', value: '150000.456' }, { date: '2026-06-30', value: 100000 }, { date: '2026-06-30', value: 99000 }] });
+    assert.deepStrictEqual((await call('GET')).body.stock, [{ date: '2026-06-30', value: 99000 }, { date: '2026-12-31', value: 150000.46 }]);
+  });
+  await test('bad stock counts are dropped (bad date, blank, negative, not a number)', async () => {
+    const out = fn._sanitise({ stock: [{ date: '2026-02-30x', value: 1 }, { date: '2026-13-45', value: 1 }, { date: '2026-01-01', value: '' }, { date: '2026-01-02', value: -1 }, { date: '2026-01-03', value: 'abc' }, { date: '2026-01-04', value: 0 }, null, 'x'] }).stock;
+    assert.deepStrictEqual(out, [{ date: '2026-01-04', value: 0 }]);
+  });
+  await test('saving percentages from a page that does not know about stock never wipes the saved stock counts', async () => {
+    await call('POST', { cogs: { online: 41, wholesale: 50 } });
+    assert.strictEqual((await call('GET')).body.stock.length, 2);
+    await call('POST', { cogs: { online: 41, wholesale: 50 }, stock: [] }); assert.deepStrictEqual((await call('GET')).body.stock, [], 'an explicit empty list does clear them');
+  });
   await test('bad bodies and methods are refused', async () => {
     assert.strictEqual((await fn.handler({ httpMethod: 'POST', body: '{nope' })).statusCode, 400);
-    assert.strictEqual((await fn.handler({ httpMethod: 'POST', body: 'x'.repeat(5000) })).statusCode, 413);
+    assert.strictEqual((await fn.handler({ httpMethod: 'POST', body: 'x'.repeat(20000) })).statusCode, 413);
     assert.strictEqual((await fn.handler({ httpMethod: 'DELETE' })).statusCode, 405);
   });
   console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

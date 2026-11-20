@@ -408,4 +408,64 @@ test('comparing with the previous year: both years are modelled at the same % an
   assert.strictEqual(c.sections.find((x) => /operating expenses/i.test(x.title)).rows.filter((r) => /Social Media/.test(r.name)).length, 1, 'one line, not a pair of unmatched lines');
 });
 
+// ---- manual stock counts ----
+const COUNTS = [{ date: '2026-06-30', value: 100000 }, { date: '2026-12-31', value: 150000 }, { date: '2025-06-30', value: 80000 }];
+const stockRep = (hdr, xeroOpen, xeroClose) => P.parseReport(mk(hdr, [['Sales', hdr.map(() => 1000)]], [['Opening Stock', xeroOpen], ['Cost of Goods Sold', hdr.map(() => 300)], ['Freight & Courier', hdr.map(() => 50)], ['Closing Stock', xeroClose]], [['Rent', hdr.map(() => 100)]]));
+test('stockAt: latest count on or before a date; none if the date is earlier than every count', () => {
+  assert.deepStrictEqual(P.stockAt(COUNTS, '2026-06-30'), { date: '2026-06-30', value: 100000 }); assert.strictEqual(P.stockAt(COUNTS, '2026-12-30').value, 100000);
+  assert.strictEqual(P.stockAt(COUNTS, '2027-03-31').value, 150000); assert.strictEqual(P.stockAt(COUNTS, '2025-06-29'), null);
+  assert.deepStrictEqual(P.cleanCounts([{ date: 'x', value: 1 }, { date: '2026-01-01', value: '' }, { date: '2026-01-01', value: -5 }, { date: '2026-02-01', value: '12.345' }]), [{ date: '2026-02-01', value: 12.35 }]);
+  assert.strictEqual(P.dayBefore('2026-07-01'), '2026-06-30'); assert.strictEqual(P.dayBefore('2026-03-01'), '2026-02-28');
+});
+test('manual stock replaces Xero\'s stock lines for a whole period; cost of sales, gross and net profit move by the difference', () => {
+  const rep = stockRep(['x'], [20000], [-30000]); const before = P.headline(rep, 0);
+  const v = P.manualStockView(rep, [{ from: '2026-07-01', to: '2026-12-31' }], COUNTS); assert.strictEqual(v.applied, true);
+  const cos = v.report.sections.find((x) => x.title === 'Less Cost of Sales');
+  assert.deepStrictEqual(cos.rows.map((r) => r.name), ['Opening Stock (manual count)', 'Cost of Goods Sold', 'Freight & Courier', 'Closing Stock (manual count)']);
+  assert.deepStrictEqual([cos.rows[0].values[0], cos.rows[3].values[0]], [100000, -150000], 'opening = count at 30 Jun, closing = count at 31 Dec (negative like Xero)');
+  assert.ok(cos.rows[0].manual && cos.rows[3].manual && !cos.rows[1].manual);
+  assert.strictEqual(v.manualNet, -50000); assert.strictEqual(v.xeroNet, -10000); assert.strictEqual(v.totalDelta, 40000);
+  const after = P.headline(v.report, 0);
+  assert.strictEqual(after.cost, before.cost - 40000, 'total cost of sales moves by the difference'); assert.strictEqual(after.grossProfit, before.grossProfit + 40000); assert.strictEqual(after.netProfit, before.netProfit + 40000);
+  assert.strictEqual(after.income, before.income); assert.strictEqual(after.opex, before.opex);
+  assert.strictEqual(P.stockTotals(v.report.sections).opening, 100000, 'the existing hide/show stock logic recognises the manual lines');
+});
+test('manual stock when Xero has no stock lines at all (they just get added)', () => {
+  const rep = P.parseReport(mk(['x'], [['Sales', [1000]]], [['Cost of Goods Sold', [300]]], [['Rent', [100]]]));
+  const v = P.manualStockView(rep, [{ from: '2027-01-01', to: '2027-03-31' }], COUNTS); assert.strictEqual(v.applied, true);
+  assert.strictEqual(v.xeroNet, 0); assert.strictEqual(v.manualNet, 0, 'same count at both ends = no stock movement'); assert.strictEqual(v.totalDelta, 0);
+  assert.strictEqual(v.report.sections.find((x) => x.title === 'Less Cost of Sales').rows.length, 3);
+});
+test('by month / by quarter: each column joins the next (opening = previous closing), so the columns add up to the whole period', () => {
+  const hdr = ['31 Oct 2026', '30 Nov 2026', '31 Dec 2026', '31 Jan 2027'];
+  const rep = stockRep(hdr, [0, 0, 0, 0], [0, 0, 0, 0]);
+  const bounds = [['2026-10-01', '2026-10-31'], ['2026-11-01', '2026-11-30'], ['2026-12-01', '2026-12-31'], ['2027-01-01', '2027-01-31']].map(([from, to]) => ({ from, to }));
+  const v = P.manualStockView(rep, bounds, COUNTS); assert.strictEqual(v.applied, true);
+  assert.deepStrictEqual(v.manual, [0, 0, -50000, 0], 'only December sees the new count');
+  assert.strictEqual(P.r2(v.manual.reduce((a, b) => a + b, 0)), P.manualStockView(stockRep(['x'], [0], [0]), [{ from: '2026-10-01', to: '2027-01-31' }], COUNTS).manualNet, 'columns add up to the whole period');
+  const gp = v.report.sections.find((x) => !x.title && x.rows[0].name === 'Gross Profit').rows[0].values; assert.deepStrictEqual(gp, [650, 650, 650 + 50000, 650]);
+});
+test('stockTotals on manual lines: a period\'s opening is the first column\'s and its closing the last column\'s (balances don\'t add up)', () => {
+  const hdr = ['31 Oct 2026', '30 Nov 2026', '31 Dec 2026'], rep = stockRep(hdr, [0, 0, 0], [0, 0, 0]);
+  const bounds = [['2026-10-01', '2026-10-31'], ['2026-11-01', '2026-11-30'], ['2026-12-01', '2026-12-31']].map(([from, to]) => ({ from, to }));
+  const v = P.manualStockView(rep, bounds, COUNTS), t = P.stockTotals(v.report.sections);
+  assert.deepStrictEqual([t.opening, t.closing, t.net], [100000, -150000, -50000]);
+});
+test('manual stock: no count early enough → nothing changes and it says which dates need one; the previous year is told the same way', () => {
+  const rep = stockRep(['x'], [20000], [-30000]);
+  const v = P.manualStockView(rep, [{ from: '2025-07-01', to: '2026-06-30' }], [{ date: '2025-12-31', value: 5 }]);
+  assert.strictEqual(v.applied, false); assert.strictEqual(v.report, rep); assert.deepStrictEqual(v.missing, ['2025-06-30']);
+  assert.deepStrictEqual(P.manualStockView(rep, [{ from: '2026-07-01', to: '2026-12-31' }], []).missing, ['2026-06-30', '2026-12-31']);
+  assert.strictEqual(P.manualStockView(rep, [{ from: '2026-07-01', to: '2026-12-31' }, { from: '2027-01-01', to: '2027-03-31' }], COUNTS).badBounds, true, 'bounds must match the columns');
+  const noSec = { columns: rep.columns, sections: rep.sections.filter((x) => !(x.title && /cost of/i.test(x.title))) }; // a report with no Cost of Sales section at all
+  assert.strictEqual(P.manualStockView(noSec, [{ from: '2026-07-01', to: '2026-12-31' }], COUNTS).applied, false);
+});
+test('manual stock then Trading P&L: the modelled goods cost replaces the manual stock lines too', () => {
+  const rep = P.parseReport(mk(['x'], [['Sales - Online', [1000]]], [['Opening Stock', [20000]], ['Cost of Goods Sold', [300]], ['Closing Stock', [-30000]]], [['Rent', [100]]]));
+  const m = P.manualStockView(rep, [{ from: '2026-07-01', to: '2026-12-31' }], COUNTS);
+  const t = P.tradingView(m.report, { online: 40, wholesale: '' }); assert.strictEqual(t.applied, true);
+  assert.deepStrictEqual(t.report.sections.find((x) => x.title === 'Less Cost of Sales').rows.map((r) => r.name), ['Cost of goods – Online (40% of online sales)']);
+  assert.strictEqual(P.headline(t.report, 0).netProfit, 1000 - 400 - 100);
+});
+
 console.log(`\n${n} passing${process.exitCode ? ' — with failures' : ''}`);

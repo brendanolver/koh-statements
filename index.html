@@ -964,6 +964,16 @@ body.app-ui #billsView .bdg, body.app-ui #billsView .fs { font-weight: 500; }
 #pnlView .pl-cogs input { width: 66px; padding: 7px 9px; font-size: 14px; font-weight: 600; text-align: right; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; }
 #pnlView .pl-cogs small { font-size: 11.5px; color: var(--muted); }
 #pnlView .pl-basis { margin-bottom: 14px; padding: 10px 14px; border-radius: 12px; background: #eef5f2; border: 1px solid #cfe3da; color: #0c4a3b; font-size: 13px; line-height: 1.5; }
+#pnlView .pl-stockpanel { margin-bottom: 14px; padding: 14px 16px; border-radius: 12px; background: #fff; border: 1px solid var(--border); }
+#pnlView .pl-sp-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; font-size: 13px; }
+#pnlView .pl-sp-head span { font-size: 12px; color: var(--muted); line-height: 1.45; max-width: 760px; }
+#pnlView .pl-sp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+#pnlView .pl-sp-row input { padding: 7px 9px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; }
+#pnlView .pl-sp-row input[type=text] { width: 140px; text-align: right; font-weight: 600; }
+#pnlView .pl-sp-x { border: none; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 4px 8px; }
+#pnlView .pl-sp-x:hover { color: #d0021b; }
+#pnlView .pl-sp-add { padding: 6px 12px; font-size: 13px; }
+#pnlView .pl-sp-empty { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
 #pnlView .pl-basis.warn { background: #fff8e6; border-color: #f0dba8; color: #7a5a00; }
 #pnlView table.pl-table tr.pl-model td { font-style: italic; }
 #pnlView .pl-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -2093,12 +2103,19 @@ button.linklike { border: none; background: transparent; color: #1d4ed8; font-si
       <div class="pl-seg"><button id="plModeTotal" onclick="plSetMode('total')">Total</button><button id="plModeMonth" onclick="plSetMode('month')">By month</button><button id="plModeQuarter" onclick="plSetMode('quarter')">By quarter</button></div>
       <label class="pl-cmp" id="plCmpWrap"><input type="checkbox" id="plCmp" onchange="plSetCompare(this.checked)"> Compare to previous year</label>
       <label class="pl-cmp" id="plStockWrap"><input type="checkbox" id="plStock" onchange="plSetShowStock(this.checked)"> Show opening &amp; closing stock</label>
+      <label class="pl-cmp" id="plManualWrap" title="Use your own stock counts instead of Xero's opening and closing stock"><input type="checkbox" id="plManual" onchange="plSetManual(this.checked)"> Manual stock</label>
       <label class="pl-cmp"><input type="checkbox" id="plTrading" onchange="plSetTrading(this.checked)"> Trading P&amp;L</label>
       <span class="pl-cogs" id="plCogsWrap" style="display:none"><label class="pl-cogs-f"><span class="pl-lbl">Online % COGS</span><input type="text" inputmode="decimal" id="plCogsOnline" oninput="plSetCogs('online', this.value)" placeholder="%" aria-label="Cost of goods as a percentage of online sales"></label><label class="pl-cogs-f"><span class="pl-lbl">Wholesale % COGS</span><input type="text" inputmode="decimal" id="plCogsWholesale" oninput="plSetCogs('wholesale', this.value)" placeholder="%" aria-label="Cost of goods as a percentage of wholesale sales"></label><small id="plCogsHint"></small><label class="pl-cogs-f"><span class="pl-lbl" title="Replaces the Advertising - Social Media expense with this % of online sales. Clear it to use Xero's actual.">Advertising % of online sales</span><input type="text" inputmode="decimal" id="plAdPct" oninput="plSetAd(this.value)" placeholder="%" aria-label="Advertising - Social Media as a percentage of online sales"></label><small id="plAdHint"></small></span>
       <button id="plRefreshBtn" onclick="loadPnl(true)">Refresh</button>
     </div>
   </div>
   <div id="plError" class="pl-error" style="display:none"></div>
+  <div id="plStockPanel" class="pl-stockpanel" style="display:none">
+    <div class="pl-sp-head"><b>Stock counts</b><span>The value of the stock you had on hand on a date, at cost. A period's opening stock is the latest count on or before the day before it starts; its closing stock is the latest count on or before its last day. Counts are saved and stay until you change them.</span></div>
+    <div id="plStockRows"></div>
+    <button class="pl-sp-add" onclick="plAddStock()">+ Add a stock count</button>
+  </div>
+  <div id="plStockBasis" class="pl-basis" style="display:none"></div>
   <div id="plBasis" class="pl-basis" style="display:none"></div>
   <div class="pl-kpis" id="plKpis"></div>
   <div class="pl-card" id="plCard"><table class="pl-table" id="plTable"></table></div>
@@ -9786,8 +9803,11 @@ async function loadDrawings(force) {
 const PL_COGS_KEY = 'pl_cogs_v2';
 const PL_AD_KEY = 'pl_ad_v1';   // Advertising - Social Media as a % of online sales; starts at 35, '' = off (Xero's actual)
 const plReadLocalAd = () => { try { const v = localStorage.getItem(PL_AD_KEY); return v === null ? '35' : String(v); } catch (e) { return '35'; } };
+const PL_STOCK_KEY = 'pl_stock_v1', PL_MANUAL_KEY = 'pl_manual_stock_on'; // manual stock counts [{date, value}] and whether the tick is on
+const plReadLocalStock = () => { try { const a = JSON.parse(localStorage.getItem(PL_STOCK_KEY) || '[]'); return Array.isArray(a) ? a.map((c) => ({ date: String(c.date || ''), value: c.value == null ? '' : String(c.value) })) : []; } catch (e) { return []; } };
+const plReadLocalManual = () => { try { return localStorage.getItem(PL_MANUAL_KEY) === '1'; } catch (e) { return false; } };
 const plReadLocalCogs = () => { try { const o = JSON.parse(localStorage.getItem(PL_COGS_KEY) || '{}'); return { online: o.online == null ? '' : String(o.online), wholesale: o.wholesale == null ? '' : String(o.wholesale) }; } catch (e) { return { online: '', wholesale: '' }; } };
-const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, trading: false, cogs: plReadLocalCogs(), ad: plReadLocalAd(), cogsTouched: false, cogsTimer: null, presets: [], loading: false, data: {}, needsAuth: false };
+const pl = { from: null, to: null, short: '', mode: 'total', compare: false, showStock: false, trading: false, manual: plReadLocalManual(), stock: plReadLocalStock(), cogs: plReadLocalCogs(), ad: plReadLocalAd(), cogsTouched: false, cogsTimer: null, presets: [], loading: false, data: {}, needsAuth: false };
 const plComparing = () => pl.compare && (pl.mode === 'total' || pl.mode === 'quarter'); // the tick box applies to Total and By quarter, not By month
 const plKey = () => `${pl.mode}_${pl.from}_${pl.to}${plComparing() ? '_cmp' : ''}`;
 
@@ -9799,7 +9819,8 @@ async function plLoadCogs() {
     if (pl.cogsTouched) return; // typed while this was loading — the typed values win and get saved
     pl.cogs = { online: c.online === '' || c.online == null ? '' : String(c.online), wholesale: c.wholesale === '' || c.wholesale == null ? '' : String(c.wholesale) };
     pl.ad = doc.advertising === '' ? '' : (doc.advertising == null ? '35' : String(doc.advertising));
-    try { localStorage.setItem(PL_COGS_KEY, JSON.stringify(pl.cogs)); localStorage.setItem(PL_AD_KEY, pl.ad); } catch (e) { /* ignore */ }
+    if (Array.isArray(doc.stock)) pl.stock = doc.stock.map((c) => ({ date: String(c.date), value: String(c.value) }));
+    try { localStorage.setItem(PL_COGS_KEY, JSON.stringify(pl.cogs)); localStorage.setItem(PL_AD_KEY, pl.ad); localStorage.setItem(PL_STOCK_KEY, JSON.stringify(pl.stock)); } catch (e) { /* ignore */ }
     plFillCogs();
     if (pl.data[plKey()]) plRender();
   } catch (e) { /* offline or not deployed — this browser's copy is used */ }
@@ -9808,6 +9829,8 @@ function plFillCogs() {
   document.getElementById('plCogsOnline').value = pl.cogs.online;
   document.getElementById('plCogsWholesale').value = pl.cogs.wholesale;
   document.getElementById('plAdPct').value = pl.ad;
+  document.getElementById('plManual').checked = pl.manual;
+  plRenderStockRows();
 }
 function plInit() {
   const sel = document.getElementById('plPeriod');
@@ -9864,12 +9887,41 @@ function plSetTrading(on) {
 // (only valid numbers or blanks are kept server side).
 function plSaveSettings() {
   pl.cogsTouched = true;
-  try { localStorage.setItem(PL_COGS_KEY, JSON.stringify(pl.cogs)); localStorage.setItem(PL_AD_KEY, pl.ad); } catch (e) { /* not saved here — the server copy still is */ }
+  try { localStorage.setItem(PL_COGS_KEY, JSON.stringify(pl.cogs)); localStorage.setItem(PL_AD_KEY, pl.ad); localStorage.setItem(PL_STOCK_KEY, JSON.stringify(pl.stock)); } catch (e) { /* not saved here — the server copy still is */ }
   clearTimeout(pl.cogsTimer);
   pl.cogsTimer = setTimeout(() => {
-    fetch('/.netlify/functions/pnl-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cogs: pl.cogs, advertising: pl.ad }) }).catch(() => { /* kept in this browser regardless */ });
+    fetch('/.netlify/functions/pnl-settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cogs: pl.cogs, advertising: pl.ad, stock: plCounts() }) }).catch(() => { /* kept in this browser regardless */ });
   }, 700);
 }
+// Manual stock counts: [{ date, value }] kept as typed in pl.stock; plCounts() is the valid ones, as numbers.
+const plCleanMoney = (v) => String(v).replace(/[$,\s]/g, '');
+const plCounts = () => PNL.cleanCounts(pl.stock.map((c) => ({ date: c.date, value: plCleanMoney(c.value) })));
+function plSetManual(on) {
+  pl.manual = !!on;
+  try { localStorage.setItem(PL_MANUAL_KEY, pl.manual ? '1' : '0'); } catch (e) { /* ignore */ }
+  plRender();
+  if (pl.manual && !pl.stock.length) plAddStock();
+}
+function plRenderStockRows() {
+  const box = document.getElementById('plStockRows');
+  if (!box) return;
+  box.innerHTML = pl.stock.length ? pl.stock.map((c, i) => `<div class="pl-sp-row"><input type="date" value="${cfEsc(c.date)}" onchange="plStockDate(${i}, this.value)" aria-label="Stock count date"><span>$</span><input type="text" inputmode="decimal" value="${cfEsc(c.value)}" oninput="plStockValue(${i}, this.value)" placeholder="Stock value" aria-label="Value of stock on hand"><button class="pl-sp-x" onclick="plDelStock(${i})" title="Remove this count" aria-label="Remove this count">×</button></div>`).join('') : '<div class="pl-sp-empty">No stock counts yet.</div>';
+}
+function plAddStock() {
+  const t = cfToday(), d = new Date(t.slice(0, 7) + '-01T00:00:00Z'); d.setUTCDate(0); // last day of last month
+  pl.stock.push({ date: d.toISOString().slice(0, 10), value: '' });
+  plRenderStockRows();
+  plSaveSettings();
+  plRender();
+  const ins = document.querySelectorAll('#plStockRows input[type=text]'); if (ins.length) ins[ins.length - 1].focus();
+}
+function plStockDate(i, v) {
+  pl.stock[i].date = v;
+  pl.stock.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); // keep the list in date order (blank dates first)
+  plRenderStockRows(); plSaveSettings(); plRender();
+}
+function plStockValue(i, v) { pl.stock[i].value = plCleanMoney(v); plSaveSettings(); plRender(); }
+function plDelStock(i) { pl.stock.splice(i, 1); plRenderStockRows(); plSaveSettings(); plRender(); }
 function plSetCogs(kind, v) {
   pl.cogs[kind] = String(v).trim().replace('%', '');
   plRender();
@@ -9989,7 +10041,39 @@ function plRender() {
   const d = pl.data[plKey()];
   if (!d) return;
   if (d.future || !d.report) { kpis.innerHTML = ''; table.innerHTML = '<tbody><tr><td class="pl-empty">This period is in the future — there is nothing to report yet.</td></tr></tbody>'; note.innerHTML = ''; return; }
-  let rep = d.report, priorRep = d.prior, trade = null, adv = null;
+  let rep = d.report, priorRep = d.prior, trade = null, adv = null, man = null;
+  // Manual stock: Xero's opening / closing stock lines swapped for the stock counts (see manualStockView in pnl-report.js).
+  // Display only. The previous year, when compared, is restated from the same counts — all or nothing, so the comparison is like for like.
+  const stockBasis = document.getElementById('plStockBasis');
+  stockBasis.style.display = 'none';
+  document.getElementById('plStockPanel').style.display = pl.manual ? 'block' : 'none';
+  let manualHtml = '', manualWarn = false;
+  if (pl.manual) {
+    const counts = plCounts();
+    const boundsFor = (rpt, which) => {
+      if (pl.mode === 'month') return rpt.columns.map((c) => ({ from: c.month + '-01', to: PNL.lastDay(c.month) }));
+      if (pl.mode === 'quarter') { const qs = PNL.quarterRange(pl.from, pl.to, cfToday()).quarters; return (which === 'prior' ? PNL.priorQuarters(qs) : qs).map((q) => ({ from: q.start + '-01', to: PNL.lastDay(q.months[q.months.length - 1]) })); }
+      return [which === 'prior' ? { from: d.priorRange.from, to: d.priorRange.to } : { from: pl.from, to: pl.to }];
+    };
+    const m = PNL.manualStockView(d.report, boundsFor(d.report, 'cur'), counts);
+    const mp = m.applied && d.prior && plComparing() && d.priorRange ? PNL.manualStockView(d.prior, boundsFor(d.prior, 'prior'), counts) : null;
+    const dl = (iso) => `${cfDateLabel(iso)} ${iso.slice(0, 4)}`;
+    if (m.applied && (!mp || mp.applied)) {
+      man = m; rep = m.report; if (mp) priorRep = mp.report;
+      const diff = m.totalDelta;
+      const one = m.perColumn.length === 1 ? m.perColumn[0] : null;
+      const what = one ? `opening stock ${cfMoney(one.open.value)} (count of ${dl(one.open.date)}) and closing stock ${cfMoney(one.close.value)} (count of ${dl(one.close.date)})` : `opening and closing stock from your ${m.used.length} stock count${m.used.length === 1 ? '' : 's'} (${m.used.map((c) => dl(c.date)).join(', ')})`;
+      const last = m.perColumn[m.perColumn.length - 1], ref = last.closeOn < cfToday() ? last.closeOn : cfToday();
+      const stale = (Date.parse(ref) - Date.parse(last.close.date)) / 86400000 > 62;
+      manualHtml = `<b>Manual stock</b> — ${what} replace Xero's (Xero's own stock lines net to ${cfMoney(m.xeroNet)} in Cost of Sales; yours net to ${cfMoney(m.manualNet)}). Net profit is ${cfMoney(Math.abs(diff))} ${diff >= 0 ? 'higher' : 'lower'} than Xero's actual.` + (stale ? ` <b>The newest count used is from ${dl(last.close.date)}</b> — add a newer one if your stock has changed since.` : '');
+    } else {
+      // One count dated on or before the EARLIEST missing date covers all of them (a period uses the latest count on or before its date).
+      const miss = [...new Set([...(m.missing || []), ...((mp && mp.missing) || [])])].sort();
+      manualWarn = true;
+      manualHtml = miss.length ? `<b>Manual stock</b> needs a stock count dated on or before ${dl(miss[0])}${mp && mp.missing && mp.missing.length ? ' (the previous year needs one too)' : ''}. Showing Xero's own opening and closing stock until then.` : `<b>Manual stock</b> can't be applied to this view (no Cost of Sales section in the report) — showing Xero's figures.`;
+    }
+  }
+  const baseRep = rep, basePrior = priorRep; // what the Trading P&L works from (Xero's report, or it with the manual stock in)
   // Trading P&L: product cost lines replaced by the chosen % of income, and Advertising - Social Media by a % of online sales
   // (see pnl-report.js). Display only.
   document.getElementById('plCogsWrap').style.display = pl.trading ? 'inline-flex' : 'none';
@@ -9997,15 +10081,15 @@ function plRender() {
   basis.style.display = 'none';
   if (pl.trading) {
     const pcts = { online: pl.cogs.online === '' ? null : Number(pl.cogs.online), wholesale: pl.cogs.wholesale === '' ? null : Number(pl.cogs.wholesale), advertising: pl.ad === '' ? null : Number(pl.ad) };
-    const t = PNL.tradingView(d.report, pcts);
+    const t = PNL.tradingView(baseRep, pcts);
     const actualTxt = t.info.found && t.info.actualPct !== null ? `actual ${t.info.actualPct}% of sales for this view` : '';
     document.getElementById('plCogsHint').textContent = actualTxt;
     // What Xero's own advertising line is, as a % of online sales for this view (shown beside the box whether or not it is switched on).
-    const adActual = PNL.advertisingView(d.report, 100);
+    const adActual = PNL.advertisingView(baseRep, 100);
     document.getElementById('plAdHint').textContent = adActual.applied ? (adActual.totalActual ? `actual ${PNL.r2((adActual.totalActual / adActual.baseTotal) * 100)}% of online sales for this view` : 'no actual advertising line in this view') : '';
     const chan = { online: 'Online', wholesale: 'Wholesale' };
     rep = t.report; // carries both changes (it is Xero's own report when neither applies)
-    if (t.applied || t.ad.applied) { if (d.prior) priorRep = PNL.tradingView(d.prior, pcts).report; } // the previous year is restated at the same %s
+    if (t.applied || t.ad.applied) { if (basePrior) priorRep = PNL.tradingView(basePrior, pcts).report; } // the previous year is restated at the same %s
     if (t.ad.applied) adv = t.ad;
     const adSentence = adv ? ` Advertising – Social Media is modelled at ${cfEsc(String(Math.round(adv.pct * 100) / 100))}% of online sales (actual ${cfMoney(adv.totalActual)}; modelled ${cfMoney(adv.totalModelled)}).` : (t.ad.noOnline && !t.ad.off ? ` Advertising can't be modelled here — there were no online sales in this period.` : '');
     if (t.applied) {
@@ -10024,6 +10108,9 @@ function plRender() {
     basis.style.display = 'block';
   }
   document.getElementById('plStockWrap').style.display = trade ? 'none' : ''; // no stock lines to show once they're replaced
+  if (trade) { document.getElementById('plStockPanel').style.display = 'none'; man = null; manualHtml = ''; } // modelled goods cost replaces the stock lines either way
+  document.getElementById('plManualWrap').style.display = trade ? 'none' : '';
+  if (manualHtml) { stockBasis.className = 'pl-basis' + (manualWarn ? ' warn' : ''); stockBasis.innerHTML = manualHtml; stockBasis.style.display = 'block'; }
   const quarter = pl.mode === 'quarter' && rep.columns.length > 0;
   const month = (pl.mode === 'month' || quarter) && rep.columns.length > 0; // any view with one column per period (+ a Total)
   const hd = PNL.headline(rep, month ? 'sum' : 0);
@@ -10053,21 +10140,23 @@ function plRender() {
     : '<th class="pl-total">Total</th><th>% of income</th>' + (cmp ? `<th class="pl-prior" title="${cfEsc(rng(cmp.range))}">Previous year</th><th>Change</th><th>Change %</th>` : '');
   const money = (v) => `<td class="${Math.abs(v) < 0.5 ? 'pl-zero' : ''}">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}</td>`;
   // `downIsGood` is for cost sections: spending less than last year is the good direction there.
+  // The Total column of a by-month / by-quarter table adds the columns up — except a manual stock BALANCE, where the period's
+  // opening is the first column's and its closing the last column's.
+  const colTotal = (row, vals) => (row.manual && vals.length ? (/^opening/i.test(row.name) ? vals[0] : vals[vals.length - 1]) : PNL.r2(vals.reduce((a, b) => a + b, 0)));
   const cells = (row, downIsGood) => {
     const vals = cols.map((_, i) => row.values[i] || 0);
     if (quarter && cmp) {
       // each quarter: this year's figure, with last year's same months and the % change underneath
       const pvals = cols.map((_, i) => (row.priorValues && row.priorValues[i]) || 0);
-      const sum = (a) => PNL.r2(a.reduce((x, y) => x + y, 0));
       const qcell = (v, pv, isTotal) => {
         const ch = PNL.r2(v - pv), pc = PNL.pctChange(v, pv);
         const cls = Math.abs(ch) < 0.5 ? '' : (ch > 0) === !downIsGood ? 'pl-up' : 'pl-down';
         const sub = Math.abs(v) < 0.5 && Math.abs(pv) < 0.5 ? '' : `<div class="pl-pv">prev ${Math.abs(pv) < 0.5 ? '–' : cfMoney(pv)}${pc === null || Math.abs(ch) < 0.5 ? '' : ` <span class="${cls}">${pc > 0 ? '+' : ''}${pc}%</span>`}</div>`;
         return `<td class="${isTotal ? 'pl-total' : ''}${Math.abs(v) < 0.5 ? ' pl-zero' : ''}">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}${sub}</td>`;
       };
-      return vals.map((v, i) => qcell(v, pvals[i], false)).join('') + qcell(sum(vals), sum(pvals), true);
+      return vals.map((v, i) => qcell(v, pvals[i], false)).join('') + qcell(colTotal(row, vals), colTotal(row, pvals), true);
     }
-    if (month) return vals.map(money).join('') + `<td class="pl-total">${cfMoney(PNL.r2(vals.reduce((a, b) => a + b, 0)))}</td>`;
+    if (month) return vals.map(money).join('') + `<td class="pl-total">${cfMoney(colTotal(row, vals))}</td>`;
     const v = vals[0] || 0, p = pct(v, hd.income);
     let out = `<td class="pl-total">${Math.abs(v) < 0.5 ? '–' : cfMoney(v)}</td><td class="pl-pct">${p === null || Math.abs(v) < 0.5 ? '' : p + '%'}</td>`;
     if (cmp) {
@@ -10105,7 +10194,8 @@ function plRender() {
     const qr = PNL.quarterRange(pl.from, pl.to, cfToday());
     notes.push('By-quarter figures add up Xero\'s monthly figures into financial-year quarters (Jul–Sep = Q1, Oct–Dec = Q2, Jan–Mar = Q3, Apr–Jun = Q4)' + (qr.capped ? `, showing the latest 4 of ${qr.total} in this period` : '') + '. Periods that start or end part-way through a quarter are widened to whole quarters.' + (qr.quarters.some((q) => q.partial) ? ' The quarter in progress covers the months so far.' : ''));
   }
-  if (hideStock) notes.push(`Opening stock (${cfMoney(stock.opening)}) and closing stock (${cfMoney(stock.closing)}) are hidden. They are still inside Cost of Sales — a net ${cfMoney(stock.net)} — so the totals, gross profit and net profit still match Xero. Tick \u201cShow opening & closing stock\u201d to see them.`);
+  if (hideStock && man) notes.push(`Opening stock (${cfMoney(stock.opening)}) and closing stock (${cfMoney(stock.closing)}) are your manual stock counts and are hidden here. They are still inside Cost of Sales — a net ${cfMoney(stock.net)} — so the totals, gross profit and net profit include them (and so differ from Xero's by ${cfMoney(Math.abs(man.totalDelta))}). Tick \u201cShow opening & closing stock\u201d to see them.`);
+  else if (hideStock) notes.push(`Opening stock (${cfMoney(stock.opening)}) and closing stock (${cfMoney(stock.closing)}) are hidden. They are still inside Cost of Sales — a net ${cfMoney(stock.net)} — so the totals, gross profit and net profit still match Xero. Tick \u201cShow opening & closing stock\u201d to see them.`);
   if (cmp && quarter) notes.push(`Under each figure is the same months a year earlier (${rng(cmp.range)}) and the % change; a quarter in progress is compared with the same months so far last year. Green is better than last year (more income or profit, less cost); red is worse.`);
   else if (cmp) notes.push(`Previous year is the same dates a year earlier (${rng(cmp.range)}), read from Xero the same way. Green is better than last year (more income or profit, less cost); red is worse.`);
   else if (plComparing()) notes.push('No previous-year figures came back from Xero for those dates.');

@@ -244,7 +244,7 @@
         if (m) pm.delete(k);
         return m;
       };
-      for (const r of (c && c.rows) || []) { const o = pair(r.name, r.id, vec(r), vec(take(r))); if (r.modelled) o.modelled = true; rows.push(o); }
+      for (const r of (c && c.rows) || []) { const o = pair(r.name, r.id, vec(r), vec(take(r))); if (r.modelled) o.modelled = true; if (r.manual) o.manual = true; rows.push(o); }
       for (const r of pm.values()) rows.push(pair(r.name, r.id, zeros(), vec(r)));
       const sc = c && c.summary, sp = p && p.summary;
       const summary = sc || sp ? pair((sc || sp).name, null, vec(sc), vec(sp)) : null;
@@ -272,12 +272,57 @@
     const t = { opening: 0, closing: 0, found: 0 };
     for (const sec of sections) for (const r of sec.rows) {
       if (!isStockRow(r.name)) continue;
-      const v = r2((r.values || []).reduce((a, b) => a + b, 0));
-      if (/^opening/i.test(r.name.trim())) t.opening = r2(t.opening + v); else t.closing = r2(t.closing + v);
+      const vals = r.values || [], isOpen = /^opening/i.test(r.name.trim());
+      // A stock BALANCE doesn't add up across months: for the manual lines the period's opening is its first column's and its closing the last's.
+      const v = r.manual ? (vals.length ? vals[isOpen ? 0 : vals.length - 1] : 0) : r2(vals.reduce((a, b) => a + b, 0));
+      if (isOpen) t.opening = r2(t.opening + v); else t.closing = r2(t.closing + v);
       t.found++;
     }
     t.net = r2(t.opening + t.closing);
     return t;
+  }
+
+  // ---- manual stock counts ----
+  // Xero's stock lines are only as good as the journals posted to it. A "stock count" is a date plus the value of the stock on
+  // hand that day. A period's opening stock is the latest count on or before the day BEFORE it starts, and its closing stock the
+  // latest count on or before its last day — so one count serves every period until a newer one is added, and consecutive
+  // columns (months, quarters) always join up: each column's opening is the previous column's closing.
+  const validCount = (c) => !!c && /^\d{4}-\d{2}-\d{2}$/.test(String(c.date || '')) && c.value !== '' && c.value !== null && Number.isFinite(Number(c.value)) && Number(c.value) >= 0;
+  const cleanCounts = (counts) => (Array.isArray(counts) ? counts : []).filter(validCount).map((c) => ({ date: c.date, value: r2(Number(c.value)) })).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const dayBefore = (iso) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
+  function stockAt(counts, iso) {
+    let found = null;
+    for (const c of cleanCounts(counts)) if (c.date <= iso) found = c; // sorted, so the last one on or before is the latest
+    return found;
+  }
+  // Swaps Xero's Opening / Closing Stock lines for the figures from the counts. bounds[i] = { from, to } for column i of the report
+  // (a whole period, a month, a quarter). Total Cost of Sales and Gross / Net Profit move by exactly the difference. If any column
+  // has no count early enough, nothing changes and `missing` lists the dates that need a count on or before them.
+  function manualStockView(report, bounds, counts) {
+    const cosSec = report.sections.find((x) => x.title && COS_RE.test(x.title));
+    const n = colCount(report);
+    if (!cosSec) return { applied: false, report, missing: [], noSection: true };
+    if (!Array.isArray(bounds) || bounds.length !== n) return { applied: false, report, missing: [], badBounds: true };
+    const list = cleanCounts(counts);
+    const per = bounds.map((b) => ({ openOn: dayBefore(b.from), closeOn: b.to }));
+    per.forEach((c) => { c.open = stockAt(list, c.openOn); c.close = stockAt(list, c.closeOn); });
+    const missing = [...new Set(per.flatMap((c) => [c.open ? null : c.openOn, c.close ? null : c.closeOn]).filter(Boolean))].sort();
+    if (missing.length) return { applied: false, report, missing };
+    const xero = Array.from({ length: n }, (_, i) => r2(cosSec.rows.filter((r) => isStockRow(r.name)).reduce((a, r) => a + (r.values[i] || 0), 0)));
+    const manual = per.map((c) => r2(c.open.value - c.close.value));
+    const delta = xero.map((x, i) => r2(x - manual[i])); // positive = the counts give a lower cost, so profit is higher
+    const mkRow = (name, vals) => ({ name, id: null, values: vals, modelled: true, manual: true });
+    const sections = report.sections.map((sec) => {
+      if (sec === cosSec) {
+        const rows = [mkRow('Opening Stock (manual count)', per.map((c) => c.open.value)), ...sec.rows.filter((r) => !isStockRow(r.name)), mkRow('Closing Stock (manual count)', per.map((c) => r2(-c.close.value)))];
+        const summary = sec.summary ? { ...sec.summary, values: Array.from({ length: n }, (_, i) => r2((sec.summary.values[i] || 0) - xero[i] + manual[i])) } : null;
+        return { ...sec, rows, summary };
+      }
+      if (!sec.title) return { ...sec, rows: sec.rows.map((r) => (GROSS_RE.test(r.name) || NET_RE.test(r.name) ? { ...r, values: Array.from({ length: n }, (_, i) => r2((r.values[i] || 0) + delta[i])) } : r)) };
+      return sec;
+    });
+    const used = [...new Map(per.flatMap((c) => [c.open, c.close]).map((c) => [c.date, c])).values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+    return { applied: true, report: { ...report, sections }, perColumn: per, used, xero, manual, delta, totalDelta: sumArr(delta), xeroNet: sumArr(xero), manualNet: sumArr(manual) };
   }
 
   // ---- trading P&L ----
@@ -392,6 +437,6 @@
     return { ...g, ad, report: ad.applied ? ad.report : g.report };
   }
 
-  root.PNL = { goodsInfo, goodsView, advertisingView, isAdRow, tradingView, isGoodsRow, incomeKind, validPct, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, monthsFor, monthlyPlan, keepMonths, mergeColumns, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
+  root.PNL = { manualStockView, stockAt, cleanCounts, validCount, dayBefore, goodsInfo, goodsView, advertisingView, isAdRow, tradingView, isGoodsRow, incomeKind, validPct, parseReport, headline, monthRange, quarterRange, quarterLabel, toQuarters, priorQuarters, requestFor, monthsFor, monthlyPlan, keepMonths, mergeColumns, lastDay, monthOfLabel, last12Completed, priorYear, compareReports, pctChange, isStockRow, stockTotals, num, r2 };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.PNL;
 })(typeof window !== 'undefined' ? window : globalThis);
